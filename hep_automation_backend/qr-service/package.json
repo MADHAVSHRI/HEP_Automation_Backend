@@ -1,0 +1,19 @@
+{
+  "name": "qr-service",
+  "version": "1.0.0",
+  "description": "Generation of QR codes for visitor and vehicle pass",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MADHAVSHRI/HEP_Automation.git"
+  },
+  "author": "MS",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/MADHAVSHRI/HEP_Automation/issues"
+  },
+  "homepage": "https://github.com/MADHAVSHRI/HEP_Automation#readme"
+}

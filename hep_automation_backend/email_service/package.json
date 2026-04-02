@@ -1,0 +1,31 @@
+{
+  "name": "email-service",
+  "version": "1.0.0",
+  "description": "After approval/rejection of the user/company registration gets notified through email",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MADHAVSHRI/HEP_Automation.git"
+  },
+  "author": "MS",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/MADHAVSHRI/HEP_Automation/issues"
+  },
+  "homepage": "https://github.com/MADHAVSHRI/HEP_Automation#readme",
+  "dependencies": {
+    "axios": "^1.14.0",
+    "cors": "^2.8.6",
+    "dotenv": "^17.3.1",
+    "express": "^5.2.1",
+    "kafkajs": "^2.2.4",
+    "nodemailer": "^8.0.4",
+    "nodemon": "^3.1.14",
+    "winston": "^3.19.0"
+  }
+}

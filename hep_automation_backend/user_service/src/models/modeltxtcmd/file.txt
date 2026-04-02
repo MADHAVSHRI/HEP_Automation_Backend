@@ -1,0 +1,25 @@
+npx sequelize-cli model:generate --name Agent --attributes userType:string,entityName:string,mobileNo:string,email:string,entityFile:string,addressLine:string,city:string,state:string,pincode:string,country:string,gstinNumber:string,gstinDoc:string,panNumber:string,panDoc:string,tanNumber:string,tanDoc:string,remark:string,title:string,firstName:string,lastName:string,contactMobile:string,contactEmail:string,termsAccepted:boolean,isApproved:boolean,status:string,referenceNumber:string,
+role:string,isRefNoSentByEmail:boolean,isCredentialSentByEmail:boolean
+
+
+
+
+
+mqbw dsjn kbki nifz
+
+    
+    //kafka topic creation
+
+    docker exec -it kafka-broker kafka-topics \
+--create \
+--topic agent-registration-email \
+--bootstrap-server localhost:9092 \
+--partitions 1 \
+--replication-factor 1
+
+
+==============================
+
+docker exec -it kafka-broker kafka-topics \
+--bootstrap-server localhost:9092 \
+--list

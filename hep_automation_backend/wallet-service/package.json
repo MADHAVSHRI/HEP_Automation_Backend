@@ -1,0 +1,25 @@
+{
+  "name": "wallet-service",
+  "version": "1.0.0",
+  "description": "Deposit of balance to deduct for pass/vehicle for smooth experience.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MADHAVSHRI/HEP_Automation.git"
+  },
+  "author": "MS",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/MADHAVSHRI/HEP_Automation/issues"
+  },
+  "homepage": "https://github.com/MADHAVSHRI/HEP_Automation#readme",
+  "dependencies": {
+    "cors": "^2.8.6",
+    "express": "^5.2.1",
+    "razorpay": "^2.9.6",
+    "winston": "^3.19.0"
+  }
+}
