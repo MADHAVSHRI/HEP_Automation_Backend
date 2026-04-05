@@ -1,8 +1,8 @@
-const AGENT_STATUS = {
+const AGENT_STATUS = Object.freeze({
   PENDING: "pending",
   APPROVED: "approved",
   REJECTED: "rejected",
-};
+});
 
 const USER_ROLES = {
   USER: "user",

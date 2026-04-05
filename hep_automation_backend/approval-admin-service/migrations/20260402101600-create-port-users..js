@@ -25,6 +25,7 @@ module.exports = {
       phoneNumber: {
         type: Sequelize.STRING,
         allowNull: false,
+        unique: true,
       },
 
       password: {
@@ -48,6 +49,18 @@ module.exports = {
           model: "port_departments",
           key: "id",
         },
+      },
+
+      isApprovedByAdmin: {
+        type: Sequelize.BOOLEAN,
+        allowNull: false,
+        defaultValue: false,
+      },
+
+      isPasswordChanged: {
+        type: Sequelize.BOOLEAN,
+        allowNull: false,
+        defaultValue: false,
       },
 
       createdAt: {

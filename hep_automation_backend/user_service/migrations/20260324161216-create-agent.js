@@ -123,6 +123,28 @@ module.exports = {
         unique: true,
       },
 
+      loginId: {
+        type: Sequelize.STRING,
+        allowNull: true,
+        unique: true,
+      },
+
+      password: {
+        type: Sequelize.STRING,
+        allowNull: true,
+      },
+
+      rejectedReason: {
+        type: Sequelize.TEXT,
+        allowNull: true,
+      },
+
+      isPasswordChanged: {
+        type: Sequelize.BOOLEAN,
+        defaultValue: false,
+        allowNull: true,
+      },
+
       status: {
         type: Sequelize.ENUM(...AGENT_STATUS_LIST),
         allowNull: false,

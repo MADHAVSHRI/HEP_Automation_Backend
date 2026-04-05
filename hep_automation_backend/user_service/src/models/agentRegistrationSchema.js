@@ -130,18 +130,22 @@ const Agent = {
     return result.rows[0];
   },
 
-  async getAllRegisteredAgents() {
+  async getAllRegisteredAgents(isApproved) {
 
-    const query = `
+    let query = `
       SELECT *
       FROM "Agents"
-      ORDER BY "createdAt" DESC
     `;
 
-    const result = await pool.query(query);
+    let values = [];
 
+    if (isApproved !== undefined) {
+      query += ` WHERE "isApproved" = $1`;
+      values.push(isApproved === 'true');
+    }
+    query += ` ORDER BY "createdAt" DESC`;
+    const result = await pool.query(query, values);
     return result.rows;
-
   },
 
   async updateEmailStatusByReference(referenceNumber) {
@@ -154,7 +158,55 @@ const Agent = {
 
   await pool.query(query, [referenceNumber]);
 
-}
+},
+
+async approveAgent(agentId, loginId, password){
+
+    const query = `
+      UPDATE "Agents"
+      SET
+        "isApproved" = true,
+        "status" = 'approved',
+        "loginId" = $2,
+        "password" = $3
+      WHERE id = $1
+      RETURNING *
+    `;
+
+    const result = await pool.query(query,[agentId,loginId,password]);
+
+    return result.rows[0];
+
+  },
+
+  async rejectAgent(agentId, reason){
+
+    const query = `
+      UPDATE "Agents"
+      SET
+        "status"='rejected',
+        "rejectedReason"=$2
+      WHERE id=$1
+      RETURNING *
+    `;
+
+    const result = await pool.query(query,[agentId,reason]);
+
+    return result.rows[0];
+
+  },
+
+  async updateCredentialEmailStatus(agentId){
+
+    const query = `
+      UPDATE "Agents"
+      SET "isCredentialSentByEmail" = true
+      WHERE id = $1
+    `;
+
+    await pool.query(query,[agentId]);
+
+  }
 
 };
 

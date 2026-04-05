@@ -5,7 +5,7 @@ const User = {
   async createUser(userData) {
 
     const query = `
-      INSERT INTO "Port_users"(
+      INSERT INTO "users"(
         "userName",
         "email",
         "phoneNumber",
@@ -45,11 +45,57 @@ const User = {
   async getDepartments() {
 
     const result = await pool.query(
-      `SELECT * FROM "Port_departments"`
+      `SELECT * FROM "port_departments"`
     );
 
     return result.rows;
 
+  },
+
+  async getDeptAdminUsers() {
+
+    const query = `
+      SELECT 
+        u.id,
+        u."userName",
+        u.email,
+        u."phoneNumber",
+        r."roleName",
+        d."departmentName"
+      FROM "users" u
+      JOIN "port_department_roles" r 
+        ON u."roleId" = r.id
+      JOIN "port_departments" d 
+        ON u."departmentId" = d.id
+      WHERE r."roleName" != 'Admin'
+    `;
+
+    const result = await pool.query(query);
+
+    return result.rows;
+  },
+
+  async getAdminUsers() {
+
+    const query = `
+      SELECT 
+        u.id,
+        u."userName",
+        u.email,
+        u."phoneNumber",
+        r."roleName",
+        d."departmentName"
+      FROM "users" u
+      JOIN "port_department_roles" r 
+        ON u."roleId" = r.id
+      JOIN "port_departments" d 
+        ON u."departmentId" = d.id
+      WHERE r."roleName" = 'Admin'
+    `;
+
+    const result = await pool.query(query);
+
+    return result.rows;
   }
 
 };

@@ -6,6 +6,9 @@ const { successLogger, errorLogger } = require("../logger/logger");
 const Agent = require("../models/agentRegistrationSchema");
 const captchaService = require("../services/captchaService");
 const sendEmailEvent = require("../utils/kafka/producer");
+const bcrypt = require("bcrypt");
+const generateLoginId = require("../utils/loginIdGenerator");
+const AGENT_STATUS = require("../constants/constants").AGENT_STATUS;
 
 exports.registerAgent = async (req, res) => {
   // helper function to delete uploaded files
@@ -201,7 +204,7 @@ exports.registerAgent = async (req, res) => {
         const start = Date.now();
 
         emailResponse = await axios.post(
-          emailServiceUrl,
+          `${emailServiceUrl}/api/email/sendReferenceNo`,
           {
             email: savedAgent.email,
             name: savedAgent.firstName,
@@ -306,7 +309,8 @@ exports.getAllRegisteredUsers = async (req, res) => {
 
   try {
 
-    const agents = await Agent.getAllRegisteredAgents();
+    const { isApproved } = req.query;
+    const agents = await Agent.getAllRegisteredAgents(isApproved);
 
     return res.status(200).json({
       success: true,
@@ -326,3 +330,144 @@ exports.getAllRegisteredUsers = async (req, res) => {
   }
 
 };
+
+
+exports.agentAction = async (req,res)=>{
+
+  try{
+
+    const {agentId, decision, rejectedReason} = req.body;
+    console.log("Service Header:", req.headers["x-service-name"]);
+
+    const emailServiceUrl = process.env.EMAIL_SERVICE_URL;
+    const defaultPassword = process.env.DEFAULT_USER_PASSWORD || "APPROVAL";
+
+    if(!emailServiceUrl){
+      throw new Error("EMAIL_SERVICE_URL not configured");
+    }
+
+    if(!agentId || !decision){
+      return res.status(400).json({
+        success:false,
+        message:"Agent ID and decision required"
+      });
+    }
+
+    if(decision === AGENT_STATUS.APPROVED){
+
+      // 1️⃣ Generate credentials
+      const loginId = generateLoginId();
+      const hashedPassword = await bcrypt.hash(defaultPassword,10);
+
+      // 2️⃣ Update DB with credentials
+      const agent = await Agent.approveAgent(
+        agentId,
+        loginId,
+        hashedPassword
+      );
+
+      if(!agent){
+        return res.status(404).json({
+          success:false,
+          message:"Agent not found"
+        });
+      }
+
+      try{
+
+        const emailResponse = await axios.post(
+          `${emailServiceUrl}/api/email/sendApproval`,
+          {
+            email:agent.email,
+            name:agent.firstName,
+            loginId,
+            password:defaultPassword,
+            type:AGENT_STATUS.APPROVED
+          }
+        );
+
+        if(emailResponse.data.success){
+
+          await Agent.updateCredentialEmailStatus(agentId);
+
+        }
+
+      }catch(emailError){
+
+        console.error("Email sending failed:",emailError.message);
+
+      }
+
+      return res.json({
+        success:true,
+        message:"Agent approved successfully"
+      });
+
+    }
+
+    if(decision === AGENT_STATUS.REJECTED && rejectedReason){
+
+      // 1️⃣ Update DB
+      const agent = await Agent.rejectAgent(agentId, rejectedReason);
+
+      if(!agent){
+        return res.status(404).json({
+          success:false,
+          message:"Agent not found"
+        });
+      }
+
+      // 2️⃣ Ensure reason exists
+      if(!agent.rejectedReason){
+        return res.status(500).json({
+          success:false,
+          message:"Rejection reason not stored"
+        });
+      }
+
+      // 3️⃣ Send email AFTER DB success
+      await axios.post(`${emailServiceUrl}/api/email/sendRejection`, {
+        email: agent.email,
+        name: agent.firstName,
+        referenceNumber: agent.referenceNumber,
+        reason: agent.rejectedReason,
+        type: AGENT_STATUS.REJECTED
+      });
+
+      return res.status(201).json({
+        success:true,
+        message:"Agent rejected successfully"
+      });
+
+    }
+
+  }catch(error){
+
+    console.error(error);
+
+    res.status(500).json({
+      success:false,
+      message:"Internal server error"
+    });
+
+  }
+
+};
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    

@@ -25,4 +25,9 @@ router.get(
   agentController.getAllRegisteredUsers
 );
 
+router.put(
+  "/action",
+  agentController.agentAction
+);
+
 module.exports = router;

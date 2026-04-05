@@ -7,9 +7,8 @@ const loggerMiddleware = (req, res, next) => {
   res.on("finish", () => {
 
     const duration = Date.now() - start;
-    const serviceName = req.headers["x-service-name"] || "UNKNOWN";
 
-    const logMessage = `${new Date().toISOString()} | ${serviceName} | ${req.method} | ${req.originalUrl} | ${res.statusCode} | ${duration}ms`;
+    const logMessage = `${new Date().toISOString()} | ${req.method} | ${req.originalUrl} | ${res.statusCode} | ${duration}ms`;
 
     if (res.statusCode < 400) {
 
