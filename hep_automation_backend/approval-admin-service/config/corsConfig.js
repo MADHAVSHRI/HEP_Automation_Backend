@@ -11,8 +11,8 @@ module.exports = (app) => {
         callback(new Error(`Origin "${origin}" is not allowed by CORS.`));
       }
     },
-    // methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"], // Allowed HTTP methods
-    // allowedHeaders: ["Content-Type", "Authorization", "Set-Cookie"], // Allowed headers
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"], // Allowed HTTP methods
+    allowedHeaders: ["Content-Type", "Authorization", "Set-Cookie"], // Allowed headers
     credentials: true,
     optionsSuccessStatus: 200, // some legacy browsers (IE11, various SmartTVs) choke on 204
   };
