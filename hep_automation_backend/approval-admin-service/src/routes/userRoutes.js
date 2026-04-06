@@ -1,8 +1,11 @@
 const express = require("express");
 const router = express.Router();
 const adminController = require("../controllers/userCreationController");
+const verifyService = require("../middlewares/verifyService");
 
 router.post("/create-user", adminController.createUser);
+
+router.post("/login",verifyService, adminController.getAdminUser);
 
 router.get("/roles", adminController.getRoles);
 

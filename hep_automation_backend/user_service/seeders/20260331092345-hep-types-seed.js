@@ -27,6 +27,13 @@ module.exports = {
         createdAt: now,
         updatedAt: now,
       },
+
+      {
+        name: "Vendors",
+        isActive: true,
+        createdAt: now,
+        updatedAt: now,
+      },
     ]);
   },
 

@@ -1,5 +1,3 @@
-
-
 const fs = require("fs");
 const axios = require("axios");
 const { successLogger, errorLogger } = require("../logger/logger");
@@ -448,6 +446,40 @@ exports.agentAction = async (req,res)=>{
     res.status(500).json({
       success:false,
       message:"Internal server error"
+    });
+
+  }
+
+};
+
+
+exports.getLoginUser = async (req, res) => {
+
+  try {
+
+    const { loginId } = req.body;
+
+    if (!loginId) {
+      return res.status(400).json({
+        success: false,
+        message: "loginId required"
+      });
+    }
+
+    const user = await Agent.getLoginUser(loginId);
+
+    return res.status(200).json({
+      success: true,
+      data: user || null
+    });
+
+  } catch (error) {
+
+    console.error("Fetch login user error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error"
     });
 
   }

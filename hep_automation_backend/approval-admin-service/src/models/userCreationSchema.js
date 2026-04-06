@@ -96,6 +96,26 @@ const User = {
     const result = await pool.query(query);
 
     return result.rows;
+  },
+
+  async getAdminLoginUser(loginId) {
+
+    const query = `
+      SELECT
+        u.id,
+        u.password,
+        r."roleName" as role
+      FROM "users" u
+      JOIN "port_department_roles" r
+        ON u."roleId" = r.id
+      WHERE u."userName" = $1
+      AND u."isApprovedByAdmin" = true
+    `;
+
+    const result = await pool.query(query, [loginId]);
+
+    return result.rows[0];
+
   }
 
 };

@@ -1,6 +1,6 @@
 const express = require("express");
 const router = express.Router();
-
+const verifyService = require("../middlewares/verifyService");
 const upload = require("../middlewares/uploadMiddleware");
 const agentController = require("../controllers/agentController");
 
@@ -13,6 +13,11 @@ router.post(
     { name: "tanDoc", maxCount: 1 },
   ]),
   agentController.registerAgent
+);
+
+router.post(
+  "/login",verifyService,
+  agentController.getLoginUser
 );
 
 router.patch(

@@ -206,6 +206,24 @@ async approveAgent(agentId, loginId, password){
 
     await pool.query(query,[agentId]);
 
+  },
+
+  async getLoginUser(loginId) {
+
+    const query = `
+      SELECT
+        id,
+        password,
+        role
+      FROM "Agents"
+      WHERE "loginId" = $1
+      AND "isApproved" = true
+    `;
+
+    const result = await pool.query(query, [loginId]);
+
+    return result.rows[0];
+
   }
 
 };
