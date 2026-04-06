@@ -62,25 +62,25 @@ exports.registerAgent = async (req, res) => {
       contactEmail,
 
       termsAccepted: rawTermsAccepted,
-      // captchaToken,
-      // captchaValue
+      captchaToken,
+      captchaValue
     } = req.body;
 
     //Captcha validation
 
-    // const validCaptcha = await captchaService.verifyCaptcha(
-    //   captchaToken,
-    //   captchaValue
-    // );
+    const validCaptcha = await captchaService.verifyCaptcha(
+      captchaToken,
+      captchaValue
+    );
 
-    // if (!validCaptcha) {
+    if (!validCaptcha) {
 
-    //   return res.status(400).json({
-    //     success: false,
-    //     message: "Invalid or expired captcha"
-    //   });
+      return res.status(400).json({
+        success: false,
+        message: "Invalid or expired captcha"
+      });
 
-    // }
+    }
 
     const termsAccepted =
       String(rawTermsAccepted).trim().toLowerCase() === "true";

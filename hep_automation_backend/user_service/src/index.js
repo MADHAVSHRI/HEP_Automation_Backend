@@ -8,7 +8,7 @@ const allowCredentials = require("../config/allowCredentials");
 const corsConfig = require("../config/corsConfig");
 
 const app = express();
-
+app.use(allowCredentials);
 corsConfig(app);
 // app.use(cors());
 app.use(express.json());
