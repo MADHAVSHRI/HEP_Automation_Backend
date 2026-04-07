@@ -116,6 +116,22 @@ const User = {
 
     return result.rows[0];
 
+  },
+
+  async updateUserApproval(userId, status) {
+
+    const query = `
+      UPDATE "users"
+      SET "isApprovedByAdmin" = $1,
+          "updatedAt" = NOW()
+      WHERE id = $2
+      RETURNING *
+    `;
+
+    const result = await pool.query(query, [status, userId]);
+
+    return result.rows[0];
+
   }
 
 };

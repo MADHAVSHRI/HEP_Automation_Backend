@@ -10,7 +10,7 @@ const generateCaptcha = () => {
   fontSize: 50,
   ignoreChars: "0oO1ilI",
   color: true,
-  background: "#f8f9fa"
+  background: "#616c7cff"
 });
 
   return {

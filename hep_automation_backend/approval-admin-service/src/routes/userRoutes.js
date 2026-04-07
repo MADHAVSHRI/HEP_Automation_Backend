@@ -19,4 +19,9 @@ router.get("/agent-users", adminController.getAgentRequests);
 
 router.put("/agent-request", adminController.agentRequestAction);
 
+router.patch(
+  "/update-user-approval",
+  adminController.updateUserApproval
+);
+
 module.exports = router;

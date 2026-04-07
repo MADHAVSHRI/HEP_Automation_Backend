@@ -9,11 +9,11 @@ const getEnv = (name) => {
 };
 
 const generateAccessToken = (payload) => {
-  return jwt.sign(payload, getEnv("JWT_SECRET"), { expiresIn: "15m" });
+  return jwt.sign(payload, getEnv("JWT_SECRET"), { expiresIn: "30s" });
 };
 
 const generateRefreshToken = (payload) => {
-  return jwt.sign(payload, getEnv("JWT_REFRESH_SECRET"), { expiresIn: "7d" });
+  return jwt.sign(payload, getEnv("JWT_REFRESH_SECRET"), { expiresIn: "5m" });
 };
 
 module.exports = {

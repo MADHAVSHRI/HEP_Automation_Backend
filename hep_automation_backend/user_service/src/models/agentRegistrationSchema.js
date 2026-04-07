@@ -224,6 +224,57 @@ async approveAgent(agentId, loginId, password){
 
     return result.rows[0];
 
+  },
+
+  async trackRequest(referenceNumber) {
+
+    const query = `
+      SELECT
+        "entityName",
+        "mobileNo",
+        "email",
+        "title",
+        "firstName",
+        "status",
+        "createdAt"
+      FROM "Agents"
+      WHERE "referenceNumber" = $1
+    `;
+
+    const result = await pool.query(query, [referenceNumber]);
+
+    return result.rows[0];
+
+  },
+
+  async getDocumentPath(referenceNumber, documentType) {
+    let columnName;
+    switch (documentType) {
+      case "entity":
+        columnName = "entityFile";
+        break;
+      case "pan":
+        columnName = "panDoc";
+        break;
+      case "gst":
+        columnName = "gstinDoc";
+        break;
+      case "tan":
+        columnName = "tanDoc";
+        break;
+      default:
+        throw new Error("Invalid document type");
+    }
+
+    const query = `
+      SELECT "${columnName}"
+      FROM "Agents"
+      WHERE "referenceNumber" = $1
+    `;
+
+    const result = await pool.query(query, [referenceNumber]);
+
+    return result.rows[0];
   }
 
 };

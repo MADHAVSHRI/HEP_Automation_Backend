@@ -260,7 +260,6 @@ exports.agentRequestAction = async (req, res) => {
 
 };
 
-
 exports.getAdminUser = async (req, res) => {
 
   try {
@@ -284,6 +283,53 @@ exports.getAdminUser = async (req, res) => {
   } catch (error) {
 
     console.error("Fetch admin login user error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error"
+    });
+
+  }
+
+};
+
+exports.updateUserApproval = async (req, res) => {
+
+  try {
+
+    const { userId, status } = req.body;
+
+    if (!userId || typeof status !== "boolean") {
+      return res.status(400).json({
+        success: false,
+        message: "userId and status are required"
+      });
+    }
+
+    if(req.user.id === userId){
+      return res.status(400).json({
+        message:"Admin cannot block himself"
+      });
+    }
+
+    const updatedUser = await User.updateUserApproval(userId, status);
+
+    if (!updatedUser) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found"
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: status ? "User approved successfully" : "User blocked successfully",
+      data: updatedUser
+    });
+
+  } catch (error) {
+
+    console.error("User approval update error:", error);
 
     return res.status(500).json({
       success: false,

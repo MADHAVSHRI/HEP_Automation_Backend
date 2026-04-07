@@ -1,4 +1,5 @@
 const fs = require("fs");
+const path = require("path");
 const axios = require("axios");
 const { successLogger, errorLogger } = require("../logger/logger");
 const Agent = require("../models/agentRegistrationSchema");
@@ -478,6 +479,109 @@ exports.getLoginUser = async (req, res) => {
     console.error("Fetch login user error:", error);
 
     return res.status(500).json({
+      success: false,
+      message: "Internal server error"
+    });
+
+  }
+
+};
+
+exports.trackRequest = async (req, res) => {
+
+  try {
+
+    const { referenceNumber } = req.query;
+
+    if (!referenceNumber) {
+      return res.status(400).json({
+        success: false,
+        message: "Refernce Number not found"
+      });
+    }
+
+    const request = await Agent.trackRequest(referenceNumber);
+
+    return res.status(200).json({
+      success: true,
+      data: request || null
+    });
+
+  } catch (error) {
+
+    console.error("Track request error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error"
+    });
+
+  }
+
+};
+
+
+exports.viewAgentDocument = async (req, res) => {
+
+  try {
+
+    const { referenceNumber, documentType } = req.query;
+
+    if (!referenceNumber || !documentType) {
+      return res.status(400).json({
+        success: false,
+        message: "referenceNumber and documentType required"
+      });
+    }
+
+    const fileData = await Agent.getDocumentPath(referenceNumber, documentType);
+
+    if (!fileData) {
+      return res.status(404).json({
+        success: false,
+        message: "Document not found"
+      });
+    }
+
+    const filePath = Object.values(fileData)[0];
+
+    if (!filePath) {
+      return res.status(404).json({
+        success: false,
+        message: "File path not found"
+      });
+    }
+
+    const absolutePath = path.join(process.cwd(), filePath);
+
+    if (!fs.existsSync(absolutePath)) {
+      return res.status(404).json({
+        success: false,
+        message: "File missing on server"
+      });
+    }
+
+    // Set PDF headers
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", "inline");
+
+    // Create stream
+    const stream = fs.createReadStream(absolutePath);
+
+    // Handle stream error
+    stream.on("error", (error) => {
+      console.error("Stream error:", error);
+      res.status(500).end("Error reading file");
+    });
+
+    // Pipe stream to response
+    stream.pipe(res);
+
+  } catch (error) {
+
+    console.error("View document error:", error);
+
+    res.status(500).json({
       success: false,
       message: "Internal server error"
     });

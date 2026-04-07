@@ -30,6 +30,13 @@ router.get(
   agentController.getAllRegisteredUsers
 );
 
+router.get(
+  "/getTrackRequest",
+  agentController.trackRequest
+);
+
+router.get("/viewAgentDocument", agentController.viewAgentDocument);
+
 router.put(
   "/action",
   agentController.agentAction
