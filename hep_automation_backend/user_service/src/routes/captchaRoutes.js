@@ -4,5 +4,6 @@ const captchaController = require("../controllers/captchaController");
 const captchaLimiter = require( "../middlewares/rateLimiter" );
 
 router.get("/get-captcha", captchaLimiter, captchaController.getCaptcha);
+router.post("/verify-captcha", captchaController.verifyCaptcha);
 
 module.exports = router;

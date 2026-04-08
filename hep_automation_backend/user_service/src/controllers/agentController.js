@@ -496,7 +496,7 @@ exports.trackRequest = async (req, res) => {
     if (!referenceNumber) {
       return res.status(400).json({
         success: false,
-        message: "Refernce Number not found"
+        message: "Reference Number not found"
       });
     }
 

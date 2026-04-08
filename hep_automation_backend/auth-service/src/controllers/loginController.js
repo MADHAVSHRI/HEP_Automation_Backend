@@ -9,12 +9,31 @@ const { generateAccessToken, generateRefreshToken } = require("../utils/jwt");
 exports.login = async (req, res) => {
   try {
 
-    const { loginId, password } = req.body;
+    const { loginId, password, captchaToken, captchaValue } = req.body;
 
-    if (!loginId || !password) {
+    if (!loginId || !password || !captchaToken || !captchaValue) {
       return res.status(400).json({
         success: false,
-        message: "loginId and password required"
+        message: "Login ID, password, and security code are required",
+      });
+    }
+
+    try {
+      await axios.post(
+        `${process.env.USER_SERVICE_URL}/api/captcha/verify-captcha`,
+        { token: captchaToken, value: captchaValue },
+        {
+          headers: {
+            "x-service-key": process.env.SERVICE_AUTH_KEY,
+            "x-service-name": "AUTH-SERVICE",
+          },
+        },
+      );
+    } catch (error) {
+      // If user_service returns a 400 (invalid captcha), axios will throw an error here
+      return res.status(400).json({
+        success: false,
+        message: "Invalid or expired security code",
       });
     }
 
