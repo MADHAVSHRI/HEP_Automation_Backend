@@ -23,6 +23,7 @@ exports.login = async (req, res) => {
         `${process.env.USER_SERVICE_URL}/api/captcha/verify-captcha`,
         { token: captchaToken, value: captchaValue },
         {
+          timeout: 5000,
           headers: {
             "x-service-key": process.env.SERVICE_AUTH_KEY,
             "x-service-name": "AUTH-SERVICE",
@@ -50,7 +51,8 @@ exports.login = async (req, res) => {
       const response = await axios.post(
         `${process.env.USER_SERVICE_URL}/api/agents/login`,
         { loginId },
-        {headers: {
+        { timeout: 5000,
+          headers: {
             "x-service-key": process.env.SERVICE_AUTH_KEY,
             "x-service-name": "AUTH-SERVICE"
         }}
@@ -64,7 +66,8 @@ exports.login = async (req, res) => {
       const response = await axios.post(
         `${process.env.ADMIN_SERVICE_URL}/api/user/login`,
         { loginId },
-        {headers: {
+        { timeout: 5000,
+          headers: {
             "x-service-key": process.env.SERVICE_AUTH_KEY
         }}
       );
@@ -100,7 +103,7 @@ exports.login = async (req, res) => {
 
     const sessionId = uuidv4();
 
-    await RefreshToken.deleteUserSessions(user.id);
+    // await RefreshToken.deleteUserSessions(user.id);
 
     const accessToken = generateAccessToken({
       userId: user.id,
@@ -155,6 +158,8 @@ exports.refreshToken = async (req, res) => {
     });
   }
 
+  
+
   try {
     const secret = process.env.JWT_REFRESH_SECRET;
     if (!secret) {
@@ -175,11 +180,17 @@ exports.refreshToken = async (req, res) => {
 
     const { userId, role, sessionId } = decoded;
 
-    const session = await RefreshToken.getSession(userId);
+    const session = await RefreshToken.getSessionBySessionId(sessionId);
 
     if (!session || session.refreshToken !== refreshToken) {
       return res.status(401).json({
         message: "Invalid session",
+      });
+    }
+
+    if (new Date(session.expiresAt) < new Date()) {
+      return res.status(401).json({
+        message: "Refresh token expired"
       });
     }
 

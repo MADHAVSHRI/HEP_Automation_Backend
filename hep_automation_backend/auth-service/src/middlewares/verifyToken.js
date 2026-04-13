@@ -34,13 +34,20 @@ module.exports = async (req, res, next) => {
     const userId = decoded.userId;
     const sessionId = decoded.sessionId;
 
-    const session = await RefreshToken.getSession(userId);
+    // const session = await RefreshToken.getSession(userId);
 
-    if (!session || session.sessionId !== sessionId) {
+    // if (!session || session.sessionId !== sessionId) {
+    //   return res.status(401).json({
+    //     message: "Session expired",
+    //   });
+    // }
+    const session = await RefreshToken.getSessionBySessionId(sessionId);
+
+    if (!session) {
       return res.status(401).json({
-        message: "Session expired",
+        message: "Session expired"
       });
-    }
+}
 
     req.user = decoded;
 

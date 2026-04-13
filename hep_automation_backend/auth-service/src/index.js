@@ -20,5 +20,5 @@ app.use('/api', routes);
 const PORT = process.env.PORT || 5006;
 
 app.listen(PORT, () => {
-  console.log(`User Service running on port ${PORT}`);
+  console.log(`Auth Service running on port ${PORT}`);
 });

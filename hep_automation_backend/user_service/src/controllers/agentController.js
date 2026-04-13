@@ -10,21 +10,23 @@ const generateLoginId = require("../utils/loginIdGenerator");
 const AGENT_STATUS = require("../constants/constants").AGENT_STATUS;
 
 exports.registerAgent = async (req, res) => {
-  // helper function to delete uploaded files
+
   const deleteFiles = () => {
     const files = req.files || {};
 
     Object.values(files).forEach((fileArray) => {
       fileArray.forEach((file) => {
         if (fs.existsSync(file.path)) {
-          fs.unlinkSync(file.path);
+          fs.unlink(file.path, (err) => {
+            if (err) console.error("File delete error:", err);
+          });
         }
       });
     });
   };
 
   try {
-    // Extract uploaded files
+
     const entityFile = req.files?.entityFile?.[0]?.path || null;
     const gstinDoc = req.files?.gstinDoc?.[0]?.path || null;
     const panDoc = req.files?.panDoc?.[0]?.path || null;
@@ -44,43 +46,51 @@ exports.registerAgent = async (req, res) => {
       entityName,
       mobileNo,
       email,
-
       addressLine,
       city,
       state,
       pincode,
       country,
-
       gstinNumber,
       panNumber,
       tanNumber,
       remark,
-
       title,
       firstName,
       lastName,
       contactMobile,
       contactEmail,
-
       termsAccepted: rawTermsAccepted,
       captchaToken,
       captchaValue
     } = req.body;
 
-    //Captcha validation
+    /* ===== PERFORMANCE CHANGE =====
+       Run captcha verification and duplicate check in parallel
+    */
 
-    const validCaptcha = await captchaService.verifyCaptcha(
+    const duplicatePromise = Agent.findDuplicate(
+      email,
+      mobileNo,
+      panNumber,
+      gstinNumber
+    );
+
+    const captchaPromise = captchaService.verifyCaptcha(
       captchaToken,
       captchaValue
     );
 
-    if (!validCaptcha) {
+    const [existingAgent, validCaptcha] = await Promise.all([
+      duplicatePromise,
+      captchaPromise
+    ]);
 
+    if (!validCaptcha) {
       return res.status(400).json({
         success: false,
         message: "Invalid or expired captcha"
       });
-
     }
 
     const termsAccepted =
@@ -102,14 +112,6 @@ exports.registerAgent = async (req, res) => {
       });
     }
 
-    // Duplicate check
-    const existingAgent = await Agent.findDuplicate(
-      email,
-      mobileNo,
-      panNumber,
-      gstinNumber,
-    );
-
     if (existingAgent) {
       deleteFiles();
       return res.status(409).json({
@@ -118,147 +120,53 @@ exports.registerAgent = async (req, res) => {
       });
     }
 
-    // Insert DB
     const savedAgent = await Agent.create({
       userTypeId,
       userTypeName,
       entityName,
       mobileNo,
       email,
-
       entityFile,
-
       addressLine,
       city,
       state,
       pincode,
       country,
-
       gstinNumber,
       gstinDoc,
-
       panNumber,
       panDoc,
-
       tanNumber,
       tanDoc,
-
       remark,
-
       title,
       firstName,
       lastName,
       contactMobile,
       contactEmail,
-
       termsAccepted,
     });
 
-    /* EMAIL SERVICE TRIGGER*/
+    /* ===== PERFORMANCE CHANGE =====
+       Email event pushed to Kafka immediately
+       (API does not wait for email service)
+    */
 
-    // try {
-
-    //   const emailServiceUrl = process.env.EMAIL_SERVICE_URL;
-    //   let emailResponse;
-
-    //   if (!emailServiceUrl) {
-    //     console.warn("EMAIL_SERVICE_URL not configured; skipping email send");
-    //   } else {
-    //     emailResponse = await axios.post(
-    //       emailServiceUrl,
-    //       {
-    //         email: savedAgent.email,
-    //         name: savedAgent.firstName,
-    //         referenceNumber: savedAgent.referenceNumber
-    //       },
-    //       {
-    //           headers: {
-    //           "x-service-name": "User-service"
-    //         }
-    //       }
-    //     );
-    //   }
-
-    //   // if email successfully sent
-    //   if (emailResponse?.data?.success) {
-
-    //     /* ADDED DB UPDATE */
-    //     await Agent.updateEmailStatus(savedAgent.id);
-
-    //   }
-
-    // } catch (emailError) {
-
-    //   console.error("Email sending failed:", emailError.message);
-
-    // }
-
-    let emailResponse = null;
-    try {
-      const emailServiceUrl = process.env.EMAIL_SERVICE_URL;
-
-      if (!emailServiceUrl) {
-        console.warn("EMAIL_SERVICE_URL not configured; skipping email send");
-      } else {
-        const start = Date.now();
-
-        emailResponse = await axios.post(
-          `${emailServiceUrl}/api/email/sendReferenceNo`,
-          {
-            email: savedAgent.email,
-            name: savedAgent.firstName,
-            referenceNumber: savedAgent.referenceNumber,
-          },
-          {
-            headers: {
-              "x-service-name": "USER-SERVICE",
-            },
-          },
-        );
-
-        const duration = Date.now() - start;
-
-        const logMessage = `${new Date().toISOString()} | USER-SERVICE | POST | ${emailServiceUrl} | ${emailResponse.status} | ${duration}ms`;
-
-        successLogger.info(logMessage);
-      }
-
-      /*
-      ------------------------------------------------
-      IF EMAIL SUCCESS -> UPDATE DB
-      ------------------------------------------------
-      */
-
-      if (emailResponse?.status === 200 && emailResponse?.data?.success) {
-        await Agent.updateEmailStatus(savedAgent.id);
-      }
-    } catch (emailError) {
-      const statusCode = emailError.response?.status || 500;
-
-      const logMessage = `${new Date().toISOString()} | USER-SERVICE | POST | EMAIL-SERVICE | ${statusCode} | ${emailError.message}`;
-
-      errorLogger.error(logMessage);
-
-      console.error("Email sending failed:", emailError.message);
-      sendEmailEvent({
-        email: savedAgent.email,
-        name: savedAgent.firstName,
-        referenceNumber: savedAgent.referenceNumber,
-      });
-    }
-
-    /* ===============================
-       RESPONSE SENT AFTER EMAIL
-       =============================== */
+    sendEmailEvent({
+      email: savedAgent.email,
+      name: savedAgent.firstName,
+      referenceNumber: savedAgent.referenceNumber,
+    });
 
     res.status(201).json({
       success: true,
       message: "Agent registered successfully",
       referenceNumber: savedAgent.referenceNumber,
-      emailSent: emailResponse?.data?.success || false,
       data: savedAgent,
     });
+
   } catch (error) {
+
     deleteFiles();
 
     console.error("Agent Registration Error:", error);
@@ -267,7 +175,9 @@ exports.registerAgent = async (req, res) => {
       success: false,
       message: "Internal server error",
     });
+
   }
+
 };
 
 exports.updateEmailStatus = async (req, res) => {

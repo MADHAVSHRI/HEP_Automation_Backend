@@ -17,6 +17,7 @@ module.exports = (app) => {
     optionsSuccessStatus: 200, // some legacy browsers (IE11, various SmartTVs) choke on 204
   };
 
-  app.use(cors(corsOptions));
+  // app.use(cors(corsOptions));
+  app.use(cors({ origin: true, credentials: true }));
   // app.options("*", cors(corsOptions)); // Handle preflight requests
 };

@@ -6,17 +6,20 @@ const { connectDB } = require("./dbconfig/db");
 const routes = require("./routes/index");
 const allowCredentials = require("../config/allowCredentials");
 const corsConfig = require("../config/corsConfig");
+const initUploadDirs = require("./utils/initUploadDir");
 
 const app = express();
 app.use(allowCredentials);
 corsConfig(app);
 // app.use(cors());
+
+initUploadDirs();
+
 app.use(express.json());
 
 app.use(loggerMiddleware);
 connectDB();
-app.use('/api', routes);
-
+app.use("/api", routes);
 
 const PORT = process.env.PORT || 5001;
 

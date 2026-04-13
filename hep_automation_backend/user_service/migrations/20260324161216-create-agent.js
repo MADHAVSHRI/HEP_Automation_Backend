@@ -35,10 +35,12 @@ module.exports = {
       mobileNo: {
         type: Sequelize.STRING,
         allowNull: false,
+        unique: true,
       },
       email: {
         type: Sequelize.STRING,
         allowNull: false,
+        unique: true,
       },
       entityFile: {
         type: Sequelize.STRING,
@@ -67,6 +69,7 @@ module.exports = {
       gstinNumber: {
         type: Sequelize.STRING,
         allowNull: false,
+        unique: true,
       },
       gstinDoc: {
         type: Sequelize.STRING,
@@ -75,6 +78,7 @@ module.exports = {
       panNumber: {
         type: Sequelize.STRING,
         allowNull: false,
+        unique: true,
       },
       panDoc: {
         type: Sequelize.STRING,
@@ -168,12 +172,21 @@ module.exports = {
       createdAt: {
         allowNull: false,
         type: Sequelize.DATE,
+        defaultValue: Sequelize.literal("CURRENT_TIMESTAMP"),
       },
       updatedAt: {
         allowNull: false,
         type: Sequelize.DATE,
+        defaultValue: Sequelize.literal("CURRENT_TIMESTAMP"),
       },
     });
+    await queryInterface.addIndex("Agents", ["status"]);
+    await queryInterface.addIndex("Agents", ["isApproved"]);
+    await queryInterface.addIndex("Agents", ["userTypeId"]);
+    await queryInterface.addIndex("Agents", ["email"]);
+    await queryInterface.addIndex("Agents", ["mobileNo"]);
+    await queryInterface.addIndex("Agents", ["referenceNumber"]);
+    await queryInterface.addIndex("Agents", ["createdAt"]);
   },
   async down(queryInterface, Sequelize) {
     await queryInterface.dropTable("Agents");

@@ -14,30 +14,43 @@ const Agent = {
     return result.rows[0];
   },
 
+//   async generateReferenceNumber() {
+
+//   const result = await pool.query(
+//     `SELECT COUNT(*) FROM "Agents"`
+//   );
+
+//   const next = parseInt(result.rows[0].count) + 1;
+
+//   const padded = String(next).padStart(5,"0");
+
+//   return `CHPT${padded}`;
+// },
+
   async generateReferenceNumber() {
 
-  const result = await pool.query(
-    `SELECT COUNT(*) FROM "Agents"`
-  );
+    const result = await pool.query(
+      `SELECT nextval('agent_reference_seq')`
+    );
 
-  const next = parseInt(result.rows[0].count) + 1;
+    const next = result.rows[0].nextval;
 
-  const padded = String(next).padStart(5,"0");
+    const padded = String(next).padStart(5,"0");
 
-  return `CHPT${padded}`;
-},
-
+    return `CHPT${padded}`;
+  },
+  
   async updateEmailStatus(agentId) {
 
-  const query = `
-    UPDATE "Agents"
-    SET "isRefNoSentByEmail" = true
-    WHERE id = $1
-  `;
+    const query = `
+      UPDATE "Agents"
+      SET "isRefNoSentByEmail" = true
+      WHERE id = $1
+    `;
 
-  await pool.query(query, [agentId]);
+    await pool.query(query, [agentId]);
 
-},
+  },
 
   async create(agentData) {
 
