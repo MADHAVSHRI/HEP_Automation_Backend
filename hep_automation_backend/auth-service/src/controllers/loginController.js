@@ -2,9 +2,150 @@ const axios = require("axios");
 const bcrypt = require("bcrypt");
 const { v4: uuidv4 } = require("uuid");
 const jwt = require("jsonwebtoken");
-
 const RefreshToken = require("../models/refreshTokenSchema");
 const { generateAccessToken, generateRefreshToken } = require("../utils/jwt");
+
+// exports.login = async (req, res) => {
+//   try {
+
+//     const { loginId, password, captchaToken, captchaValue } = req.body;
+
+//     if (!loginId || !password || !captchaToken || !captchaValue) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Login ID, password, and security code are required",
+//       });
+//     }
+
+//     try {
+//       await axios.post(
+//         `${process.env.USER_SERVICE_URL}/api/captcha/verify-captcha`,
+//         { token: captchaToken, value: captchaValue },
+//         {
+//           timeout: 5000,
+//           headers: {
+//             "x-service-key": process.env.SERVICE_AUTH_KEY,
+//             "x-service-name": "AUTH-SERVICE",
+//           },
+//         },
+//       );
+//     } catch (error) {
+//       // If user_service returns a 400 (invalid captcha), axios will throw an error here
+//       return res.status(400).json({
+//         success: false,
+//         message: "Invalid or expired security code",
+//       });
+//     }
+
+//     let user;
+//     let role;
+//     let source;
+
+//     // ----------------------------------
+//     // 1️⃣ Check which service to call
+//     // ----------------------------------
+
+//     if (loginId.startsWith("190")) {
+
+//       const response = await axios.post(
+//         `${process.env.USER_SERVICE_URL}/api/agents/login`,
+//         { loginId },
+//         { timeout: 5000,
+//           headers: {
+//             "x-service-key": process.env.SERVICE_AUTH_KEY,
+//             "x-service-name": "AUTH-SERVICE"
+//         }}
+//       );
+
+//       user = response.data.data;
+//       source = "agent";
+
+//     } else {
+
+//       const response = await axios.post(
+//         `${process.env.ADMIN_SERVICE_URL}/api/user/login`,
+//         { loginId },
+//         { timeout: 5000,
+//           headers: {
+//             "x-service-key": process.env.SERVICE_AUTH_KEY
+//         }}
+//       );
+
+//       user = response.data.data;
+//       source = "admin";
+
+//     }
+
+//     if (!user) {
+//       return res.status(404).json({
+//         success: false,
+//         message: "User not found"
+//       });
+//     }
+
+//     // ----------------------------------
+//     // 2️⃣ Password check
+//     // ----------------------------------
+
+//     const isValid = await bcrypt.compare(password, user.password);
+
+//     if (!isValid) {
+//       return res.status(401).json({
+//         success: false,
+//         message: "Invalid credentials"
+//       });
+//     }
+
+//     // ----------------------------------
+//     // 3️⃣ Create session
+//     // ----------------------------------
+
+//     const sessionId = uuidv4();
+
+//     // await RefreshToken.deleteUserSessions(user.id);
+
+//     const accessToken = generateAccessToken({
+//       userId: user.id,
+//       role: user.role,
+//       sessionId,
+//       source
+//     });
+
+//     const refreshToken = generateRefreshToken({
+//       userId: user.id,
+//       role: user.role,
+//       sessionId,
+//       source
+//     });
+//     await RefreshToken.createSession({
+//       userId: user.id,
+//       refreshToken,
+//       sessionId
+//     });
+    
+
+//     // ----------------------------------
+//     // 4️⃣ Return tokens
+//     // ----------------------------------
+
+//     return res.json({
+//       success: true,
+//       accessToken,
+//       refreshToken,
+//       role: user.role
+//     });
+
+//   } catch (error) {
+
+//     console.error("Login error:", error.message);
+
+//     return res.status(500).json({
+//       success: false,
+//       message: "Login failed"
+//     });
+
+//   }
+// };
 
 exports.login = async (req, res) => {
   try {
@@ -18,64 +159,91 @@ exports.login = async (req, res) => {
       });
     }
 
-    try {
-      await axios.post(
-        `${process.env.USER_SERVICE_URL}/api/captcha/verify-captcha`,
-        { token: captchaToken, value: captchaValue },
-        {
-          timeout: 5000,
-          headers: {
-            "x-service-key": process.env.SERVICE_AUTH_KEY,
-            "x-service-name": "AUTH-SERVICE",
-          },
+    /* =====================================================
+       ===== CHANGE 1: Prepare captcha verification promise
+       ===================================================== */
+
+    const captchaPromise = axios.post(
+      `${process.env.USER_SERVICE_URL}/api/captcha/verify-captcha`,
+      { token: captchaToken, value: captchaValue },
+      {
+        timeout: 5000,
+        headers: {
+          "x-service-key": process.env.SERVICE_AUTH_KEY,
+          "x-service-name": "AUTH-SERVICE",
         },
-      );
-    } catch (error) {
-      // If user_service returns a 400 (invalid captcha), axios will throw an error here
-      return res.status(400).json({
-        success: false,
-        message: "Invalid or expired security code",
-      });
-    }
+      }
+    );
 
     let user;
     let role;
     let source;
 
-    // ----------------------------------
-    // 1️⃣ Check which service to call
-    // ----------------------------------
+    /* =====================================================
+       ===== CHANGE 2: Prepare user lookup promise
+       ===================================================== */
+
+    let userPromise;
 
     if (loginId.startsWith("190")) {
 
-      const response = await axios.post(
+      userPromise = axios.post(
         `${process.env.USER_SERVICE_URL}/api/agents/login`,
         { loginId },
-        { timeout: 5000,
+        {
+          timeout: 5000,
           headers: {
             "x-service-key": process.env.SERVICE_AUTH_KEY,
             "x-service-name": "AUTH-SERVICE"
-        }}
+          }
+        }
       );
 
-      user = response.data.data;
       source = "agent";
 
     } else {
 
-      const response = await axios.post(
+      userPromise = axios.post(
         `${process.env.ADMIN_SERVICE_URL}/api/user/login`,
         { loginId },
-        { timeout: 5000,
+        {
+          timeout: 5000,
           headers: {
             "x-service-key": process.env.SERVICE_AUTH_KEY
-        }}
+          }
+        }
       );
 
-      user = response.data.data;
       source = "admin";
 
     }
+
+    /* =====================================================
+       ===== CHANGE 3: Run both API calls in parallel
+       ===================================================== */
+
+    let userResponse;
+
+    try {
+
+      const results = await Promise.all([captchaPromise, userPromise]);
+
+      userResponse = results[1];
+
+    } catch (error) {
+
+      /* Captcha failure */
+      if (error?.response?.status === 400) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid or expired security code",
+        });
+      }
+
+      throw error;
+    }
+
+    user = userResponse.data.data;
 
     if (!user) {
       return res.status(404).json({
@@ -85,7 +253,7 @@ exports.login = async (req, res) => {
     }
 
     // ----------------------------------
-    // 2️⃣ Password check
+    // Password check (UNCHANGED)
     // ----------------------------------
 
     const isValid = await bcrypt.compare(password, user.password);
@@ -98,12 +266,10 @@ exports.login = async (req, res) => {
     }
 
     // ----------------------------------
-    // 3️⃣ Create session
+    // Create session (UNCHANGED)
     // ----------------------------------
 
     const sessionId = uuidv4();
-
-    // await RefreshToken.deleteUserSessions(user.id);
 
     const accessToken = generateAccessToken({
       userId: user.id,
@@ -118,15 +284,15 @@ exports.login = async (req, res) => {
       sessionId,
       source
     });
+
     await RefreshToken.createSession({
       userId: user.id,
       refreshToken,
       sessionId
     });
-    
 
     // ----------------------------------
-    // 4️⃣ Return tokens
+    // Return tokens (UNCHANGED)
     // ----------------------------------
 
     return res.json({
@@ -147,7 +313,6 @@ exports.login = async (req, res) => {
 
   }
 };
-
 
 exports.refreshToken = async (req, res) => {
   const { refreshToken } = req.body;

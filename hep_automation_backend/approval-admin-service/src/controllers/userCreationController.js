@@ -1,6 +1,8 @@
 const axios = require("axios");
 const bcrypt = require("bcrypt");
 const User = require("../models/userCreationSchema");
+const sendEmailEvent = require("../utils/kafka/producer");
+const {DEPARTMENT_USER_ACCOUNT_STATUS} = require("../constants/constants");
 
 exports.createUser = async (req, res) => {
 
@@ -69,7 +71,14 @@ exports.createUser = async (req, res) => {
       phoneNumber,
       roleId,
       departmentId,
-      password: hashedPassword
+      password: hashedPassword,
+      status: DEPARTMENT_USER_ACCOUNT_STATUS.INACTIVE
+    });
+    await sendEmailEvent({
+      type: "USER_CREATED",
+      email: newUser.email,
+      name: newUser.userName,
+      status: newUser.status
     });
 
     // ===============================

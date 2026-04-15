@@ -2,9 +2,9 @@ const {
   PASS_TYPES,
   NATIONALITIES,
   ID_PROOF_TYPES,
-  ACCESS_AREAS,
+  ACCESS_AREAS
 } = require("../constants/constants");
-const { Designation, vehicleTypes, PassRequest } = require("../models/passRequestSchema");
+const { Designation, vehicleTypes, PassRequest, hepTypes, countries, visitPurpose } = require("../models/passRequestSchema");
 
 const getNationalities = (req, res) => {
   const sorted = NATIONALITIES.slice().sort((a, b) =>
@@ -74,7 +74,59 @@ const getvehicleTypes = async (req, res) => {
   }
 };
 
+const getHepTypes = async (req, res) => {
+  try {
+    const types = await hepTypes.getAllHepTypes();
 
+    res.status(200).json({
+      success: true,
+      data: types,
+    });
+  } catch (error) {
+    console.error("Hep Types Fetch Error:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+};
+
+const getCountries = async (req, res) => {
+  try {
+    const countryList = await countries.getAllCountries();
+
+    res.status(200).json({
+      success: true,
+      data: countryList,
+    });
+  } catch (error) {
+    console.error("Countries Fetch Error:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+};
+
+const getVisitPurposes = async (req, res) => {
+  try {
+    const purposes = await visitPurpose.getAllVisitPurposes();
+
+    res.status(200).json({
+      success: true,
+      data: purposes,
+    });
+  } catch (error) {
+    console.error("Visit Purposes Fetch Error:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+};
 
 const createPassRequest = async (req, res) => {
   try {
@@ -104,15 +156,15 @@ const createPassRequest = async (req, res) => {
   }
 };
 
-
-
-
 module.exports = {
   getNationalities,
   getPassTypes,
   getIdProofTypes,
   getAccessAreas,
+  getVisitPurposes,
   getDesignations,
   getvehicleTypes,
-  createPassRequest
+  createPassRequest,
+  getHepTypes,
+  getCountries
 };

@@ -28,11 +28,11 @@ const generateCaptcha = () => {
 
   const captcha = svgCaptcha.create({
 
-    size: 6,
+    size: 5,
     noise: 5,
     width: 200,
     height: 80,
-    fontSize: 50,
+    fontSize: 80,
 
     ignoreChars: "0oO1ilI",
 

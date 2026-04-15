@@ -213,6 +213,31 @@ exports.updateEmailStatus = async (req, res) => {
 
 };
 
+exports.updateCredentialEmailStatus = async (req,res)=>{
+
+  try{
+
+    const {agentId} = req.body;
+
+    await Agent.updateCredentialEmailStatus(agentId);
+
+    return res.json({
+      success:true,
+      message:"Email status updated"
+    });
+
+  }catch(error){
+
+    console.error(error);
+
+    return res.status(500).json({
+      success:false,
+      message:"Failed to update email status"
+    });
+
+  }
+
+};
 
 exports.getAllRegisteredUsers = async (req, res) => {
 
@@ -246,14 +271,10 @@ exports.agentAction = async (req,res)=>{
   try{
 
     const {agentId, decision, rejectedReason} = req.body;
+
     console.log("Service Header:", req.headers["x-service-name"]);
 
-    const emailServiceUrl = process.env.EMAIL_SERVICE_URL;
     const defaultPassword = process.env.DEFAULT_USER_PASSWORD || "APPROVAL";
-
-    if(!emailServiceUrl){
-      throw new Error("EMAIL_SERVICE_URL not configured");
-    }
 
     if(!agentId || !decision){
       return res.status(400).json({
@@ -262,13 +283,18 @@ exports.agentAction = async (req,res)=>{
       });
     }
 
+    /*
+    =====================================================
+    APPROVE AGENT
+    =====================================================
+    */
+
     if(decision === AGENT_STATUS.APPROVED){
 
-      // 1️⃣ Generate credentials
       const loginId = generateLoginId();
-      const hashedPassword = await bcrypt.hash(defaultPassword,10);
 
-      // 2️⃣ Update DB with credentials
+      const hashedPassword = await bcrypt.hash(defaultPassword,8);
+
       const agent = await Agent.approveAgent(
         agentId,
         loginId,
@@ -282,30 +308,20 @@ exports.agentAction = async (req,res)=>{
         });
       }
 
-      try{
+      /*
+      =====================================================
+      PUSH EMAIL EVENT TO KAFKA
+      =====================================================
+      */
 
-        const emailResponse = await axios.post(
-          `${emailServiceUrl}/api/email/sendApproval`,
-          {
-            email:agent.email,
-            name:agent.firstName,
-            loginId,
-            password:defaultPassword,
-            type:AGENT_STATUS.APPROVED
-          }
-        );
-
-        if(emailResponse.data.success){
-
-          await Agent.updateCredentialEmailStatus(agentId);
-
-        }
-
-      }catch(emailError){
-
-        console.error("Email sending failed:",emailError.message);
-
-      }
+      await sendEmailEvent({
+        type: "APPROVAL",
+        agentId,
+        email: agent.email,
+        name: agent.firstName,
+        loginId,
+        password: defaultPassword
+      });
 
       return res.json({
         success:true,
@@ -314,9 +330,14 @@ exports.agentAction = async (req,res)=>{
 
     }
 
+    /*
+    =====================================================
+    REJECT AGENT
+    =====================================================
+    */
+
     if(decision === AGENT_STATUS.REJECTED && rejectedReason){
 
-      // 1️⃣ Update DB
       const agent = await Agent.rejectAgent(agentId, rejectedReason);
 
       if(!agent){
@@ -326,7 +347,6 @@ exports.agentAction = async (req,res)=>{
         });
       }
 
-      // 2️⃣ Ensure reason exists
       if(!agent.rejectedReason){
         return res.status(500).json({
           success:false,
@@ -334,13 +354,13 @@ exports.agentAction = async (req,res)=>{
         });
       }
 
-      // 3️⃣ Send email AFTER DB success
-      await axios.post(`${emailServiceUrl}/api/email/sendRejection`, {
+      await sendEmailEvent({
+        type:"REJECTION",
+        agentId,
         email: agent.email,
         name: agent.firstName,
         referenceNumber: agent.referenceNumber,
-        reason: agent.rejectedReason,
-        type: AGENT_STATUS.REJECTED
+        reason: agent.rejectedReason
       });
 
       return res.status(201).json({

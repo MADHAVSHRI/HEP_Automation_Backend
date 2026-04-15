@@ -25,6 +25,8 @@ router.patch(
   agentController.updateEmailStatus
 );
 
+router.patch("/updateCredentialEmailStatus", agentController.updateCredentialEmailStatus);
+
 router.get(
   "/getAllRegisteredUsers",
   agentController.getAllRegisteredUsers

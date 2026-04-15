@@ -1,6 +1,10 @@
 "use strict";
 
 /** @type {import('sequelize-cli').Migration} */
+const {
+  DEPARTMENT_USER_ACCOUNT_STATUS,
+  DEPARTMENT_USER_ACCOUNT_STATUS_LIST,
+} = require("../src/constants/constants");
 
 module.exports = {
   async up(queryInterface, Sequelize) {
@@ -55,6 +59,12 @@ module.exports = {
         type: Sequelize.BOOLEAN,
         allowNull: false,
         defaultValue: false,
+      },
+
+      status: {
+        type: Sequelize.ENUM(...DEPARTMENT_USER_ACCOUNT_STATUS_LIST),
+        allowNull: false,
+        defaultValue: DEPARTMENT_USER_ACCOUNT_STATUS.INACTIVE,
       },
 
       isPasswordChanged: {

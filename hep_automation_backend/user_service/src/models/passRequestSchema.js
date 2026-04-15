@@ -36,6 +36,59 @@ const vehicleTypes = {
 
 };
 
+const countries = {
+
+  async getAllCountries() {
+
+    const query = `
+      SELECT id, name
+      FROM countries
+      WHERE "isActive" = true
+      ORDER BY name ASC
+    `;
+
+    const result = await pool.query(query);
+
+    return result.rows;
+  }
+
+};
+
+const hepTypes = {
+
+  async getAllHepTypes() {
+
+    const query = `
+      SELECT id, name
+      FROM hep_types
+      WHERE "isActive" = true
+      ORDER BY name ASC
+    `;
+
+    const result = await pool.query(query);
+
+    return result.rows;
+  }
+
+};
+
+const visitPurpose = {
+
+  async getAllVisitPurposes() {
+
+    const query = `
+      SELECT id, name
+      FROM visit_purposes
+      WHERE "isActive" = true
+      ORDER BY name ASC
+    `;
+
+    const result = await pool.query(query);
+
+    return result.rows;
+  }
+
+};
 
 const PassRequest = {
 
@@ -194,5 +247,8 @@ const PassRequest = {
 module.exports = {
   Designation,
   vehicleTypes,
-  PassRequest
+  PassRequest,
+  countries,
+  hepTypes,
+  visitPurpose
 };

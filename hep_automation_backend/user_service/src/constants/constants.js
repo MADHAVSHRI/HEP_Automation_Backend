@@ -29,6 +29,12 @@ const ID_PROOF_TYPES = [
   { value: "COMPANY ID CARD", label: "Company ID", id: 5 }
 ];
 
+const VISIT_PURPOSES = [
+  { value: "BUSINESS", label: "Business", id: 1 },
+  { value: "LEISURE", label: "Leisure", id: 2 },
+  { value: "MEDICAL", label: "Medical", id: 3 }
+];
+
 const ACCESS_AREAS = [
   { value: "OIL JETTY AND OTHER GATES", label: "Oil Jetty and Other Gates", id: 1 },
   { value: "OTHER GATES ONLY", label: "Other Gates Only", id: 2 }
@@ -39,5 +45,9 @@ module.exports = {
   AGENT_STATUS_LIST: Object.values(AGENT_STATUS),
   USER_ROLES,
   USER_ROLES_LIST: Object.values(USER_ROLES),
-  PASS_TYPES,NATIONALITIES, ID_PROOF_TYPES, ACCESS_AREAS
+  PASS_TYPES,
+  NATIONALITIES,
+  ID_PROOF_TYPES,
+  VISIT_PURPOSES,
+  ACCESS_AREAS
 };
