@@ -1,10 +1,11 @@
+const { get } = require( "mongoose" );
 const {
   PASS_TYPES,
   NATIONALITIES,
   ID_PROOF_TYPES,
   ACCESS_AREAS
 } = require("../constants/constants");
-const { Designation, vehicleTypes, PassRequest, hepTypes, countries, visitPurpose } = require("../models/passRequestSchema");
+const { Designation, vehicleTypes, PassRequest, hepTypes, countries, visitPurpose, getPassRequest, Master } = require("../models/passRequestSchema");
 
 const getNationalities = (req, res) => {
   const sorted = NATIONALITIES.slice().sort((a, b) =>
@@ -156,6 +157,76 @@ const createPassRequest = async (req, res) => {
   }
 };
 
+const getAgentPassRequests = async (req, res) => {
+  try {
+
+    const agentId = req.user.userId; // from JWT
+
+    const passes = await getPassRequest.getAgentPassRequests(agentId);
+
+    return res.status(200).json({
+      success: true,
+      data: passes
+    });
+
+  } catch (error) {
+
+    console.error("Fetch pass requests error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error"
+    });
+
+  }
+};
+
+const getMasterDirectory = async (req, res) => {
+  try {
+
+    if (!req.user || !req.user.userId) {
+      return res.status(401).json({
+        success: false,
+        message: "Unauthorized"
+      });
+    }
+
+    const agentId = req.user.userId;
+
+    const [
+      persons,
+      vehicles,
+      personCount,
+      vehicleCount
+    ] = await Promise.all([
+      Master.getPersonsByAgent(agentId),
+      Master.getVehiclesByAgent(agentId),
+      Master.getPersonCount(agentId),
+      Master.getVehicleCount(agentId)
+    ]);
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        persons,
+        vehicles,
+        personCount,
+        vehicleCount
+      }
+    });
+
+  } catch (error) {
+
+    console.error("Fetch directory error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error"
+    });
+
+  }
+};
+
 module.exports = {
   getNationalities,
   getPassTypes,
@@ -166,5 +237,8 @@ module.exports = {
   getvehicleTypes,
   createPassRequest,
   getHepTypes,
-  getCountries
+  getCountries,
+  getAgentPassRequests,
+  getMasterDirectory
+
 };

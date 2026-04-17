@@ -4,6 +4,7 @@ const captchaLimiter = require("../middlewares/rateLimiter");
 const passRequestController = require("../controllers/passRequestController");
 
 const upload = require("../middlewares/uploadMiddleware");
+const verifyToken = require( "../middlewares/verifyToken" );
 
 router.post("/createPassRequest",
   upload.fields([
@@ -26,5 +27,7 @@ router.get("/get-hep-types", passRequestController.getHepTypes); //coming from d
 router.get("/get-countries", passRequestController.getCountries); //coming from database
 router.get("/getDesignations", passRequestController.getDesignations); //coming from database
 router.get("/getVehicleTypes", passRequestController.getvehicleTypes); //coming from database
+router.get("/my-pass-requests",verifyToken, passRequestController.getAgentPassRequests); //coming from database
+router.get("/my-master-records",verifyToken, passRequestController.getMasterDirectory); //coming from database
 
 module.exports = router;

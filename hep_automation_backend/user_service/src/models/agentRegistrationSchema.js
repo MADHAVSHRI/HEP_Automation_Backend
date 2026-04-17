@@ -221,6 +221,39 @@ async approveAgent(agentId, loginId, password){
 
   },
 
+  async getAgentById(agentId) {
+
+  const query = `
+    SELECT
+      id,
+      "userTypeName",
+      "entityName",
+      "firstName",
+      "lastName",
+      "email",
+      "mobileNo",
+      "city",
+      "state",
+      "country",
+      "addressLine",
+      "pincode",
+      "gstinNumber",
+      "referenceNumber",
+      "loginId",
+      "role",
+      "status",
+      "createdAt"
+    FROM "Agents"
+    WHERE id = $1
+    AND status = 'approved'
+  `;
+
+  const result = await pool.query(query, [agentId]);
+
+  return result.rows[0];
+
+},
+
   async getLoginUser(loginId) {
 
     const query = `

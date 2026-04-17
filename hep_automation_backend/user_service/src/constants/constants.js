@@ -48,6 +48,5 @@ module.exports = {
   PASS_TYPES,
   NATIONALITIES,
   ID_PROOF_TYPES,
-  VISIT_PURPOSES,
   ACCESS_AREAS
 };

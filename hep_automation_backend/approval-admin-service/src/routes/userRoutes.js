@@ -2,8 +2,10 @@ const express = require("express");
 const router = express.Router();
 const adminController = require("../controllers/userCreationController");
 const verifyService = require("../middlewares/verifyService");
+const verifyToken = require( "../middlewares/verifyToken" );
+const authorizeToken = require( "../middlewares/authorizeToken" );
 
-router.post("/create-user", adminController.createUser);
+router.post("/create-user",verifyService,verifyToken,authorizeToken("Admin"), adminController.createUser);
 
 router.post("/login",verifyService, adminController.getAdminUser);
 

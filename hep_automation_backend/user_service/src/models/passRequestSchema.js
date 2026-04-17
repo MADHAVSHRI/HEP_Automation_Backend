@@ -172,11 +172,11 @@ const PassRequest = {
         person.idProofType,
         person.idProofNumber,
 
-        idProofFile?.path,
-        idProofFile?.originalname,
+        idProofFile?.path || null,
+        idProofFile?.originalname || null,
 
-        photoFile?.path,
-        photoFile?.originalname,
+        photoFile?.path || null,
+        photoFile?.originalname || null,
 
         person.passType,
         person.passPeriod,
@@ -243,6 +243,179 @@ const PassRequest = {
 
 };
 
+const getPassRequest = {
+
+  async getAgentPassRequests(agentId) {
+
+    const query = `
+      SELECT
+        pr.id,
+        pr."referenceNo",
+        pr.status,
+        pr."submittedAt",
+        pr."grossTotal",
+        pr."gstAmount",
+        pr."netAmount",
+
+        json_agg(
+          DISTINCT jsonb_build_object(
+            'personId', pp.id,
+            'name', pp.name,
+            'aadharNo', pp."aadharNo",
+            'mobile', pp.mobile,
+            'passType', pp."passType",
+            'dateFrom', pp."dateFrom",
+            'dateTo', pp."dateTo"
+          )
+        ) FILTER (WHERE pp.id IS NOT NULL) AS persons,
+
+        json_agg(
+          DISTINCT jsonb_build_object(
+            'vehicleId', pv.id,
+            'registrationNo', pv."registrationNo",
+            'passType', pv."passType",
+            'dateFrom', pv."dateFrom",
+            'dateTo', pv."dateTo"
+          )
+        ) FILTER (WHERE pv.id IS NOT NULL) AS vehicles
+
+      FROM "pass_requests" pr
+
+      LEFT JOIN "pass_persons" pp
+        ON pp."passRequestId" = pr.id
+
+      LEFT JOIN "pass_vehicles" pv
+        ON pv."passRequestId" = pr.id
+
+      WHERE pr."agentId" = $1
+      AND pr."isActive" = true
+
+      GROUP BY pr.id
+      ORDER BY pr."createdAt" DESC
+    `;
+
+    const result = await pool.query(query, [agentId]);
+
+    return result.rows;
+  }
+
+};
+
+
+const Master = {
+
+  async getPersonsByAgent(agentId){
+
+    const query = `
+    SELECT
+    pp.id,
+    pp.name,
+    pp."aadharNo",
+    pp.mobile,
+    pp.email,
+    pp."passType",
+    pp."dateFrom",
+    pp."dateTo",
+    pp."createdAt",
+    d.name AS "designationName",
+    pr."referenceNo"
+
+    FROM pass_persons pp
+
+    JOIN pass_requests pr
+    ON pr.id = pp."passRequestId"
+
+    LEFT JOIN designations d
+    ON d.id = pp."designationId"
+
+    WHERE pr."agentId" = $1
+    AND pp."isActive" = true
+
+    ORDER BY pp."createdAt" DESC
+    `;
+
+    const result = await pool.query(query,[agentId]);
+
+    return result.rows;
+
+  },
+
+  async getVehiclesByAgent(agentId){
+
+    const query = `
+    SELECT
+    pv.id,
+    pv."registrationNo",
+    pv."passType",
+    pv."dateFrom",
+    pv."dateTo",
+    pv."createdAt",
+    vt.name AS "vehicleTypeName",
+    pr."referenceNo"
+
+    FROM pass_vehicles pv
+
+    JOIN pass_requests pr
+    ON pr.id = pv."passRequestId"
+
+    LEFT JOIN vehicle_types vt
+    ON vt.id = pv."vehicleTypeId"
+
+    WHERE pr."agentId" = $1
+    AND pv."isActive" = true
+
+    ORDER BY pv."createdAt" DESC
+    `;
+
+    const result = await pool.query(query,[agentId]);
+
+    return result.rows;
+
+  },
+
+
+  async getPersonCount(agentId){
+
+    const query = `
+    SELECT COUNT(*) AS "personCount"
+    FROM pass_persons pp
+
+    JOIN pass_requests pr
+    ON pr.id = pp."passRequestId"
+
+    WHERE pr."agentId" = $1
+    AND pp."isActive" = true
+    `;
+
+    const result = await pool.query(query,[agentId]);
+
+    return result.rows[0].personCount;
+
+  },
+
+
+  async getVehicleCount(agentId){
+
+    const query = `
+    SELECT COUNT(*) AS "vehicleCount"
+    FROM pass_vehicles pv
+
+    JOIN pass_requests pr
+    ON pr.id = pv."passRequestId"
+
+    WHERE pr."agentId" = $1
+    AND pv."isActive" = true
+    `;
+
+    const result = await pool.query(query,[agentId]);
+
+    return result.rows[0].vehicleCount;
+
+  }
+
+};
+
+
 
 module.exports = {
   Designation,
@@ -250,5 +423,7 @@ module.exports = {
   PassRequest,
   countries,
   hepTypes,
-  visitPurpose
+  visitPurpose,
+  getPassRequest,
+  Master
 };

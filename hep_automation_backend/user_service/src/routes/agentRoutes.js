@@ -1,6 +1,7 @@
 const express = require("express");
 const router = express.Router();
 const verifyService = require("../middlewares/verifyService");
+const verifyToken = require("../middlewares/verifyToken");
 const upload = require("../middlewares/uploadMiddleware");
 const agentController = require("../controllers/agentController");
 
@@ -30,6 +31,11 @@ router.patch("/updateCredentialEmailStatus", agentController.updateCredentialEma
 router.get(
   "/getAllRegisteredUsers",
   agentController.getAllRegisteredUsers
+);
+
+router.get(
+  "/profile",verifyToken,
+  agentController.getAgentProfile
 );
 
 router.get(

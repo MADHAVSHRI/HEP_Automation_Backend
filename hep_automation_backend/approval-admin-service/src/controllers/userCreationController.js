@@ -74,11 +74,15 @@ exports.createUser = async (req, res) => {
       password: hashedPassword,
       status: DEPARTMENT_USER_ACCOUNT_STATUS.INACTIVE
     });
-    await sendEmailEvent({
-      type: "USER_CREATED",
-      email: newUser.email,
-      name: newUser.userName,
-      status: newUser.status
+    setImmediate(() => {
+      sendEmailEvent({
+        type: "DEPT_USER_CREATED",
+        email: newUser.email,
+        name: newUser.userName,
+        status: newUser.status
+      }).catch(err => {
+        console.error("Kafka Email Event Failed:", err.message);
+      });
     });
 
     // ===============================

@@ -7,7 +7,7 @@ return `
 
 <p>Your account has been created successfully.</p>
 
-<p><b>Status:</b> ${status}</p>
+<p>Status:<b>${status}</b></p>
 
 <p>Please wait until admin activates your account.</p>
 

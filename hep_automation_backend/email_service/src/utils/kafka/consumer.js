@@ -82,7 +82,7 @@ const startConsumer = async () => {
               reason: data.reason
             };
 
-          } else if (data.type === "USER_CREATED") {
+          } else if (data.type === "DEPT_USER_CREATED") {
 
             payload = {
               email: data.email,
@@ -90,7 +90,7 @@ const startConsumer = async () => {
               status: data.status
             };
 
-          }else if (data.type === "USER_ACTIVATED") {
+          }else if (data.type === "DEPT_USER_ACTIVATED") {
 
             payload = {
               email: data.email,
@@ -98,7 +98,7 @@ const startConsumer = async () => {
               status: data.status
             };
 
-          }else if (data.type === "USER_DISABLED") {
+          }else if (data.type === "DEPT_USER_DISABLED") {
 
             payload = {
               email: data.email,

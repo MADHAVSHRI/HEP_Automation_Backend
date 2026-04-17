@@ -2,6 +2,7 @@ const transporter = require("../config/emailConfig");
 const template = require("../emailTemplates/referenceNumberTemplate");
 const approvalTemplate = require("../emailTemplates/agentApprovedTemplate");
 const rejectionTemplate = require("../emailTemplates/agentRejectedTemplate");
+const deptUserCreationTemplate = require("../emailTemplates/deptUserAccountCreationTemplate");
 
 const sendReferenceEmail = async (email, name, referenceNumber) => {
 
@@ -45,4 +46,20 @@ const sendRejectionEmail = async (email, name, referenceNumber, reason) => {
   return transporter.sendMail(mailOptions);
 };
 
-module.exports = { sendReferenceEmail, sendApprovalEmail, sendRejectionEmail };
+const sendDeptUserCreationEmail = async (email, name, status) => {
+
+  const html = deptUserCreationTemplate(name, status);
+
+  const mailOptions = {
+    from: process.env.EMAIL_USER,
+    to: email,
+    subject: "Chennai Port Department User Creation",
+    html
+  };
+
+  return transporter.sendMail(mailOptions);
+};
+
+
+
+module.exports = { sendReferenceEmail, sendApprovalEmail, sendRejectionEmail, sendDeptUserCreationEmail };
