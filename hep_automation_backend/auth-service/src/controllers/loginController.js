@@ -4,148 +4,11 @@ const { v4: uuidv4 } = require("uuid");
 const jwt = require("jsonwebtoken");
 const RefreshToken = require("../models/refreshTokenSchema");
 const { generateAccessToken, generateRefreshToken } = require("../utils/jwt");
-
-// exports.login = async (req, res) => {
-//   try {
-
-//     const { loginId, password, captchaToken, captchaValue } = req.body;
-
-//     if (!loginId || !password || !captchaToken || !captchaValue) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "Login ID, password, and security code are required",
-//       });
-//     }
-
-//     try {
-//       await axios.post(
-//         `${process.env.USER_SERVICE_URL}/api/captcha/verify-captcha`,
-//         { token: captchaToken, value: captchaValue },
-//         {
-//           timeout: 5000,
-//           headers: {
-//             "x-service-key": process.env.SERVICE_AUTH_KEY,
-//             "x-service-name": "AUTH-SERVICE",
-//           },
-//         },
-//       );
-//     } catch (error) {
-//       // If user_service returns a 400 (invalid captcha), axios will throw an error here
-//       return res.status(400).json({
-//         success: false,
-//         message: "Invalid or expired security code",
-//       });
-//     }
-
-//     let user;
-//     let role;
-//     let source;
-
-//     // ----------------------------------
-//     // 1️⃣ Check which service to call
-//     // ----------------------------------
-
-//     if (loginId.startsWith("190")) {
-
-//       const response = await axios.post(
-//         `${process.env.USER_SERVICE_URL}/api/agents/login`,
-//         { loginId },
-//         { timeout: 5000,
-//           headers: {
-//             "x-service-key": process.env.SERVICE_AUTH_KEY,
-//             "x-service-name": "AUTH-SERVICE"
-//         }}
-//       );
-
-//       user = response.data.data;
-//       source = "agent";
-
-//     } else {
-
-//       const response = await axios.post(
-//         `${process.env.ADMIN_SERVICE_URL}/api/user/login`,
-//         { loginId },
-//         { timeout: 5000,
-//           headers: {
-//             "x-service-key": process.env.SERVICE_AUTH_KEY
-//         }}
-//       );
-
-//       user = response.data.data;
-//       source = "admin";
-
-//     }
-
-//     if (!user) {
-//       return res.status(404).json({
-//         success: false,
-//         message: "User not found"
-//       });
-//     }
-
-//     // ----------------------------------
-//     // 2️⃣ Password check
-//     // ----------------------------------
-
-//     const isValid = await bcrypt.compare(password, user.password);
-
-//     if (!isValid) {
-//       return res.status(401).json({
-//         success: false,
-//         message: "Invalid credentials"
-//       });
-//     }
-
-//     // ----------------------------------
-//     // 3️⃣ Create session
-//     // ----------------------------------
-
-//     const sessionId = uuidv4();
-
-//     // await RefreshToken.deleteUserSessions(user.id);
-
-//     const accessToken = generateAccessToken({
-//       userId: user.id,
-//       role: user.role,
-//       sessionId,
-//       source
-//     });
-
-//     const refreshToken = generateRefreshToken({
-//       userId: user.id,
-//       role: user.role,
-//       sessionId,
-//       source
-//     });
-//     await RefreshToken.createSession({
-//       userId: user.id,
-//       refreshToken,
-//       sessionId
-//     });
-    
-
-//     // ----------------------------------
-//     // 4️⃣ Return tokens
-//     // ----------------------------------
-
-//     return res.json({
-//       success: true,
-//       accessToken,
-//       refreshToken,
-//       role: user.role
-//     });
-
-//   } catch (error) {
-
-//     console.error("Login error:", error.message);
-
-//     return res.status(500).json({
-//       success: false,
-//       message: "Login failed"
-//     });
-
-//   }
-// };
+const {
+  getUserSession,
+  createUserSession,
+  deleteUserSession
+} = require("../utils/sessionStore");
 
 exports.login = async (req, res) => {
   try {
@@ -158,10 +21,6 @@ exports.login = async (req, res) => {
         message: "Login ID, password, and security code are required",
       });
     }
-
-    /* =====================================================
-       ===== CHANGE 1: Prepare captcha verification promise
-       ===================================================== */
 
     const captchaPromise = axios.post(
       `${process.env.USER_SERVICE_URL}/api/captcha/verify-captcha`,
@@ -179,9 +38,6 @@ exports.login = async (req, res) => {
     let role;
     let source;
 
-    /* =====================================================
-       ===== CHANGE 2: Prepare user lookup promise
-       ===================================================== */
 
     let userPromise;
 
@@ -218,9 +74,6 @@ exports.login = async (req, res) => {
 
     }
 
-    /* =====================================================
-       ===== CHANGE 3: Run both API calls in parallel
-       ===================================================== */
 
     let userResponse;
 
@@ -252,9 +105,6 @@ exports.login = async (req, res) => {
       });
     }
 
-    // ----------------------------------
-    // Password check (UNCHANGED)
-    // ----------------------------------
 
     const isValid = await bcrypt.compare(password, user.password);
 
@@ -265,15 +115,67 @@ exports.login = async (req, res) => {
       });
     }
 
-    // ----------------------------------
-    // Create session (UNCHANGED)
-    // ----------------------------------
+
+
+    if (source === "admin") {
+
+      // Admin / Department users
+
+      if (user.status !== "active" || user.isApprovedByAdmin !== true) {
+        return res.status(403).json({
+          success: false,
+          message: "Your account is not activated by admin"
+        });
+      }
+
+    } else if (source === "agent") {
+
+      // Agent / Company users
+
+      if (user.status !== "approved") {
+        return res.status(403).json({
+          success: false,
+          message: "Your account is not approved yet"
+        });
+      }
+
+    }
+
+    /* =====================================================
+   ===== NEW: Check existing session in Redis
+   ===================================================== */
+
+    const existingSession = await getUserSession(user.id);
+    if (existingSession) {
+      const dbSession = await RefreshToken.getSessionBySessionId(existingSession);
+      if (dbSession) {
+        return res.status(409).json({
+          success: false,
+          message: "User already logged in from another device"
+        });
+      }
+
+    }
+
+    // const existingSession = await getUserSession(user.id);
+    //   if (existingSession) {
+
+    //     console.log("Existing session found. Replacing session...");
+
+    //     // delete redis session
+    //     await deleteUserSession(user.id);
+
+    //     // delete refresh token in DB
+    //     await RefreshToken.deleteUserSessions(user.id);
+
+    //   }
 
     const sessionId = uuidv4();
-
     const accessToken = generateAccessToken({
       userId: user.id,
       role: user.role,
+      departmentId:user.departmentId,
+      departmentName:user.departmentName,
       sessionId,
       source
     });
@@ -281,6 +183,8 @@ exports.login = async (req, res) => {
     const refreshToken = generateRefreshToken({
       userId: user.id,
       role: user.role,
+      departmentId:user.departmentId,
+      departmentName:user.departmentName,
       sessionId,
       source
     });
@@ -290,10 +194,7 @@ exports.login = async (req, res) => {
       refreshToken,
       sessionId
     });
-
-    // ----------------------------------
-    // Return tokens (UNCHANGED)
-    // ----------------------------------
+    await createUserSession(user.id, sessionId, 86400); // 24 hours
 
     return res.json({
       success: true,
@@ -378,9 +279,22 @@ exports.refreshToken = async (req, res) => {
 exports.logout = async (req, res) => {
   try {
 
-    const userId = req.user.userId;
+    const { userId, sessionId } = req.user;
+    const activeSession = await getUserSession(userId);
+    if (activeSession !== sessionId) {
 
-    await RefreshToken.deleteUserSessions(userId);
+      return res.json({
+        success: true,
+        message: "Session already replaced. Logout ignored."
+      });
+
+    }
+
+    await RefreshToken.deleteSessionBySessionId(sessionId);
+    const redisSession = await getUserSession(userId);
+    if (redisSession === sessionId) {
+      await deleteUserSession(userId);
+    }
 
     return res.json({
       success: true,

@@ -260,10 +260,10 @@ async approveAgent(agentId, loginId, password){
       SELECT
         id,
         password,
-        role
+        role,
+        status
       FROM "Agents"
       WHERE "loginId" = $1
-      AND "isApproved" = true
     `;
 
     const result = await pool.query(query, [loginId]);

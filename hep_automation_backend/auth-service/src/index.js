@@ -1,6 +1,7 @@
 const express = require("express");
 const cors = require("cors");
 require("dotenv").config();
+require("./jobs/sessionCleanUp");
 const loggerMiddleware = require("./middlewares/loggerMiddleware");
 const { connectDB } = require("./dbconfig/db");
 const routes = require("./routes/index");

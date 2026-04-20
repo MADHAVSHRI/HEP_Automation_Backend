@@ -6,7 +6,7 @@ const passRequestController = require("../controllers/passRequestController");
 const upload = require("../middlewares/uploadMiddleware");
 const verifyToken = require( "../middlewares/verifyToken" );
 
-router.post("/createPassRequest",
+router.post("/createPassRequest",verifyToken,
   upload.fields([
     { name: "authLetter", maxCount: 1 },
     { name: "personPhoto", maxCount: 1 },
@@ -29,5 +29,10 @@ router.get("/getDesignations", passRequestController.getDesignations); //coming 
 router.get("/getVehicleTypes", passRequestController.getvehicleTypes); //coming from database
 router.get("/my-pass-requests",verifyToken, passRequestController.getAgentPassRequests); //coming from database
 router.get("/my-master-records",verifyToken, passRequestController.getMasterDirectory); //coming from database
+router.get(
+  "/get-agent-pass-requests",
+  verifyToken,
+  passRequestController.getAgentPassRequestsToApproverAdmin
+);
 
 module.exports = router;

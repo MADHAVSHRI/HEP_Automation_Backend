@@ -314,13 +314,23 @@ exports.updateUserApproval = async (req, res) => {
 
     if (!userId || typeof status !== "boolean") {
       return res.status(400).json({
-        success: false,
-        message: "userId and status are required"
+        success:false,
+        message:"userId and status(boolean) required"
+      });
+    } 
+
+    if (req.user.role !== "Admin") {
+      return res.status(403).json({
+        success:false,
+        message:"Only admin can approve users"
       });
     }
 
-    if(req.user.id === userId){
+    /* Prevent admin blocking himself */
+
+    if (req.user.userId === userId) {
       return res.status(400).json({
+        success:false,
         message:"Admin cannot block himself"
       });
     }
@@ -329,24 +339,43 @@ exports.updateUserApproval = async (req, res) => {
 
     if (!updatedUser) {
       return res.status(404).json({
-        success: false,
-        message: "User not found"
+        success:false,
+        message:"User not found"
       });
     }
 
+    /* =================================
+       KAFKA EVENT FOR EMAIL NOTIFICATION
+       ================================= */
+
+    setImmediate(() => {
+
+      sendEmailEvent({
+        type: status ? "DEPT_USER_ACTIVATED" : "DEPT_USER_DISABLED",
+        email: updatedUser.email,
+        name: updatedUser.userName,
+        status: updatedUser.status
+      }).catch(err => {
+        console.error("Kafka email event failed:", err.message);
+      });
+
+    });
+
     return res.status(200).json({
-      success: true,
-      message: status ? "User approved successfully" : "User blocked successfully",
-      data: updatedUser
+      success:true,
+      message: status
+        ? "User activated successfully"
+        : "User disabled successfully",
+      data:updatedUser
     });
 
   } catch (error) {
 
-    console.error("User approval update error:", error);
+    console.error("Approval update error:",error);
 
     return res.status(500).json({
-      success: false,
-      message: "Internal server error"
+      success:false,
+      message:"Internal server error"
     });
 
   }

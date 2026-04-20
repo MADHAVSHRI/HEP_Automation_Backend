@@ -104,6 +104,10 @@ const PassRequest = {
         agentId,
         purposeOfVisitId,
         paymentMode,
+        baseTotal,
+        grossTotal,
+        gstAmount,
+        netAmount,
         persons,
         vehicles
       } = payload;
@@ -113,8 +117,9 @@ const PassRequest = {
       const passRequestResult = await client.query(
         `
         INSERT INTO pass_requests
-        ("agentId","purposeOfVisitId","authLetterFilePath","authLetterFileName","paymentMode","status","createdAt","updatedAt")
-        VALUES ($1,$2,$3,$4,$5,'SUBMITTED',NOW(),NOW())
+        ("agentId","purposeOfVisitId","authLetterFilePath","authLetterFileName","paymentMode","baseTotal",
+        "grossTotal","gstAmount","netAmount","status","submittedAt","createdAt","updatedAt")
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'SUBMITTED',NOW(),NOW(),NOW())
         RETURNING id
         `,
         [
@@ -122,7 +127,11 @@ const PassRequest = {
           purposeOfVisitId,
           authLetter.path,
           authLetter.originalname,
-          paymentMode
+          paymentMode,
+          baseTotal,
+          grossTotal,
+          gstAmount,
+          netAmount
         ]
       );
 
@@ -253,31 +262,18 @@ const getPassRequest = {
         pr."referenceNo",
         pr.status,
         pr."submittedAt",
+        pr."paymentMode",
         pr."grossTotal",
         pr."gstAmount",
         pr."netAmount",
 
-        json_agg(
-          DISTINCT jsonb_build_object(
-            'personId', pp.id,
-            'name', pp.name,
-            'aadharNo', pp."aadharNo",
-            'mobile', pp.mobile,
-            'passType', pp."passType",
-            'dateFrom', pp."dateFrom",
-            'dateTo', pp."dateTo"
-          )
-        ) FILTER (WHERE pp.id IS NOT NULL) AS persons,
+        json_agg(DISTINCT to_jsonb(pp)) 
+          FILTER (WHERE pp.id IS NOT NULL) AS persons,
 
-        json_agg(
-          DISTINCT jsonb_build_object(
-            'vehicleId', pv.id,
-            'registrationNo', pv."registrationNo",
-            'passType', pv."passType",
-            'dateFrom', pv."dateFrom",
-            'dateTo', pv."dateTo"
-          )
-        ) FILTER (WHERE pv.id IS NOT NULL) AS vehicles
+        json_agg(DISTINCT to_jsonb(pv)) 
+          FILTER (WHERE pv.id IS NOT NULL) AS vehicles
+
+        
 
       FROM "pass_requests" pr
 
@@ -300,7 +296,6 @@ const getPassRequest = {
   }
 
 };
-
 
 const Master = {
 
@@ -415,6 +410,86 @@ const Master = {
 
 };
 
+const getAgentPassRequestsDetails = {
+
+  async getAgentPassRequestsToApproverAdmin(role, departmentId){
+
+  let query = `
+  SELECT
+  pr.id,
+  pr."referenceNo",
+  pr.status,
+  pr."submittedAt",
+  pr."createdAt",
+
+  json_agg(DISTINCT to_jsonb(pp))
+  FILTER (WHERE pp.id IS NOT NULL) AS persons,
+
+  json_agg(DISTINCT to_jsonb(pv))
+  FILTER (WHERE pv.id IS NOT NULL) AS vehicles
+
+  FROM pass_requests pr
+
+  LEFT JOIN pass_persons pp
+  ON pp."passRequestId" = pr.id
+
+  LEFT JOIN pass_vehicles pv
+  ON pv."passRequestId" = pr.id
+
+  LEFT JOIN hep_types ht
+  ON ht.id = pp."hepTypeId"
+
+  WHERE pr."isActive" = true
+  `;
+
+  let params = [];
+
+  /*
+  ==========================================
+  Approval Department Filtering Logic
+  ==========================================
+  */
+
+  if (role === "Approval") {
+
+    if (departmentId === 7) {
+
+      // Marine department → only Seafarers
+
+      query += `
+      AND ht.name = 'Seafarers'
+      `;
+
+    } else {
+
+      // Traffic / EDP departments → Drivers + Personnel
+
+      query += `
+      AND ht.name IN ('Drivers','Personnel')
+      `;
+
+    }
+
+  }
+
+  /*
+  ==========================================
+  Grouping
+  ==========================================
+  */
+
+  query += `
+  GROUP BY pr.id
+  ORDER BY pr."createdAt" DESC
+  `;
+
+  const result = await pool.query(query, params);
+
+  return result.rows;
+
+}
+}
+
 
 
 module.exports = {
@@ -425,5 +500,45 @@ module.exports = {
   hepTypes,
   visitPurpose,
   getPassRequest,
-  Master
+  Master,
+  getAgentPassRequestsDetails
 };
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// json_agg(
+//           DISTINCT jsonb_build_object(
+//             'personId', pp.id,
+//             'name', pp.name,
+//             'aadharNo', pp."aadharNo",
+//             'mobile', pp.mobile,
+//             'passType', pp."passType",
+//             'dateFrom', pp."dateFrom",
+//             'dateTo', pp."dateTo"
+//           )
+//         ) FILTER (WHERE pp.id IS NOT NULL) AS persons,
+
+//         json_agg(
+//           DISTINCT jsonb_build_object(
+//             'vehicleId', pv.id,
+//             'registrationNo', pv."registrationNo",
+//             'passType', pv."passType",
+//             'dateFrom', pv."dateFrom",
+//             'dateTo', pv."dateTo"
+//           )
+//         ) FILTER (WHERE pv.id IS NOT NULL) AS vehicles

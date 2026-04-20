@@ -2,38 +2,6 @@ const { pool } = require("../dbconfig/db");
 
 const RefreshToken = {
 
-  // async createSession({ userId, refreshToken, sessionId }) {
-
-  //   const query = `
-  //     INSERT INTO "refresh_tokens"
-  //     ("userId","refreshToken","sessionId","expiresAt")
-  //     VALUES ($1,$2,$3, NOW() + INTERVAL '7 days')
-  //     ON CONFLICT ("userId")
-  //     DO UPDATE
-  //     SET
-  //       "refreshToken" = EXCLUDED."refreshToken",
-  //       "sessionId" = EXCLUDED."sessionId",
-  //       "expiresAt" = EXCLUDED."expiresAt"
-  //   `;
-
-  //   await pool.query(query, [userId, refreshToken, sessionId]);
-
-  // },
-
-  // async getSession(userId) {
-
-  //   const query = `
-  //     SELECT *
-  //     FROM "refresh_tokens"
-  //     WHERE "userId"=$1
-  //   `;
-
-  //   const result = await pool.query(query,[userId]);
-
-  //   return result.rows[0];
-
-  // },
-
   async createSession({ userId, refreshToken, sessionId }) {
 
     const client = await pool.connect();
@@ -71,7 +39,7 @@ const RefreshToken = {
       await client.query(
         `INSERT INTO "refresh_tokens"
         ("userId","refreshToken","sessionId","expiresAt")
-        VALUES ($1,$2,$3,NOW() + INTERVAL '7 days')`,
+        VALUES ($1,$2,$3,NOW() + INTERVAL '1 day')`,
         [userId, refreshToken, sessionId]
       );
 
@@ -108,6 +76,16 @@ const RefreshToken = {
     `;
 
     await pool.query(query,[userId]);
+
+  },
+  async deleteSessionBySessionId(sessionId){
+
+  const query = `
+    DELETE FROM "refresh_tokens"
+    WHERE "sessionId"=$1
+  `;
+
+  await pool.query(query,[sessionId]);
 
   }
 

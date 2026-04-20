@@ -22,7 +22,7 @@ router.get("/agent-users", adminController.getAgentRequests);
 router.put("/agent-request", adminController.agentRequestAction);
 
 router.patch(
-  "/update-user-approval",
+  "/update-user-approval", verifyToken,
   adminController.updateUserApproval
 );
 

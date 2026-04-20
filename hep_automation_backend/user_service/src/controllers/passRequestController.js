@@ -5,7 +5,8 @@ const {
   ID_PROOF_TYPES,
   ACCESS_AREAS
 } = require("../constants/constants");
-const { Designation, vehicleTypes, PassRequest, hepTypes, countries, visitPurpose, getPassRequest, Master } = require("../models/passRequestSchema");
+const { Designation, vehicleTypes, PassRequest, hepTypes, 
+        countries, visitPurpose, getPassRequest, Master, getAgentPassRequestsDetails } = require("../models/passRequestSchema");
 
 const getNationalities = (req, res) => {
   const sorted = NATIONALITIES.slice().sort((a, b) =>
@@ -133,6 +134,7 @@ const createPassRequest = async (req, res) => {
   try {
 
     const payload = JSON.parse(req.body.payload);
+    payload.agentId = req.user.userId; // from JWT
 
     const passRequestId = await PassRequest.createPassRequest(
       payload,
@@ -227,6 +229,33 @@ const getMasterDirectory = async (req, res) => {
   }
 };
 
+const getAgentPassRequestsToApproverAdmin = async (req, res) => {
+
+  try {
+
+    const role = req.user.role;
+    const departmentId = req.user.departmentId;
+
+    const passes = await getAgentPassRequestsDetails.getAgentPassRequestsToApproverAdmin(role, departmentId);
+
+    return res.status(200).json({
+      success: true,
+      data: passes
+    });
+
+  } catch (error) {
+
+    console.error("Approval pass fetch error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error"
+    });
+
+  }
+
+};
+
 module.exports = {
   getNationalities,
   getPassTypes,
@@ -239,6 +268,7 @@ module.exports = {
   getHepTypes,
   getCountries,
   getAgentPassRequests,
-  getMasterDirectory
+  getMasterDirectory,
+  getAgentPassRequestsToApproverAdmin
 
 };

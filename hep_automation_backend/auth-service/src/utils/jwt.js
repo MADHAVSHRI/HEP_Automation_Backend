@@ -9,7 +9,7 @@ const getEnv = (name) => {
 };
 
 const generateAccessToken = (payload) => {
-  return jwt.sign(payload, getEnv("JWT_SECRET"), { expiresIn: "15m" });
+  return jwt.sign(payload, getEnv("JWT_SECRET"), { expiresIn: "5h" });
 };
 
 const generateRefreshToken = (payload) => {

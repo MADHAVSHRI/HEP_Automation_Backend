@@ -98,42 +98,58 @@ const User = {
     return result.rows;
   },
 
-  async getAdminLoginUser(loginId) {
+  async getAdminLoginUser(loginId) {  
 
     const query = `
       SELECT
         u.id,
         u.password,
-        r."roleName" as role
+        u."isApprovedByAdmin",
+        u."status",
+        u."departmentId",
+        r."roleName" AS role,
+        d."departmentName" AS departmentName
+
       FROM "users" u
+
       JOIN "port_department_roles" r
         ON u."roleId" = r.id
+
+      LEFT JOIN "port_departments" d
+        ON u."departmentId" = d.id
+
       WHERE u."userName" = $1
-      AND u."isApprovedByAdmin" = true
     `;
 
     const result = await pool.query(query, [loginId]);
 
     return result.rows[0];
-
   },
 
-  async updateUserApproval(userId, status) {
+  async updateUserApproval(userId, approved) {
+
+    const status = approved ? "active" : "inactive";
 
     const query = `
       UPDATE "users"
-      SET "isApprovedByAdmin" = $1,
-          "updatedAt" = NOW()
-      WHERE id = $2
-      RETURNING *
+      SET
+        "isApprovedByAdmin" = $1,
+        "status" = $2,
+        "updatedAt" = NOW()
+      WHERE id = $3
+      RETURNING id,"userName",email,status,"isApprovedByAdmin"
     `;
 
-    const result = await pool.query(query, [status, userId]);
+    const result = await pool.query(query, [
+      approved,
+      status,
+      userId
+    ]);
 
     return result.rows[0];
 
   }
 
-};
+  };
 
 module.exports = User;
