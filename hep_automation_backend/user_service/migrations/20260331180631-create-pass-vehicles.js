@@ -129,7 +129,6 @@ module.exports = {
     await queryInterface.addIndex("pass_vehicles", ["passRequestId"]);
     await queryInterface.addIndex("pass_vehicles", ["vehicleTypeId"]);
     await queryInterface.addIndex("pass_vehicles", ["registrationNo"]);
-    await queryInterface.addIndex("pass_vehicles", ["rfidCardNumber"]);
     await queryInterface.addIndex("pass_vehicles", ["dateFrom", "dateTo"]);
     await queryInterface.addIndex("pass_vehicles", ["accessAreaId"]);
   },

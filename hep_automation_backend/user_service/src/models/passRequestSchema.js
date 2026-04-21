@@ -137,11 +137,18 @@ const PassRequest = {
 
       const passRequestId = passRequestResult.rows[0].id;
 
-      for (const person of persons) {
+      for (let i = 0; i < persons.length; i++) {
 
-      const aadharFile = files.personAadhar?.[0];
-        const photoFile = files.personPhoto?.[0];
-        const idProofFile = files.personIdProof?.[0];
+      const person = persons[i];
+
+      const aadharFile = files.personAadhar?.[i];
+      const photoFile = files.personPhoto?.[i];
+      const idProofFile = files.personIdProof?.[i];
+      const dlFile = files.driverLicense?.[i];
+      const policeFile = files.policeVerification?.[i];
+      const employFile = files.employmentProof?.[i];
+      const chaFile = files.chaLicenseCopy?.[i];
+      const passportFile = files.passportDoc?.[i];
 
         await client.query(
         `
@@ -152,12 +159,17 @@ const PassRequest = {
         "cardNumber","accessAreaId","withTwoWheeler","vehicleNo",
         "idProofType","idProofNumber",
         "idProofFilePath","idProofFileName",
-        "photoFilePath","photoFileName",
+        "photoFilePath","photoFileName","driverLicensePath","driverLicenseName",
+        "policeVerificationPath","policeVerificationName",
+        "employmentProofPath","employmentProofName",
+        "chaLicensePath","chaLicenseName",
+        "passportPath","passportName",
         "passType","passPeriod","dateFrom","dateTo","amount",
         "createdAt","updatedAt")
 
         VALUES
-        ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,NOW(),NOW())
+        ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,
+         $23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,NOW(),NOW())
         `,
         [
         passRequestId,
@@ -166,8 +178,8 @@ const PassRequest = {
         person.name,
         person.aadharNo,
 
-        aadharFile?.path,
-        aadharFile?.originalname,
+        aadharFile?.path || null,
+        aadharFile?.originalname || null,
 
         person.mobile,
         person.email,
@@ -187,6 +199,12 @@ const PassRequest = {
         photoFile?.path || null,
         photoFile?.originalname || null,
 
+        dlFile?.path || null, dlFile?.originalname || null,
+        policeFile?.path || null, policeFile?.originalname || null,
+        employFile?.path || null, employFile?.originalname || null,
+        chaFile?.path || null, chaFile?.originalname || null,
+        passportFile?.path || null, passportFile?.originalname || null,
+
         person.passType,
         person.passPeriod,
         person.dateFrom,
@@ -197,20 +215,53 @@ const PassRequest = {
 
       }
 
-      for (const vehicle of vehicles) {
+      for (let i = 0; i < vehicles.length; i++) {
 
-        const vehicleFile = files.vehicleRC?.[0];
+      const vehicle = vehicles[i];
+      const vehicleFile = files.vehicleRC?.[i];
+      const insuranceFile = files.vehicleInsurance?.[i];
+      const permitFile = files.vehiclePermit?.[i];
+      const fitnessFile = files.vehicleFitness?.[i];
+      const reqLetterFile = files.vehicleRequestLetter?.[i];
+      const taxFile = files.vehicleTax?.[i];
+      const emissionFile = files.vehicleEmission?.[i];
 
         await client.query(
           `
           INSERT INTO pass_vehicles
-                  ("passRequestId","rateId","vehicleTypeId","registrationNo",
-        "rfidCardNumber","scannedCopyFilePath","scannedCopyFileName",
-        "insuranceExpiry","rcValidity","accessAreaId",
-        "passType","passPeriod","dateFrom","dateTo","amount","createdAt","updatedAt")
+          (
+            "passRequestId","rateId","vehicleTypeId","registrationNo",
+            "rfidCardNumber",
+
+            "scannedCopyFilePath","scannedCopyFileName",
+
+            "insuranceExpiry","rcValidity","accessAreaId",
+
+            "insuranceFilePath","insuranceFileName",
+            "permitFilePath","permitFileName",
+            "fitnessFilePath","fitnessFileName",
+            "requestLetterPath","requestLetterName",
+            "taxDocPath","taxDocName",
+            "emissionCertPath","emissionCertName",
+
+            "passType","passPeriod","dateFrom","dateTo","amount",
+            "createdAt","updatedAt"
+          )
 
           VALUES
-          ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,NOW(),NOW())
+          (
+            $1,$2,$3,$4,$5,
+            $6,$7,
+            $8,$9,$10,
+            $11,$12,
+            $13,$14,
+            $15,$16,
+            $17,$18,
+            $19,$20,
+            $21,$22,
+            $23,$24,$25,$26,$27,
+            NOW(),NOW()
+          )
           `,
           [
             passRequestId,
@@ -218,11 +269,32 @@ const PassRequest = {
             vehicle.vehicleTypeId,
             vehicle.registrationNo,
             vehicle.rfidCardNumber,
-            vehicleFile.path,
-            vehicleFile.originalname,
+
+            vehicleFile?.path || null,
+            vehicleFile?.originalname || null,
+
             vehicle.insuranceExpiry,
             vehicle.rcValidity,
             vehicle.accessAreaId,
+
+            insuranceFile?.path || null,
+            insuranceFile?.originalname || null,
+
+            permitFile?.path || null,
+            permitFile?.originalname || null,
+
+            fitnessFile?.path || null,
+            fitnessFile?.originalname || null,
+
+            reqLetterFile?.path || null,
+            reqLetterFile?.originalname || null,
+
+            taxFile?.path || null,
+            taxFile?.originalname || null,
+
+            emissionFile?.path || null,
+            emissionFile?.originalname || null,
+
             vehicle.passType,
             vehicle.passPeriod,
             vehicle.dateFrom,
@@ -230,7 +302,6 @@ const PassRequest = {
             vehicle.amount
           ]
         );
-
       }
 
       await client.query("COMMIT");

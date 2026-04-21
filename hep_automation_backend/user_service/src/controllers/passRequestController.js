@@ -1,4 +1,5 @@
-const { get } = require( "mongoose" );
+const fs = require("fs");
+const path = require("path");
 const {
   PASS_TYPES,
   NATIONALITIES,
@@ -131,6 +132,20 @@ const getVisitPurposes = async (req, res) => {
 };
 
 const createPassRequest = async (req, res) => {
+
+  const deleteFiles = () => {
+      const files = req.files || {};
+  
+      Object.values(files).forEach((fileArray) => {
+        fileArray.forEach((file) => {
+          if (fs.existsSync(file.path)) {
+            fs.unlink(file.path, (err) => {
+              if (err) console.error("File delete error:", err);
+            });
+          }
+        });
+      });
+    };
   try {
 
     const payload = JSON.parse(req.body.payload);
@@ -148,7 +163,7 @@ const createPassRequest = async (req, res) => {
     });
 
   } catch (error) {
-
+    deleteFiles();
     console.error("Pass Request Error:", error);
 
     res.status(500).json({

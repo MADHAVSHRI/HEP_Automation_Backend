@@ -9,10 +9,24 @@ const verifyToken = require( "../middlewares/verifyToken" );
 router.post("/createPassRequest",verifyToken,
   upload.fields([
     { name: "authLetter", maxCount: 1 },
-    { name: "personPhoto", maxCount: 1 },
-    { name: "personAadhar", maxCount: 1 },
-    { name: "personIdProof", maxCount: 1 },
-    { name: "vehicleRC", maxCount: 1 },
+
+    { name: "personPhoto", maxCount: 50 },
+    { name: "personAadhar", maxCount: 50 },
+    { name: "personIdProof", maxCount: 50 },
+
+    { name: "driverLicense", maxCount: 50 },
+    { name: "policeVerification", maxCount: 50 },
+    { name: "employmentProof", maxCount: 50 },
+    { name: "chaLicenseCopy", maxCount: 50 },
+    { name: "passportDoc", maxCount: 50 },
+
+    { name: "vehicleRC", maxCount: 50 },
+    { name: "vehicleInsurance", maxCount: 50 },
+    { name: "vehiclePermit", maxCount: 50 },
+    { name: "vehicleFitness", maxCount: 50 },
+    { name: "vehicleRequestLetter", maxCount: 50 },
+    { name: "vehicleTax", maxCount: 50 },
+    { name: "vehicleEmission", maxCount: 50 }
   ]),
   passRequestController.createPassRequest,
 );

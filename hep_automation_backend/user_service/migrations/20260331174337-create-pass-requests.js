@@ -83,6 +83,10 @@ module.exports = {
     await queryInterface.addIndex("pass_requests", ["submittedAt"], {
       name: "idx_pass_requests_submitted",
     });
+
+    await queryInterface.addIndex("pass_requests", ["agentId", "createdAt"], {
+      name: "idx_pass_requests_agent_created",
+    });
   },
 
   async down(queryInterface, Sequelize) {
