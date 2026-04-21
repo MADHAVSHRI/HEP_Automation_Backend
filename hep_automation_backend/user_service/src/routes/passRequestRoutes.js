@@ -48,5 +48,6 @@ router.get(
   verifyToken,
   passRequestController.getAgentPassRequestsToApproverAdmin
 );
+router.get("/viewPassRequestsDocument", passRequestController.viewPassRequestsDocument);
 
 module.exports = router;

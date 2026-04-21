@@ -559,7 +559,110 @@ const getAgentPassRequestsDetails = {
   return result.rows;
 
 }
-}
+};
+
+const viewPassRequestsDocuments = { 
+    async getPassDocumentPath(passRequestId, documentType) {
+
+    let columnName;
+    let tableName;
+
+    switch (documentType) {
+
+      // PERSON FILES
+      case "personPhoto":
+        columnName = "photoFilePath";
+        tableName = "pass_persons";
+        break;
+
+      case "personAadhar":
+        columnName = "aadharPDFFilePATH";
+        tableName = "pass_persons";
+        break;
+
+      case "personIdProof":
+        columnName = "idProofFilePath";
+        tableName = "pass_persons";
+        break;
+
+      case "driverLicense":
+        columnName = "driverLicensePath";
+        tableName = "pass_persons";
+        break;
+
+      case "policeVerification":
+        columnName = "policeVerificationPath";
+        tableName = "pass_persons";
+        break;
+
+      case "employmentProof":
+        columnName = "employmentProofPath";
+        tableName = "pass_persons";
+        break;
+
+      case "chaLicenseCopy":
+        columnName = "chaLicensePath";
+        tableName = "pass_persons";
+        break;
+
+      case "passportDoc":
+        columnName = "passportPath";
+        tableName = "pass_persons";
+        break;
+
+      // VEHICLE FILES
+      case "vehicleRC":
+        columnName = "scannedCopyFilePath";
+        tableName = "pass_vehicles";
+        break;
+
+      case "vehicleInsurance":
+        columnName = "insuranceFilePath";
+        tableName = "pass_vehicles";
+        break;
+
+      case "vehiclePermit":
+        columnName = "permitFilePath";
+        tableName = "pass_vehicles";
+        break;
+
+      case "vehicleFitness":
+        columnName = "fitnessFilePath";
+        tableName = "pass_vehicles";
+        break;
+
+      case "vehicleRequestLetter":
+        columnName = "requestLetterPath";
+        tableName = "pass_vehicles";
+        break;
+
+      case "vehicleTax":
+        columnName = "taxDocPath";
+        tableName = "pass_vehicles";
+        break;
+
+      case "vehicleEmission":
+        columnName = "emissionCertPath";
+        tableName = "pass_vehicles";
+        break;
+
+      default:
+        throw new Error("Invalid document type");
+    }
+
+    const query = `
+      SELECT "${columnName}"
+      FROM "${tableName}"
+      WHERE "passRequestId" = $1
+      AND "${columnName}" IS NOT NULL
+      LIMIT 1
+    `;
+
+    const result = await pool.query(query, [passRequestId]);
+
+    return result.rows[0];
+  }
+};
 
 
 
@@ -572,7 +675,8 @@ module.exports = {
   visitPurpose,
   getPassRequest,
   Master,
-  getAgentPassRequestsDetails
+  getAgentPassRequestsDetails,
+  viewPassRequestsDocuments
 };
 
 

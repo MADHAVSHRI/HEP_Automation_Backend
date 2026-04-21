@@ -7,7 +7,7 @@ const {
   ACCESS_AREAS
 } = require("../constants/constants");
 const { Designation, vehicleTypes, PassRequest, hepTypes, 
-        countries, visitPurpose, getPassRequest, Master, getAgentPassRequestsDetails } = require("../models/passRequestSchema");
+        countries, visitPurpose, getPassRequest, Master, getAgentPassRequestsDetails, viewPassRequestsDocuments } = require("../models/passRequestSchema");
 
 const getNationalities = (req, res) => {
   const sorted = NATIONALITIES.slice().sort((a, b) =>
@@ -271,6 +271,76 @@ const getAgentPassRequestsToApproverAdmin = async (req, res) => {
 
 };
 
+const viewPassRequestsDocument = async (req, res) => {
+  try {
+
+    const { passRequestId, documentType } = req.query;
+
+    if (!passRequestId || !documentType) {
+      return res.status(400).json({
+        success: false,
+        message: "passRequestId and documentType required"
+      });
+    }
+
+    const fileData = await viewPassRequestsDocuments.getPassDocumentPath(passRequestId, documentType);
+
+    if (!fileData) {
+      return res.status(404).json({
+        success: false,
+        message: "Document not found"
+      });
+    }
+
+    const filePath = Object.values(fileData)[0];
+
+    if (!filePath) {
+      return res.status(404).json({
+        success: false,
+        message: "File path not found"
+      });
+    }
+
+    const absolutePath = path.join(process.cwd(), filePath);
+    
+
+    if (!fs.existsSync(absolutePath)) {
+      return res.status(404).json({
+        success: false,
+        message: "File missing on server"
+      });
+    }
+    const pathExt = path.extname(absolutePath).toLowerCase();
+    let contentType = "application/octet-stream";
+
+    if (pathExt === ".pdf") contentType = "application/pdf";
+    if (pathExt === ".jpg" || pathExt === ".jpeg") contentType = "image/jpeg";
+    if (pathExt === ".png") contentType = "image/png";
+
+    res.setHeader("Content-Type", contentType);
+    res.setHeader("Content-Disposition", "inline");
+
+    const stream = fs.createReadStream(absolutePath);
+
+    stream.on("error", (error) => {
+      console.error("Stream error:", error);
+      res.status(500).end("Error reading file");
+    });
+
+    stream.pipe(res);
+
+  } catch (error) {
+
+    console.error("View pass request document error:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "Internal server error"
+    });
+
+  }
+};
+
 module.exports = {
   getNationalities,
   getPassTypes,
@@ -284,6 +354,7 @@ module.exports = {
   getCountries,
   getAgentPassRequests,
   getMasterDirectory,
-  getAgentPassRequestsToApproverAdmin
+  getAgentPassRequestsToApproverAdmin,
+  viewPassRequestsDocument
 
 };
