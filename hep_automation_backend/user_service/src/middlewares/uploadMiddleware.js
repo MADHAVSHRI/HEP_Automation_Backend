@@ -19,6 +19,7 @@ const AUTH_DIR = path.join(passRequestBaseDir, "authLetters");
 const PHOTO_DIR = path.join(passRequestBaseDir, "personPhotos");
 const AADHAR_DIR = path.join(passRequestBaseDir, "personAadhar");
 const IDPROOF_DIR = path.join(passRequestBaseDir, "personIdProof");
+const REQLETTER_DIR = path.join(passRequestBaseDir, "requisitionLetter");
 const RC_DIR = path.join(passRequestBaseDir, "vehicleRC");
 
 const DL_DIR = path.join(passRequestBaseDir,"driverLicense");
@@ -30,7 +31,6 @@ const PASSPORT_DIR = path.join(passRequestBaseDir,"passport");
 const INSURANCE_DIR = path.join(passRequestBaseDir,"vehicleInsurance");
 const PERMIT_DIR = path.join(passRequestBaseDir,"vehiclePermit");
 const FITNESS_DIR = path.join(passRequestBaseDir,"vehicleFitness");
-const REQLETTER_DIR = path.join(passRequestBaseDir,"vehicleRequestLetter");
 const TAX_DIR = path.join(passRequestBaseDir,"vehicleTax");
 const EMISSION_DIR = path.join(passRequestBaseDir,"vehicleEmission");
 
@@ -42,6 +42,7 @@ const passRequestFolders = [
   "personPhotos",
   "personAadhar",
   "personIdProof",
+  "requisitionLetter",
   "vehicleRC",
   "driverLicense",
   "policeVerification",
@@ -128,6 +129,10 @@ const storage = multer.diskStorage({
 
       case "personIdProof":
         cb(null, IDPROOF_DIR);
+        break;
+
+      case "requisitionLetter":
+        cb(null, REQLETTER_DIR);
         break;
 
       case "vehicleRC":
@@ -223,6 +228,10 @@ const storage = multer.diskStorage({
       fileName = `PERSONIDPROOF${timestamp}.pdf`;
     }
 
+    else if (file.fieldname === "requisitionLetter") {
+      fileName = `REQUISITIONLETTER${timestamp}.pdf`;
+    }
+
     else if (file.fieldname === "vehicleRC") {
       fileName = `VEHICLERC${timestamp}.pdf`;
     }
@@ -288,12 +297,14 @@ const fileFilter = (req, file, cb) => {
   const allowedMime = [
     "application/pdf",
     "image/jpeg",
+    "image/png"
   ];
 
   const allowedExt = [
     ".pdf",
     ".jpg",
-    ".jpeg"
+    ".jpeg",
+    ".png"
   ];
 
   const ext = path.extname(file.originalname).toLowerCase();

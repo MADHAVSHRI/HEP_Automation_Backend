@@ -134,27 +134,89 @@ const getVisitPurposes = async (req, res) => {
 const createPassRequest = async (req, res) => {
 
   const deleteFiles = () => {
-      const files = req.files || {};
-  
-      Object.values(files).forEach((fileArray) => {
-        fileArray.forEach((file) => {
-          if (fs.existsSync(file.path)) {
-            fs.unlink(file.path, (err) => {
-              if (err) console.error("File delete error:", err);
-            });
-          }
-        });
+    const files = req.files || {};
+
+    Object.values(files).forEach((fileArray) => {
+      fileArray.forEach((file) => {
+        if (fs.existsSync(file.path)) {
+          fs.unlink(file.path, (err) => {
+            if (err) console.error("File delete error:", err);
+          });
+        }
       });
-    };
+    });
+  };
+
   try {
 
     const payload = JSON.parse(req.body.payload);
+
     payload.agentId = req.user.userId; // from JWT
+
+
+    /* ===== CHANGE START =====
+       Normalize passType values coming from frontend
+       Frontend sometimes sends YEARLY but DB expects ANNUAL
+    ===== */
+
+    const normalizePassType = (type) => {
+
+      if (!type) return null;
+
+      const map = {
+        DAILY: "DAILY",
+        MONTHLY: "MONTHLY",
+        ANNUAL: "YEARLY",
+        YEARLY: "YEARLY",
+        1: "DAILY",
+        2: "MONTHLY",
+        3: "YEARLY"
+      };
+
+      return map[type] || type;
+
+    };
+
+    /* ===== CHANGE END ===== */
+
+
+    /* ===== CHANGE START =====
+       Normalize passType for persons
+    ===== */
+
+    if (payload.persons && Array.isArray(payload.persons)) {
+
+      payload.persons = payload.persons.map((p) => ({
+        ...p,
+        passType: normalizePassType(p.passType)
+      }));
+
+    }
+
+    /* ===== CHANGE END ===== */
+
+
+    /* ===== CHANGE START =====
+       Normalize passType for vehicles
+    ===== */
+
+    if (payload.vehicles && Array.isArray(payload.vehicles)) {
+
+      payload.vehicles = payload.vehicles.map((v) => ({
+        ...v,
+        passType: normalizePassType(v.passType)
+      }));
+
+    }
+
+    /* ===== CHANGE END ===== */
+
 
     const passRequestId = await PassRequest.createPassRequest(
       payload,
       req.files
     );
+
 
     res.status(201).json({
       success: true,
@@ -163,7 +225,9 @@ const createPassRequest = async (req, res) => {
     });
 
   } catch (error) {
+
     deleteFiles();
+
     console.error("Pass Request Error:", error);
 
     res.status(500).json({
@@ -172,6 +236,7 @@ const createPassRequest = async (req, res) => {
     });
 
   }
+
 };
 
 const getAgentPassRequests = async (req, res) => {

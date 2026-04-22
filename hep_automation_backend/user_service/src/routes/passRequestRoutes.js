@@ -2,7 +2,7 @@ const express = require("express");
 const router = express.Router();
 const captchaLimiter = require("../middlewares/rateLimiter");
 const passRequestController = require("../controllers/passRequestController");
-
+const authorizeToken = require("../middlewares/authorizeToken");
 const upload = require("../middlewares/uploadMiddleware");
 const verifyToken = require( "../middlewares/verifyToken" );
 
@@ -15,6 +15,7 @@ router.post("/createPassRequest",verifyToken,
     { name: "personIdProof", maxCount: 50 },
 
     { name: "driverLicense", maxCount: 50 },
+    { name: "requisitionLetter", maxCount: 50 },
     { name: "policeVerification", maxCount: 50 },
     { name: "employmentProof", maxCount: 50 },
     { name: "chaLicenseCopy", maxCount: 50 },
@@ -50,4 +51,13 @@ router.get(
 );
 router.get("/viewPassRequestsDocument", passRequestController.viewPassRequestsDocument);
 
+// router.put(
+//   "/action",
+//   verifyToken,
+//   authorizeToken("Admin"),
+//   passRequestController.passRequestAction
+// );
+
 module.exports = router;
+
+

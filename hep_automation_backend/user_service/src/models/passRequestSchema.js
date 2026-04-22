@@ -145,6 +145,7 @@ const PassRequest = {
       const photoFile = files.personPhoto?.[i];
       const idProofFile = files.personIdProof?.[i];
       const dlFile = files.driverLicense?.[i];
+      const requisitionFile = files.requisitionLetter?.[i];
       const policeFile = files.policeVerification?.[i];
       const employFile = files.employmentProof?.[i];
       const chaFile = files.chaLicenseCopy?.[i];
@@ -159,7 +160,7 @@ const PassRequest = {
         "cardNumber","accessAreaId","withTwoWheeler","vehicleNo",
         "idProofType","idProofNumber",
         "idProofFilePath","idProofFileName",
-        "photoFilePath","photoFileName","driverLicensePath","driverLicenseName",
+        "photoFilePath","photoFileName","requisitionLetterPath","requisitionLetterName","driverLicensePath","driverLicenseName",
         "policeVerificationPath","policeVerificationName",
         "employmentProofPath","employmentProofName",
         "chaLicensePath","chaLicenseName",
@@ -169,7 +170,7 @@ const PassRequest = {
 
         VALUES
         ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,
-         $23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,NOW(),NOW())
+         $23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,NOW(),NOW())
         `,
         [
         passRequestId,
@@ -198,6 +199,9 @@ const PassRequest = {
 
         photoFile?.path || null,
         photoFile?.originalname || null,
+
+        requisitionFile?.path || null,
+        requisitionFile?.originalname || null,
 
         dlFile?.path || null, dlFile?.originalname || null,
         policeFile?.path || null, policeFile?.originalname || null,
@@ -482,16 +486,20 @@ const Master = {
 };
 
 const getAgentPassRequestsDetails = {
-
-  async getAgentPassRequestsToApproverAdmin(role, departmentId){
-
-  let query = `
+  async getAgentPassRequestsToApproverAdmin(role, departmentId) {
+    let query = `
   SELECT
   pr.id,
   pr."referenceNo",
   pr.status,
   pr."submittedAt",
   pr."createdAt",
+
+  MAX(a."entityName") AS "entityName",
+  MAX(a."email") AS "email",
+  MAX(a."mobileNo") AS "mobileNo",
+  MAX(a."gstinNumber") AS "gstinNumber",
+  MAX(a."panNumber") AS "panNumber",
 
   json_agg(DISTINCT to_jsonb(pp))
   FILTER (WHERE pp.id IS NOT NULL) AS persons,
@@ -500,6 +508,9 @@ const getAgentPassRequestsDetails = {
   FILTER (WHERE pv.id IS NOT NULL) AS vehicles
 
   FROM pass_requests pr
+
+  LEFT JOIN "Agents" a
+  ON a.id = pr."agentId"
 
   LEFT JOIN pass_persons pp
   ON pp."passRequestId" = pr.id
@@ -513,52 +524,45 @@ const getAgentPassRequestsDetails = {
   WHERE pr."isActive" = true
   `;
 
-  let params = [];
+    let params = [];
 
-  /*
+    /*
   ==========================================
   Approval Department Filtering Logic
   ==========================================
   */
 
-  if (role === "Approval") {
+    if (role === "Approval") {
+      if (departmentId === 7) {
+        // Marine department → only Seafarers
 
-    if (departmentId === 7) {
-
-      // Marine department → only Seafarers
-
-      query += `
+        query += `
       AND ht.name = 'Seafarers'
       `;
+      } else {
+        // Traffic / EDP departments → Drivers + Personnel
 
-    } else {
-
-      // Traffic / EDP departments → Drivers + Personnel
-
-      query += `
+        query += `
       AND ht.name IN ('Drivers','Personnel')
       `;
-
+      }
     }
 
-  }
-
-  /*
+    /*
   ==========================================
   Grouping
   ==========================================
   */
 
-  query += `
+    query += `
   GROUP BY pr.id
   ORDER BY pr."createdAt" DESC
   `;
 
-  const result = await pool.query(query, params);
+    const result = await pool.query(query, params);
 
-  return result.rows;
-
-}
+    return result.rows;
+  },
 };
 
 const viewPassRequestsDocuments = { 
