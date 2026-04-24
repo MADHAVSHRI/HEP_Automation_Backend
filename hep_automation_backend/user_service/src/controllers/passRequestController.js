@@ -406,6 +406,136 @@ const viewPassRequestsDocument = async (req, res) => {
   }
 };
 
+const approvePerson = async(req,res)=>{
+
+  try{
+
+    const {personId} = req.body;
+
+    const person = await PassRequest.approvePerson(personId);
+
+    return res.json({
+      success:true,
+      data:person
+    });
+
+  }catch(error){
+
+    console.error(error);
+
+    res.status(500).json({
+      success:false,
+      message:"Internal server error"
+    });
+
+  }
+
+}
+
+const rejectPerson = async(req,res)=>{
+
+  try{
+
+    const {personId, rejectedReason} = req.body;
+
+    const person = await PassRequest.rejectPerson(personId, rejectedReason);
+
+    return res.json({
+      success:true,
+      data:person
+    });
+
+  }catch(error){
+
+    console.error(error);
+
+    res.status(500).json({
+      success:false,
+      message:"Internal server error"
+    });
+
+  }
+
+}
+
+const approveVehicle = async(req,res)=>{
+
+  try{
+
+    const {vehicleId} = req.body;
+
+    const vehicle = await PassRequest.approveVehicle(vehicleId);
+
+    return res.json({
+      success:true,
+      data:vehicle
+    });
+
+  }catch(error){
+
+    console.error(error);
+
+    res.status(500).json({
+      success:false,
+      message:"Internal server error"
+    });
+
+  }
+
+}
+
+const rejectVehicle = async(req,res)=>{
+
+  try{
+
+    const {vehicleId, rejectedReason} = req.body;
+
+    const vehicle = await PassRequest.rejectVehicle(vehicleId, rejectedReason);
+
+    return res.json({
+      success:true,
+      data:vehicle
+    });
+
+  }catch(error){
+
+    console.error(error);
+
+    res.status(500).json({
+      success:false,
+      message:"Internal server error"
+    });
+
+  }
+
+}
+
+const completeReview = async(req,res)=>{
+
+  try{
+
+    const {passRequestId} = req.body;
+
+    const result = await PassRequest.completePassReview(passRequestId);
+
+    return res.json({
+      success:true,
+      data:result
+    });
+
+  }catch(error){
+
+    console.error(error);
+
+    res.status(500).json({
+      success:false,
+      message:error.message
+    });
+
+  }
+
+}
+
 module.exports = {
   getNationalities,
   getPassTypes,
@@ -420,6 +550,11 @@ module.exports = {
   getAgentPassRequests,
   getMasterDirectory,
   getAgentPassRequestsToApproverAdmin,
-  viewPassRequestsDocument
+  viewPassRequestsDocument,
+  approvePerson,
+  rejectPerson,
+  approveVehicle,
+  rejectVehicle,
+  completeReview
 
 };

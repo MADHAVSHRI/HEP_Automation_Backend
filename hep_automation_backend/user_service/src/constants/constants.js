@@ -10,6 +10,20 @@ const USER_ROLES = {
   MARINE_ADMIN: "marineAdmin"
 };
 
+const PASS_ENTITY_STATUS = Object.freeze({
+  PENDING: "pending",
+  APPROVED: "approved",
+  REJECTED: "rejected"
+});
+
+const PASS_REQUEST_STATUS = Object.freeze({
+  DRAFT: "DRAFT",
+  SUBMITTED: "SUBMITTED",
+  UNDER_REVIEW: "UNDER_REVIEW",
+  COMPLETED: "COMPLETED"
+});
+
+
 const PASS_TYPES = [
   { value: "DAILY", label: "Daily Pass" ,id: 1},
   { value: "MONTHLY", label: "Monthly Pass", id: 2 },
@@ -48,5 +62,9 @@ module.exports = {
   PASS_TYPES,
   NATIONALITIES,
   ID_PROOF_TYPES,
-  ACCESS_AREAS
+  ACCESS_AREAS,
+  PASS_ENTITY_STATUS,
+  PASS_ENTITY_STATUS_LIST: Object.values(PASS_ENTITY_STATUS),
+  PASS_REQUEST_STATUS,
+  PASS_REQUEST_STATUS_LIST: Object.values(PASS_REQUEST_STATUS)
 };

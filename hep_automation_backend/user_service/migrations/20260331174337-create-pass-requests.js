@@ -48,7 +48,7 @@ module.exports = {
       netAmount: { type: Sequelize.DECIMAL(12, 2), defaultValue: 0 },
 
       paymentMode: {
-        type: Sequelize.ENUM("ACCOUNT", "ECASH"),
+        type: Sequelize.ENUM("ACCOUNT", "E-CASH"),
         defaultValue: "ACCOUNT",
       },
 

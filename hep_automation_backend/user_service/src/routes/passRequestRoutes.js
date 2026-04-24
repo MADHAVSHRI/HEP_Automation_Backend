@@ -44,19 +44,18 @@ router.get("/getDesignations", passRequestController.getDesignations); //coming 
 router.get("/getVehicleTypes", passRequestController.getvehicleTypes); //coming from database
 router.get("/my-pass-requests",verifyToken, passRequestController.getAgentPassRequests); //coming from database
 router.get("/my-master-records",verifyToken, passRequestController.getMasterDirectory); //coming from database
-router.get(
-  "/get-agent-pass-requests",
-  verifyToken,
-  passRequestController.getAgentPassRequestsToApproverAdmin
-);
+router.get("/get-agent-pass-requests",verifyToken,passRequestController.getAgentPassRequestsToApproverAdmin);
 router.get("/viewPassRequestsDocument", passRequestController.viewPassRequestsDocument);
 
-// router.put(
-//   "/action",
-//   verifyToken,
-//   authorizeToken("Admin"),
-//   passRequestController.passRequestAction
-// );
+router.put("/approve-person",verifyToken,passRequestController.approvePerson);
+
+router.put("/reject-person",verifyToken,passRequestController.rejectPerson);
+
+router.put("/approve-vehicle",verifyToken,passRequestController.approveVehicle);
+
+router.put("/reject-vehicle",verifyToken,passRequestController.rejectVehicle);
+
+router.put("/complete-review",verifyToken,passRequestController.completeReview);
 
 module.exports = router;
 

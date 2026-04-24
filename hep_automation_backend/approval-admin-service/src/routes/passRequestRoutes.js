@@ -9,7 +9,6 @@ const passRequestAction  = require( "../controllers/passApprovalController" );
 router.patch(
   "/agent-pass-request-action",
   verifyToken,
-  authorizeToken("Approval"),
   passRequestAction.passRequestAction
 );
 

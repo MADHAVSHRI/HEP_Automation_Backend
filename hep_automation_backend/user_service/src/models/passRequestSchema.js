@@ -323,6 +323,100 @@ const PassRequest = {
 
     }
 
+  },
+
+  async approvePerson(personId){
+
+    const query = `
+      UPDATE pass_persons
+      SET status='approved'
+      WHERE id=$1
+      RETURNING *
+    `;
+
+    const result = await pool.query(query,[personId]);
+
+    return result.rows[0];
+
+  },
+
+  async rejectPerson(personId, reason){
+
+    const query = `
+      UPDATE pass_persons
+      SET status='rejected',
+          "rejectedReason"=$2
+      WHERE id=$1
+      RETURNING *
+    `;
+
+    const result = await pool.query(query,[personId, reason]);
+
+    return result.rows[0];
+
+  },
+
+  async approveVehicle(vehicleId){
+
+    const query = `
+      UPDATE pass_vehicles
+      SET status='approved'
+      WHERE id=$1
+      RETURNING *
+    `;
+
+    const result = await pool.query(query,[vehicleId]);
+
+    return result.rows[0];
+
+  },
+
+  async rejectVehicle(vehicleId, reason){
+
+  const query = `
+    UPDATE pass_vehicles
+    SET status='rejected',
+        "rejectedReason"=$2
+    WHERE id=$1
+    RETURNING *
+  `;
+
+  const result = await pool.query(query,[vehicleId, reason]);
+
+  return result.rows[0];
+
+  },
+
+  async completePassReview(passRequestId){
+
+    const pendingCheck = `
+      SELECT
+      (SELECT COUNT(*) FROM pass_persons
+      WHERE "passRequestId"=$1 AND status='pending') as pendingPersons,
+
+      (SELECT COUNT(*) FROM pass_vehicles
+      WHERE "passRequestId"=$1 AND status='pending') as pendingVehicles
+    `;
+
+    const check = await pool.query(pendingCheck,[passRequestId]);
+
+    const { pendingpersons , pendingvehicles } = check.rows[0];
+
+    if(pendingpersons > 0 || pendingvehicles > 0){
+      throw new Error("All entities must be reviewed before completing");
+    }
+
+    const query = `
+      UPDATE pass_requests
+      SET status='COMPLETED'
+      WHERE id=$1
+      RETURNING *
+    `;
+
+    const result = await pool.query(query,[passRequestId]);
+
+    return result.rows[0];
+
   }
 
 };
@@ -485,8 +579,89 @@ const Master = {
 
 };
 
+// const getAgentPassRequestsDetails = {
+//   async getAgentPassRequestsToApproverAdmin(role, departmentId) {
+//     let query = `
+//   SELECT
+//   pr.id,
+//   pr."referenceNo",
+//   pr.status,
+//   pr."submittedAt",
+//   pr."createdAt",
+
+//   MAX(a."entityName") AS "entityName",
+//   MAX(a."email") AS "email",
+//   MAX(a."mobileNo") AS "mobileNo",
+//   MAX(a."gstinNumber") AS "gstinNumber",
+//   MAX(a."panNumber") AS "panNumber",
+
+//   json_agg(DISTINCT to_jsonb(pp))
+//   FILTER (WHERE pp.id IS NOT NULL) AS persons,
+
+//   json_agg(DISTINCT to_jsonb(pv))
+//   FILTER (WHERE pv.id IS NOT NULL) AS vehicles
+
+//   FROM pass_requests pr
+
+//   LEFT JOIN "Agents" a
+//   ON a.id = pr."agentId"
+
+//   LEFT JOIN pass_persons pp
+//   ON pp."passRequestId" = pr.id
+
+//   LEFT JOIN pass_vehicles pv
+//   ON pv."passRequestId" = pr.id
+
+//   LEFT JOIN hep_types ht
+//   ON ht.id = pp."hepTypeId"
+
+//   WHERE pr."isActive" = true
+//   `;
+
+//     let params = [];
+
+//     /*
+//   ==========================================
+//   Approval Department Filtering Logic
+//   ==========================================
+//   */
+
+//     if (role === "Approval") {
+//       if (departmentId === 7) {
+//         // Marine department → only Seafarers
+
+//         query += `
+//       AND ht.name = 'Seafarers'
+//       `;
+//       } else {
+//         // Traffic / EDP departments → Drivers + Personnel
+
+//         query += `
+//       AND ht.name IN ('Drivers','Personnel')
+//       `;
+//       }
+//     }
+
+//     /*
+//   ==========================================
+//   Grouping
+//   ==========================================
+//   */
+
+//     query += `
+//   GROUP BY pr.id
+//   ORDER BY pr."createdAt" DESC
+//   `;
+
+//     const result = await pool.query(query, params);
+
+//     return result.rows;
+//   },
+// };
+
 const getAgentPassRequestsDetails = {
   async getAgentPassRequestsToApproverAdmin(role, departmentId) {
+
     let query = `
   SELECT
   pr.id,
@@ -501,8 +676,28 @@ const getAgentPassRequestsDetails = {
   MAX(a."gstinNumber") AS "gstinNumber",
   MAX(a."panNumber") AS "panNumber",
 
-  json_agg(DISTINCT to_jsonb(pp))
+  /*
+  ===================================================
+  CHANGE START
+  Add country name inside persons JSON
+  ===================================================
+  */
+
+  json_agg(
+    DISTINCT (
+      to_jsonb(pp)
+      || jsonb_build_object(
+        'country', c.name
+      )
+    )
+  )
   FILTER (WHERE pp.id IS NOT NULL) AS persons,
+
+  /*
+  ===================================================
+  CHANGE END
+  ===================================================
+  */
 
   json_agg(DISTINCT to_jsonb(pv))
   FILTER (WHERE pv.id IS NOT NULL) AS vehicles
@@ -521,6 +716,22 @@ const getAgentPassRequestsDetails = {
   LEFT JOIN hep_types ht
   ON ht.id = pp."hepTypeId"
 
+  /*
+  ===================================================
+  CHANGE START
+  Join countries table
+  ===================================================
+  */
+
+  LEFT JOIN countries c
+  ON c.id = pp."countryId"
+
+  /*
+  ===================================================
+  CHANGE END
+  ===================================================
+  */
+
   WHERE pr."isActive" = true
   `;
 
@@ -533,14 +744,14 @@ const getAgentPassRequestsDetails = {
   */
 
     if (role === "Approval") {
+
       if (departmentId === 7) {
-        // Marine department → only Seafarers
 
         query += `
       AND ht.name = 'Seafarers'
       `;
+
       } else {
-        // Traffic / EDP departments → Drivers + Personnel
 
         query += `
       AND ht.name IN ('Drivers','Personnel')
@@ -586,6 +797,11 @@ const viewPassRequestsDocuments = {
 
       case "personIdProof":
         columnName = "idProofFilePath";
+        tableName = "pass_persons";
+        break;
+
+      case "requisitionLetter":
+        columnName = "requisitionLetterPath";
         tableName = "pass_persons";
         break;
 

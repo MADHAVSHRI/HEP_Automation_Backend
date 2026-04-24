@@ -173,7 +173,7 @@ const Agent = {
 
 },
 
-async approveAgent(agentId, loginId, password){
+  async approveAgent(agentId, loginId, password){
 
     const query = `
       UPDATE "Agents"
