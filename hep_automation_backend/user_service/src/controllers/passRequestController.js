@@ -6,6 +6,7 @@ const {
   ID_PROOF_TYPES,
   ACCESS_AREAS
 } = require("../constants/constants");
+const passRequestService = require("../services/passRequestService");
 const { Designation, vehicleTypes, PassRequest, hepTypes, 
         countries, visitPurpose, getPassRequest, Master, getAgentPassRequestsDetails, viewPassRequestsDocuments } = require("../models/passRequestSchema");
 
@@ -140,7 +141,9 @@ const createPassRequest = async (req, res) => {
       fileArray.forEach((file) => {
         if (fs.existsSync(file.path)) {
           fs.unlink(file.path, (err) => {
-            if (err) console.error("File delete error:", err);
+            if(err && err.code !== "ENOENT"){
+              console.error("File delete error:",err);
+            }
           });
         }
       });
@@ -232,7 +235,7 @@ const createPassRequest = async (req, res) => {
 
     res.status(500).json({
       success: false,
-      message: "Failed to create pass request"
+      message: error.message || "Failed to create pass request"
     });
 
   }
@@ -536,6 +539,28 @@ const completeReview = async(req,res)=>{
 
 }
 
+
+const getQrData = async (req, res) => {
+  try {
+
+    const { passRequestId } = req.params;
+
+    const data = await passRequestService.getQrData(passRequestId);
+
+    return res.json(data);
+
+  } catch (error) {
+
+    console.error("QR DATA ERROR", error);
+
+    return res.status(500).json({
+      success:false,
+      message:error.message
+    });
+
+  }
+};
+
 module.exports = {
   getNationalities,
   getPassTypes,
@@ -555,6 +580,6 @@ module.exports = {
   rejectPerson,
   approveVehicle,
   rejectVehicle,
-  completeReview
-
+  completeReview,
+  getQrData
 };

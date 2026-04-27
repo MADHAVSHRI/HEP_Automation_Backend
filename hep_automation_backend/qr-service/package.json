@@ -4,7 +4,9 @@
   "description": "Generation of QR codes for visitor and vehicle pass",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js"
   },
   "repository": {
     "type": "git",
@@ -15,5 +17,21 @@
   "bugs": {
     "url": "https://github.com/MADHAVSHRI/HEP_Automation/issues"
   },
-  "homepage": "https://github.com/MADHAVSHRI/HEP_Automation#readme"
+  "homepage": "https://github.com/MADHAVSHRI/HEP_Automation#readme",
+  "dependencies": {
+    "axios": "^1.15.2",
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "express-rate-limit": "^8.4.1",
+    "jsonwebtoken": "^9.0.3",
+    "nodemon": "^3.1.14",
+    "pdfkit": "^0.18.0",
+    "pg": "^8.20.0",
+    "pg-hstore": "^2.3.4",
+    "qrcode": "^1.5.4",
+    "sequelize": "^6.37.8",
+    "uuid": "^14.0.0",
+    "winston": "^3.19.0"
+  }
 }

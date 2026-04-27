@@ -46,6 +46,11 @@ router.get("/my-pass-requests",verifyToken, passRequestController.getAgentPassRe
 router.get("/my-master-records",verifyToken, passRequestController.getMasterDirectory); //coming from database
 router.get("/get-agent-pass-requests",verifyToken,passRequestController.getAgentPassRequestsToApproverAdmin);
 router.get("/viewPassRequestsDocument", passRequestController.viewPassRequestsDocument);
+router.get(
+  "/qr-data/:passRequestId",
+  verifyToken,
+  passRequestController.getQrData
+);
 
 router.put("/approve-person",verifyToken,passRequestController.approvePerson);
 
