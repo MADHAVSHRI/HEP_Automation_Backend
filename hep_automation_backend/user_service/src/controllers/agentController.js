@@ -553,6 +553,81 @@ exports.viewAgentDocument = async (req, res) => {
 
 };
 
+exports.updateAgentByReference = async (req, res) => {
+
+  const deleteUploadedFiles = () => {
+    const files = req.files || {};
+
+    Object.values(files).forEach((arr) => {
+      arr.forEach((file) => {
+        if (fs.existsSync(file.path)) {
+          fs.unlinkSync(file.path);
+        }
+      });
+    });
+  };
+
+  try {
+
+    const { referenceNumber } = req.body;
+
+    if (!referenceNumber) {
+      deleteUploadedFiles();
+      return res.status(400).json({
+        success: false,
+        message: "referenceNumber is required"
+      });
+    }
+
+
+    const entityFile = req.files?.entityFile?.[0]?.path || null;
+    const gstinDoc = req.files?.gstinDoc?.[0]?.path || null;
+    const panDoc = req.files?.panDoc?.[0]?.path || null;
+    const tanDoc = req.files?.tanDoc?.[0]?.path || null;
+
+    const updatePayload = {
+      ...req.body,
+      entityFile,
+      gstinDoc,
+      panDoc,
+      tanDoc
+    };
+
+    const updated = await Agent.updateAgentByReference(
+      referenceNumber,
+      updatePayload
+    );
+
+    if (!updated.success) {
+
+      deleteUploadedFiles();
+
+      return res.status(400).json({
+        success: false,
+        message: updated.message
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Agent updated successfully",
+      data: updated.data
+    });
+
+  } catch (error) {
+
+    deleteUploadedFiles();
+
+    console.error("Agent Update Error:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "Internal server error"
+    });
+  }
+
+};
+
 
 
 

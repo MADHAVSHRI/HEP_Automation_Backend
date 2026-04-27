@@ -321,6 +321,201 @@ const Agent = {
     const result = await pool.query(query, [referenceNumber]);
 
     return result.rows[0];
+  },
+
+  async updateAgentByReference(referenceNumber, payload) {
+
+    const client = await pool.connect();
+
+    try {
+
+      await client.query("BEGIN");
+
+      /* =================================
+        STEP 1 — Lock Agent Row
+      ================================= */
+
+      const agentQuery = `
+        SELECT *
+        FROM "Agents"
+        WHERE "referenceNumber"=$1
+        FOR UPDATE
+      `;
+
+      const agentResult = await client.query(agentQuery,[referenceNumber]);
+
+      if (!agentResult.rows.length) {
+
+        await client.query("ROLLBACK");
+
+        return {
+          success:false,
+          message:"Agent not found"
+        };
+      }
+
+      const agent = agentResult.rows[0];
+
+      /* =================================
+        STEP 2 — Check edit permission
+      ================================= */
+
+      if (agent.status !== "pending" || agent.isApproved === true) {
+
+        await client.query("ROLLBACK");
+
+        return {
+          success:false,
+          message:"Agent cannot be edited after approval process"
+        };
+      }
+
+      /* =================================
+        STEP 3 — Duplicate check
+      ================================= */
+
+      const duplicateCheckQuery = `
+        SELECT id
+        FROM "Agents"
+        WHERE
+        ("email"=$1 OR "mobileNo"=$2 OR "panNumber"=$3 OR "gstinNumber"=$4)
+        AND "referenceNumber"<>$5
+        LIMIT 1
+      `;
+
+      const duplicateResult = await client.query(duplicateCheckQuery,[
+        payload.email || agent.email,
+        payload.mobileNo || agent.mobileNo,
+        payload.panNumber || agent.panNumber,
+        payload.gstinNumber || agent.gstinNumber,
+        referenceNumber
+      ]);
+
+      if (duplicateResult.rows.length) {
+
+        await client.query("ROLLBACK");
+
+        return {
+          success:false,
+          message:"Duplicate email/mobile/PAN/GST detected"
+        };
+      }
+
+      /* =================================
+        STEP 4 — File Replacement
+      ================================= */
+
+      const fs = require("fs");
+
+      const replaceFile = (oldFile,newFile) => {
+
+        if(newFile){
+
+          if(oldFile && fs.existsSync(oldFile)){
+            fs.unlinkSync(oldFile);
+          }
+
+          return newFile;
+        }
+
+        return oldFile;
+      };
+
+      const entityFile = replaceFile(agent.entityFile,payload.entityFile);
+      const gstinDoc = replaceFile(agent.gstinDoc,payload.gstinDoc);
+      const panDoc = replaceFile(agent.panDoc,payload.panDoc);
+      const tanDoc = replaceFile(agent.tanDoc,payload.tanDoc);
+
+      /* =================================
+        STEP 5 — Update Query
+      ================================= */
+
+      const updateQuery = `
+        UPDATE "Agents"
+        SET
+
+        "entityName"=$1,
+        "mobileNo"=$2,
+        "email"=$3,
+
+        "addressLine"=$4,
+        "city"=$5,
+        "state"=$6,
+        "pincode"=$7,
+        "country"=$8,
+
+        "gstinNumber"=$9,
+        "panNumber"=$10,
+        "tanNumber"=$11,
+
+        "remark"=$12,
+        "title"=$13,
+        "firstName"=$14,
+        "lastName"=$15,
+        "contactMobile"=$16,
+        "contactEmail"=$17,
+
+        "entityFile"=$18,
+        "gstinDoc"=$19,
+        "panDoc"=$20,
+        "tanDoc"=$21,
+
+        "updatedAt"=CURRENT_TIMESTAMP
+
+        WHERE "referenceNumber"=$22
+        RETURNING *
+      `;
+
+      const values = [
+
+        payload.entityName || agent.entityName,
+        payload.mobileNo || agent.mobileNo,
+        payload.email || agent.email,
+
+        payload.addressLine || agent.addressLine,
+        payload.city || agent.city,
+        payload.state || agent.state,
+        payload.pincode || agent.pincode,
+        payload.country || agent.country,
+
+        payload.gstinNumber || agent.gstinNumber,
+        payload.panNumber || agent.panNumber,
+        payload.tanNumber || agent.tanNumber,
+
+        payload.remark || agent.remark,
+        payload.title || agent.title,
+        payload.firstName || agent.firstName,
+        payload.lastName || agent.lastName,
+        payload.contactMobile || agent.contactMobile,
+        payload.contactEmail || agent.contactEmail,
+
+        entityFile,
+        gstinDoc,
+        panDoc,
+        tanDoc,
+
+        referenceNumber
+      ];
+
+      const result = await client.query(updateQuery,values);
+
+      await client.query("COMMIT");
+
+      return {
+        success:true,
+        data:result.rows[0]
+      };
+
+    }
+    catch(error){
+
+      await client.query("ROLLBACK");
+      throw error;
+    }
+    finally{
+      client.release();
+    }
+
   }
 
 };

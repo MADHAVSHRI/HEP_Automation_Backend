@@ -50,4 +50,15 @@ router.put(
   agentController.agentAction
 );
 
+router.put(
+  "/updateAgentByRevert",
+  upload.fields([
+    { name: "entityFile", maxCount: 1 },
+    { name: "gstinDoc", maxCount: 1 },
+    { name: "panDoc", maxCount: 1 },
+    { name: "tanDoc", maxCount: 1 },
+  ]),
+  agentController.updateAgentByReference
+);
+
 module.exports = router;
