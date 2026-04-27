@@ -780,70 +780,116 @@ const Master = {
 
   async getPersonsByAgent(agentId){
 
-    const query = `
-    SELECT
-    pp.id,
-    pp.name,
-    pp."aadharNo",
-    pp.mobile,
-    pp.email,
-    pp."passType",
-    pp."dateFrom",
-    pp."dateTo",
-    pp."createdAt",
-    d.name AS "designationName",
-    pr."referenceNo"
+  const query = `
+  SELECT
+  pp.id,
+  pp."passRequestId",
+  pp.name,
+  pp."aadharNo",
+  pp.mobile,
+  pp.email,
+  pp.nationality,
+  pp."countryId",
+  pp."visaNo",
+  pp."designationId",
+  pp."designationOther",
+  pp."cardNumber",
+  pp."accessAreaId",
+  pp."withTwoWheeler",
+  pp."vehicleNo",
 
-    FROM pass_persons pp
+  pp."idProofType",
+  pp."idProofNumber",
 
-    JOIN pass_requests pr
-    ON pr.id = pp."passRequestId"
+  -- FILES
+  pp."aadharPDFFilePATH",
+  pp."aadharPDFFileName",
+  pp."idProofFilePath",
+  pp."idProofFileName",
+  pp."photoFilePath",
+  pp."photoFileName",
 
-    LEFT JOIN designations d
-    ON d.id = pp."designationId"
+  -- PASS DETAILS
+  pp."passType",
+  pp."passPeriod",
+  pp."dateFrom",
+  pp."dateTo",
+  pp.amount,
 
-    WHERE pr."agentId" = $1
-    AND pp."isActive" = true
+  pp."createdAt",
+  pp."updatedAt",
 
-    ORDER BY pp."createdAt" DESC
-    `;
+  d.name AS "designationName",
+  pr."referenceNo"
 
-    const result = await pool.query(query,[agentId]);
+  FROM pass_persons pp
 
-    return result.rows;
+  JOIN pass_requests pr
+  ON pr.id = pp."passRequestId"
+
+  LEFT JOIN designations d
+  ON d.id = pp."designationId"
+
+  WHERE pr."agentId" = $1
+  AND pp."isActive" = true
+
+  ORDER BY pp."createdAt" DESC
+  `;
+
+  const result = await pool.query(query,[agentId]);
+
+  return result.rows;
 
   },
 
   async getVehiclesByAgent(agentId){
 
-    const query = `
-    SELECT
-    pv.id,
-    pv."registrationNo",
-    pv."passType",
-    pv."dateFrom",
-    pv."dateTo",
-    pv."createdAt",
-    vt.name AS "vehicleTypeName",
-    pr."referenceNo"
+  const query = `
+  SELECT
+  pv.id,
+  pv."passRequestId",
 
-    FROM pass_vehicles pv
+  pv."registrationNo",
+  pv."rfidCardNumber",
 
-    JOIN pass_requests pr
-    ON pr.id = pv."passRequestId"
+  -- FILES
+  pv."scannedCopyFilePath",
+  pv."scannedCopyFileName",
 
-    LEFT JOIN vehicle_types vt
-    ON vt.id = pv."vehicleTypeId"
+  pv."insuranceExpiry",
+  pv."rcValidity",
 
-    WHERE pr."agentId" = $1
-    AND pv."isActive" = true
+  pv."accessAreaId",
 
-    ORDER BY pv."createdAt" DESC
-    `;
+  pv."passType",
+  pv."passPeriod",
+  pv."dateFrom",
+  pv."dateTo",
+  pv.amount,
 
-    const result = await pool.query(query,[agentId]);
+  pv."createdAt",
+  pv."updatedAt",
 
-    return result.rows;
+  vt.name AS "vehicleTypeName",
+  pr."referenceNo"
+
+  FROM pass_vehicles pv
+
+  JOIN pass_requests pr
+  ON pr.id = pv."passRequestId"
+
+  LEFT JOIN vehicle_types vt
+  ON vt.id = pv."vehicleTypeId"
+
+  WHERE pr."agentId" = $1
+  AND pv."isActive" = true
+
+  ORDER BY pv."createdAt" DESC
+  `;
+
+  const result = await pool.query(query,[agentId]);
+
+  return result.rows;
 
   },
 

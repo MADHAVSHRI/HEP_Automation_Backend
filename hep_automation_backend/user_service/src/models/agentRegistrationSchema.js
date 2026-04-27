@@ -275,14 +275,7 @@ const Agent = {
   async trackRequest(referenceNumber) {
 
     const query = `
-      SELECT
-        "entityName",
-        "mobileNo",
-        "email",
-        "title",
-        "firstName",
-        "status",
-        "createdAt"
+      SELECT *
       FROM "Agents"
       WHERE "referenceNumber" = $1
     `;
