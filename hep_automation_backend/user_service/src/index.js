@@ -12,6 +12,20 @@ const app = express();
 app.use(allowCredentials);
 corsConfig(app);
 // app.use(cors());
+app.use(
+  cors({
+    // 1. Allowed your specific frontend ports
+    origin: ["http://localhost:3000", "http://172.20.10.2:3000"],
+
+    // 2. Explicitly allowed the PATCH method (which was previously blocked)
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+
+    // 3. Explicitly allowed your custom backend headers
+    allowedHeaders: ["Content-Type", "Authorization", "x-service-name"],
+
+    credentials: true,
+  }),
+);
 
 initUploadDirs();
 

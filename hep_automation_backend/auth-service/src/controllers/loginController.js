@@ -65,7 +65,8 @@ exports.login = async (req, res) => {
         {
           timeout: 5000,
           headers: {
-            "x-service-key": process.env.SERVICE_AUTH_KEY
+            "x-service-key": process.env.SERVICE_AUTH_KEY,
+            "x-service-name": "AUTH-SERVICE"
           }
         }
       );

@@ -24,6 +24,11 @@ cd user_service
 npm run dev &
 cd ..
 
+echo "Starting Qr Service..."
+cd qr-service
+npm run dev &
+cd ..
+
 echo "Starting Email Service..."
 cd email_service
 npm run dev &
