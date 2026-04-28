@@ -5,7 +5,8 @@ const rejectionTemplate = require("../emailTemplates/agentRejectedTemplate");
 const deptUserCreationTemplate = require("../emailTemplates/deptUserAccountCreationTemplate");
 const deptUserActivatedTemplate = require("../emailTemplates/deptUserAccountActivationTemplate");
 const deptUserDisabledTemplate = require("../emailTemplates/deptUserAccountDeactivationTemplate");
-// const revertedAgentRequestTemplate = require("../emailTemplates/revertedAgentRequestTemplate");
+const updatedAfterRevertTemplate = require("../emailTemplates/updatedAfterRevertEmail");
+const revertedAgentRequestTemplate = require("../emailTemplates/revertedAgentRequestTemplate");
 
 const sendReferenceEmail = async (email, name, referenceNumber) => {
 
@@ -91,20 +92,40 @@ const sendDeptUserDisabledEmail = async (email, name, status) => {
   return transporter.sendMail(mailOptions);
 };
 
-// const sendRevertedAgentRequestEmail = async (email, name, referenceNumber) => {
+const sendUpdatedAfterRevertEmail = async (email, name, referenceNumber) => {
 
-//   const html = revertedAgentRequestTemplate(name, referenceNumber);
+  const html = updatedAfterRevertTemplate(name, referenceNumber);
 
-//   const mailOptions = {
-//     from: process.env.EMAIL_USER,
-//     to: email,
-//     subject: "Chennai Port Agent Registration Request Reverted",
-//     html
-//   };
+  const mailOptions = {
+    from: process.env.EMAIL_USER,
+    to: email,
+    subject: "Agent Registration Updated",
+    html
+  };
 
-//   return transporter.sendMail(mailOptions);
-// };
+  return transporter.sendMail(mailOptions);
+
+};
+
+const sendRevertedAgentRequestEmail = async (email,name,referenceNumber,reason) => {
+
+  const html = revertedAgentRequestTemplate(
+    name,
+    referenceNumber,
+    reason
+  );
+
+  const mailOptions = {
+    from: process.env.EMAIL_USER,
+    to: email,
+    subject: "Chennai Port Agent Registration Request Reverted",
+    html
+  };
+
+  return transporter.sendMail(mailOptions);
+
+};
 
 module.exports = { sendReferenceEmail, sendApprovalEmail, 
   sendRejectionEmail, sendDeptUserCreationEmail, sendDeptUserActivatedEmail, 
-  sendDeptUserDisabledEmail };
+  sendDeptUserDisabledEmail, sendUpdatedAfterRevertEmail, sendRevertedAgentRequestEmail };

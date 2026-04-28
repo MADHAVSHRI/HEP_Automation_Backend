@@ -1,5 +1,6 @@
 const { sendReferenceEmail, sendApprovalEmail, sendRejectionEmail, 
-  sendDeptUserCreationEmail, sendDeptUserActivatedEmail, sendDeptUserDisabledEmail } = require("../services/emailService");
+  sendDeptUserCreationEmail, sendDeptUserActivatedEmail, sendDeptUserDisabledEmail,
+  sendRevertedAgentRequestEmail,sendUpdatedAfterRevertEmail } = require("../services/emailService");
 
 exports.sendReference = async (req, res) => {
 
@@ -155,28 +156,59 @@ exports.sendDeptUserDisabled = async (req, res) => {
 
 };
 
-// exports.sendRevertedAgentRequest = async (req, res) => {
+exports.sendRevertedAgentRequest = async (req, res) => {
 
-//   try {
+  try {
 
-//     const { email, name, referenceNumber } = req.body;
+    const { email, name, referenceNumber, reason } = req.body;
 
-//     await sendRevertedAgentRequestEmail(email, name, referenceNumber);
+    await sendRevertedAgentRequestEmail(
+      email,
+      name,
+      referenceNumber,
+      reason
+    );
 
-//     return res.json({
-//       success: true,
-//       message: "Reverted agent request email sent successfully"
-//     });
+    return res.json({
+      success: true,
+      message: "Reverted agent request email sent successfully"
+    });
 
-//   } catch (error) {
+  } catch (error) {
 
-//     console.error(error);
+    console.error(error);
 
-//     res.status(500).json({
-//       success: false,
-//       message: "Email sending failed"
-//     });
+    res.status(500).json({
+      success: false,
+      message: "Email sending failed"
+    });
 
-//   }
+  }
 
-// };
+};
+
+exports.sendUpdatedAfterRevert = async (req, res) => {
+
+  try {
+
+    const { email, name, referenceNumber } = req.body;
+
+    await sendUpdatedAfterRevertEmail(email, name, referenceNumber);
+
+    return res.json({
+      success: true,
+      message: "Update notification email sent"
+    });
+
+  } catch (error) {
+
+    console.error(error);
+
+    res.status(500).json({
+      success: false,
+      message: "Email sending failed"
+    });
+
+  }
+
+};

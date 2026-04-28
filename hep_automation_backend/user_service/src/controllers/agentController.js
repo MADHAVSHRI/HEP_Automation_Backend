@@ -403,6 +403,39 @@ exports.agentAction = async (req,res)=>{
 
     }
 
+        /*
+    =====================================================
+    REVERT AGENT
+    =====================================================
+    */
+
+    if(decision === AGENT_STATUS.REVERTED && rejectedReason){
+
+      const agent = await Agent.revertAgent(agentId, rejectedReason);
+
+      if(!agent){
+        return res.status(404).json({
+          success:false,
+          message:"Agent not found"
+        });
+      }
+
+      await sendEmailEvent({
+        type:"REVERTED",
+        agentId,
+        email: agent.email,
+        name: agent.firstName,
+        referenceNumber: agent.referenceNumber,
+        reason: rejectedReason
+      });
+
+      return res.status(200).json({
+        success:true,
+        message:"Agent reverted successfully"
+      });
+
+    }
+
   }catch(error){
 
     console.error(error);
@@ -608,11 +641,18 @@ exports.updateAgentByReference = async (req, res) => {
       });
     }
 
+    await sendEmailEvent({
+    type: "UPDATED_AFTER_REVERT",
+    email: updated.data.email,
+    name: updated.data.firstName,
+    referenceNumber: updated.data.referenceNumber
+  });
+
     res.status(200).json({
-      success: true,
-      message: "Agent updated successfully",
-      data: updated.data
-    });
+    success: true,
+    message: "Agent updated successfully and sent for approval",
+    data: updated.data
+  });
 
   } catch (error) {
 

@@ -353,7 +353,7 @@ const Agent = {
         STEP 2 — Check edit permission
       ================================= */
 
-      if (agent.status !== "pending" || agent.isApproved === true) {
+     if (agent.status !== "pending" && agent.status !== "reverted") {
 
         await client.query("ROLLBACK");
 
@@ -453,6 +453,8 @@ const Agent = {
         "panDoc"=$20,
         "tanDoc"=$21,
 
+        "status"='pending',
+        "rejectedReason"=NULL,
         "updatedAt"=CURRENT_TIMESTAMP
 
         WHERE "referenceNumber"=$22
@@ -509,8 +511,25 @@ const Agent = {
       client.release();
     }
 
-  }
+  },
 
+  async revertAgent(agentId, reason){
+
+    const query = `
+      UPDATE "Agents"
+      SET
+        "status" = 'reverted',
+        "rejectedReason" = $2,
+        "isApproved" = false
+      WHERE id = $1
+      RETURNING *
+    `;
+
+    const result = await pool.query(query,[agentId,reason]);
+
+    return result.rows[0];
+
+  }
 };
 
 

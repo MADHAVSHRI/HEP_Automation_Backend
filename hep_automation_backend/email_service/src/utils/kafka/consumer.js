@@ -82,6 +82,22 @@ const startConsumer = async () => {
               reason: data.reason
             };
 
+          } else if (data.type === "REVERTED") {
+            payload = {
+              email: data.email,
+              name: data.name,
+              referenceNumber: data.referenceNumber,
+              reason: data.reason
+            };
+
+          } else if (data.type === "UPDATED_AFTER_REVERT") {
+
+            payload = {
+              email: data.email,
+              name: data.name,
+              referenceNumber: data.referenceNumber
+            };
+
           } else if (data.type === "DEPT_USER_CREATED") {
 
             payload = {
@@ -141,6 +157,10 @@ const startConsumer = async () => {
     } else if (data.type === "REVERTED") {
 
         emailApi = "/api/email/sendReverted";
+
+    }else if (data.type === "UPDATED_AFTER_REVERT") {
+
+        emailApi = "/api/email/sendUpdatedAfterRevert";
 
     }else if (data.type === "DEPT_USER_CREATED") {
 

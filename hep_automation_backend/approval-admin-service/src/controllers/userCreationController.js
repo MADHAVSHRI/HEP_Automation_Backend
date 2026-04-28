@@ -231,6 +231,13 @@ exports.agentRequestAction = async (req, res) => {
       });
     }
 
+    if (decision === "reverted" && !rejectedReason) {
+      return res.status(400).json({
+        success: false,
+        message: "Reason is required when reverting an agent"
+      });
+    }
+
     const userServiceUrl = process.env.USER_SERVICE_URL;
 
     if (!userServiceUrl) {
