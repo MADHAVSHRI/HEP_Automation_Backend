@@ -6,6 +6,13 @@ const pool = new Pool({
   user: process.env.PG_USER,
   password: process.env.PG_PASSWORD,
   database: process.env.PG_DATABASE,
+  max: 20,                    // max connections in pool
+  idleTimeoutMillis: 30000,   // close idle connections after 30s
+  connectionTimeoutMillis: 5000, // fail fast if no connection available in 5s
+});
+
+pool.on("error", (err) => {
+  console.error("Unexpected PostgreSQL pool error:", err.message);
 });
 
 const connectDB = async () => {

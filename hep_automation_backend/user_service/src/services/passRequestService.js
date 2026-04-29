@@ -50,7 +50,8 @@
 // };
 
 const { pool } = require("../dbconfig/db");
-const fs = require("fs");
+const fs = require("fs").promises;
+const fsSync = require("fs");
 const path = require("path");
 
 exports.getQrData = async (passRequestId) => {
@@ -88,47 +89,49 @@ exports.getQrData = async (passRequestId) => {
   AND pv.status='approved'
   `;
 
-  const personsResult = await pool.query(personsQuery, [passRequestId]);
-  const vehiclesResult = await pool.query(vehiclesQuery, [passRequestId]);
+  const [personsResult, vehiclesResult] = await Promise.all([
+    pool.query(personsQuery, [passRequestId]),
+    pool.query(vehiclesQuery, [passRequestId]),
+  ]);
 
-  // Convert photoFilePath → base64 for each person
-  const persons = personsResult.rows.map((person) => {
-    let photoBase64 = null;
-    let photoMimeType = "image/jpeg"; // default
+  // Convert photoFilePath → base64 for each person — all reads in parallel
+  const persons = await Promise.all(
+    personsResult.rows.map(async (person) => {
+      let photoBase64 = null;
+      let photoMimeType = "image/jpeg";
 
-    if (person.photoFilePath) {
-      try {
-        // Adjust this base path to where your uploads are stored
-        const fullPath = path.isAbsolute(person.photoFilePath)
-        ? person.photoFilePath
-        : path.join(__dirname, "../../", person.photoFilePath);
+      if (person.photoFilePath) {
+        try {
+          const fullPath = path.isAbsolute(person.photoFilePath)
+            ? person.photoFilePath
+            : path.join(__dirname, "../../", person.photoFilePath);
 
-        if (fs.existsSync(fullPath)) {
-          const fileBuffer = fs.readFileSync(fullPath);
-          photoBase64 = fileBuffer.toString("base64");
+          if (fsSync.existsSync(fullPath)) {
+            const fileBuffer = await fs.readFile(fullPath);
+            photoBase64 = fileBuffer.toString("base64");
 
-          // Detect mime type from extension
-          const ext = path.extname(fullPath).toLowerCase();
-          if (ext === ".png")  photoMimeType = "image/png";
-          if (ext === ".webp") photoMimeType = "image/webp";
+            const ext = path.extname(fullPath).toLowerCase();
+            if (ext === ".png")  photoMimeType = "image/png";
+            if (ext === ".webp") photoMimeType = "image/webp";
+          }
+        } catch (err) {
+          console.error(`Photo read error for person ${person.id}:`, err.message);
         }
-      } catch (err) {
-        console.error(`Photo read error for person ${person.id}:`, err.message);
       }
-    }
 
-    return {
-      ...person,
-      validFrom: person.dateFrom
-        ? new Date(person.dateFrom).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })
-        : null,
-      validTo: person.dateTo
-        ? new Date(person.dateTo).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })
-        : null,
-      photoBase64,
-      photoMimeType,
-    };
-  });
+      return {
+        ...person,
+        validFrom: person.dateFrom
+          ? new Date(person.dateFrom).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })
+          : null,
+        validTo: person.dateTo
+          ? new Date(person.dateTo).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })
+          : null,
+        photoBase64,
+        photoMimeType,
+      };
+    })
+  );
 
   const vehicles = vehiclesResult.rows.map((vehicle) => ({
     ...vehicle,

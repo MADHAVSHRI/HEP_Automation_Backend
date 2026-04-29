@@ -52,57 +52,58 @@ const Agent = {
 
   },
 
-  async create(agentData) {
-
+async create(agentData) {
     const referenceNumber = await Agent.generateReferenceNumber();
+    const createdAt = new Date().toISOString(); // Set the current timestamp
+    const updatedAt = createdAt; // Set updatedAt to the same value as createdAt
+
+    // Log the data to ensure the fields are being set
+    console.log("Creating agent with data:", agentData);
+    console.log("createdAt:", createdAt);
+    console.log("updatedAt:", updatedAt);
 
     const query = `
       INSERT INTO "Agents"(
-  "userTypeId",
-  "userTypeName",
-  "entityName",
-  "mobileNo",
-  "email",
-  "entityFile",
-
-  "addressLine",
-  "city",
-  "state",
-  "pincode",
-  "country",
-
-  "gstinNumber",
-  "gstinDoc",
-
-  "panNumber",
-  "panDoc",
-
-  "tanNumber",
-  "tanDoc",
-
-  "remark",
-  "referenceNumber",
-
-  "title",
-  "firstName",
-  "lastName",
-  "contactMobile",
-  "contactEmail",
-  "termsAccepted"
-  
-)
-  VALUES (
-    $1, $2, $3, $4, $5,
-    $6, $7, $8, $9, $10,
-    $11, $12,
-    $13, $14,
-    $15, $16,
-    $17,
-    $18, $19, $20, $21, $22,
-    $23, $24, $25 
-  )
-  RETURNING *
-`;
+        "userTypeId",
+        "userTypeName",
+        "entityName",
+        "mobileNo",
+        "email",
+        "entityFile",
+        "addressLine",
+        "city",
+        "state",
+        "pincode",
+        "country",
+        "gstinNumber",
+        "gstinDoc",
+        "panNumber",
+        "panDoc",
+        "tanNumber",
+        "tanDoc",
+        "remark",
+        "referenceNumber",
+        "title",
+        "firstName",
+        "lastName",
+        "contactMobile",
+        "contactEmail",
+        "termsAccepted",
+        "createdAt",
+        "updatedAt"  -- Add updatedAt here
+      )
+      VALUES (
+        $1, $2, $3, $4, $5,
+        $6, $7, $8, $9, $10,
+        $11, $12,
+        $13, $14,
+        $15, $16,
+        $17,
+        $18, $19, $20, $21, $22,
+        $23, $24, $25, $26, $27  -- Update to include the new placeholder for updatedAt
+      )
+      RETURNING *
+    `;
 
     const values = [
       agentData.userTypeId,
@@ -111,42 +112,63 @@ const Agent = {
       agentData.mobileNo,
       agentData.email,
       agentData.entityFile,
-
       agentData.addressLine,
       agentData.city,
       agentData.state,
       agentData.pincode,
       agentData.country,
-
       agentData.gstinNumber,
       agentData.gstinDoc,
-
       agentData.panNumber,
       agentData.panDoc,
-
       agentData.tanNumber,
       agentData.tanDoc,
-
       agentData.remark,
       referenceNumber,
-
-
       agentData.title,
       agentData.firstName,
       agentData.lastName,
       agentData.contactMobile,
       agentData.contactEmail,
-      agentData.termsAccepted
+      agentData.termsAccepted,
+      createdAt,  // Include createdAt here
+      updatedAt   // Include updatedAt here
     ];
 
-    const result = await pool.query(query, values);
-    return result.rows[0];
-  },
+    try {
+      const result = await pool.query(query, values);
+      console.log("Agent created successfully:", result.rows[0]);
+      return result.rows[0];
+    } catch (error) {
+      console.error("Error creating agent:", error);
+      throw error;  // Re-throw the error so it can be handled elsewhere
+    }
+},
 
-  async getAllRegisteredAgents(isApproved) {
+  async getAllRegisteredAgents(isApproved, page = 1, limit = 50) {
+
+    const offset = (page - 1) * limit;
 
     let query = `
-      SELECT *
+      SELECT
+        id,
+        "userTypeName",
+        "entityName",
+        "mobileNo",
+        "email",
+        "city",
+        "state",
+        "gstinNumber",
+        "panNumber",
+        "referenceNumber",
+        "loginId",
+        "role",
+        "status",
+        "isApproved",
+        "isRefNoSentByEmail",
+        "isCredentialSentByEmail",
+        "createdAt",
+        "updatedAt"
       FROM "Agents"
     `;
 
@@ -155,8 +177,13 @@ const Agent = {
     if (isApproved !== undefined) {
       query += ` WHERE "isApproved" = $1`;
       values.push(isApproved === 'true');
+      query += ` ORDER BY "createdAt" DESC LIMIT $2 OFFSET $3`;
+      values.push(limit, offset);
+    } else {
+      query += ` ORDER BY "createdAt" DESC LIMIT $1 OFFSET $2`;
+      values.push(limit, offset);
     }
-    query += ` ORDER BY "createdAt" DESC`;
+
     const result = await pool.query(query, values);
     return result.rows;
   },
@@ -275,7 +302,18 @@ const Agent = {
   async trackRequest(referenceNumber) {
 
     const query = `
-      SELECT *
+      SELECT
+        id,
+        "referenceNumber",
+        "entityName",
+        "firstName",
+        "lastName",
+        "title",
+        "email",
+        "mobileNo",
+        "status",
+        "rejectedReason",
+        "createdAt"
       FROM "Agents"
       WHERE "referenceNumber" = $1
     `;

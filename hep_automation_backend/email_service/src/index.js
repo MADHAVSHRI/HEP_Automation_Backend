@@ -23,6 +23,6 @@ app.use('/api', routes);
 
 const PORT = process.env.PORT || 5002;
 
-app.listen(PORT, () => {
-  console.log(`Email Service running on port ${PORT}`);
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`User Service running on port ${PORT}`);
 });

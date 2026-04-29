@@ -15,7 +15,7 @@ app.use(allowCredentials);
 app.use(
   cors({
     // 1. Allowed your specific frontend ports
-    origin: ["http://localhost:3000", "http://172.20.10.2:3000"],
+    origin: ["http://localhost:3000", "http://14.139.180.41:3000"],
 
     // 2. Explicitly allowed the PATCH method (which was previously blocked)
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
@@ -27,6 +27,7 @@ app.use(
   }),
 );
 app.use(express.json());
+app.use(express.urlencoded({ extended: false })); // needed for sendBeacon form-encoded body
 
 app.use(loggerMiddleware);
 connectDB();
@@ -34,6 +35,6 @@ app.use('/api', routes);
 
 const PORT = process.env.PORT || 5006;
 
-app.listen(PORT, () => {
-  console.log(`Auth Service running on port ${PORT}`);
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`User Service running on port ${PORT}`);
 });

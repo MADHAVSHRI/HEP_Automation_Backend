@@ -323,8 +323,8 @@ const upload = multer({
   storage,
   fileFilter,
   limits: {
-    fileSize: 2 * 1024 * 1024,   // 2MB max
-    files: 1000                     // maximum files per request
+    fileSize: 2 * 1024 * 1024,   // 2MB max per file
+    files: 150                    // realistic max: 10 persons × 9 docs + 8 vehicles × 7 docs
   },
   preservePath: true
 });

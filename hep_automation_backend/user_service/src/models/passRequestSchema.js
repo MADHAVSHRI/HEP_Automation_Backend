@@ -745,27 +745,92 @@ const getPassRequest = {
         pr."grossTotal",
         pr."gstAmount",
         pr."netAmount",
+        pr."createdAt",
 
-        json_agg(DISTINCT to_jsonb(pp)) 
-          FILTER (WHERE pp.id IS NOT NULL) AS persons,
+        COALESCE(p.persons, '[]'::json) AS persons,
+        COALESCE(v.vehicles, '[]'::json) AS vehicles
 
-        json_agg(DISTINCT to_jsonb(pv)) 
-          FILTER (WHERE pv.id IS NOT NULL) AS vehicles
+      FROM pass_requests pr
 
-        
+      LEFT JOIN (
+        SELECT
+          pp."passRequestId",
+          json_agg(
+            jsonb_build_object(
+              'id',           pp.id,
+              'name',         pp.name,
+              'aadharNo',     pp."aadharNo",
+              'mobile',       pp.mobile,
+              'hepTypeId',    pp."hepTypeId",
+              'passType',     pp."passType",
+              'passPeriod',   pp."passPeriod",
+              'dateFrom',     pp."dateFrom",
+              'dateTo',       pp."dateTo",
+              'amount',       pp.amount,
+              'status',       pp.status,
+              'rejectedReason', pp."rejectedReason",
+              'personPassNo', pp."personPassNo",
+              'photoFilePath', pp."photoFilePath",
+              'designationId', pp."designationId",
+              'accessAreaId', pp."accessAreaId",
+              'nationality',  pp.nationality,
+              'countryId',    pp."countryId",
+              'visaNo',       pp."visaNo",
+              'cardNumber',   pp."cardNumber",
+              'withTwoWheeler', pp."withTwoWheeler",
+              'vehicleNo',    pp."vehicleNo",
+              'idProofType',  pp."idProofType",
+              'idProofNumber', pp."idProofNumber",
+              'aadharPDFFilePATH', pp."aadharPDFFilePATH",
+              'idProofFilePath', pp."idProofFilePath",
+              'requisitionLetterPath', pp."requisitionLetterPath",
+              'driverLicensePath', pp."driverLicensePath",
+              'policeVerificationPath', pp."policeVerificationPath",
+              'employmentProofPath', pp."employmentProofPath",
+              'chaLicensePath', pp."chaLicensePath",
+              'passportPath', pp."passportPath"
+            )
+          ) AS persons
+        FROM pass_persons pp
+        GROUP BY pp."passRequestId"
+      ) p ON p."passRequestId" = pr.id
 
-      FROM "pass_requests" pr
-
-      LEFT JOIN "pass_persons" pp
-        ON pp."passRequestId" = pr.id
-
-      LEFT JOIN "pass_vehicles" pv
-        ON pv."passRequestId" = pr.id
+      LEFT JOIN (
+        SELECT
+          pv."passRequestId",
+          json_agg(
+            jsonb_build_object(
+              'id',               pv.id,
+              'registrationNo',   pv."registrationNo",
+              'vehicleTypeId',    pv."vehicleTypeId",
+              'rfidCardNumber',   pv."rfidCardNumber",
+              'passType',         pv."passType",
+              'passPeriod',       pv."passPeriod",
+              'dateFrom',         pv."dateFrom",
+              'dateTo',           pv."dateTo",
+              'amount',           pv.amount,
+              'status',           pv.status,
+              'rejectedReason',   pv."rejectedReason",
+              'vehiclePassNo',    pv."vehiclePassNo",
+              'insuranceExpiry',  pv."insuranceExpiry",
+              'rcValidity',       pv."rcValidity",
+              'accessAreaId',     pv."accessAreaId",
+              'scannedCopyFilePath', pv."scannedCopyFilePath",
+              'insuranceFilePath', pv."insuranceFilePath",
+              'permitFilePath',   pv."permitFilePath",
+              'fitnessFilePath',  pv."fitnessFilePath",
+              'requestLetterPath', pv."requestLetterPath",
+              'taxDocPath',       pv."taxDocPath",
+              'emissionCertPath', pv."emissionCertPath"
+            )
+          ) AS vehicles
+        FROM pass_vehicles pv
+        GROUP BY pv."passRequestId"
+      ) v ON v."passRequestId" = pr.id
 
       WHERE pr."agentId" = $1
       AND pr."isActive" = true
 
-      GROUP BY pr.id
       ORDER BY pr."createdAt" DESC
     `;
 

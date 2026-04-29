@@ -6,7 +6,7 @@ const captchaLimiter = rateLimit({
 
   windowMs: 60 * 1000,
 
-  max: 10,
+  max: 100,
 
   standardHeaders: true,
 

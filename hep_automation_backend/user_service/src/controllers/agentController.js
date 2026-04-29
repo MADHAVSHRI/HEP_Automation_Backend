@@ -244,11 +244,16 @@ exports.getAllRegisteredUsers = async (req, res) => {
   try {
 
     const { isApproved } = req.query;
-    const agents = await Agent.getAllRegisteredAgents(isApproved);
+    const page  = Math.max(1, parseInt(req.query.page)  || 1);
+    const limit = Math.min(200, parseInt(req.query.limit) || 50);
+
+    const agents = await Agent.getAllRegisteredAgents(isApproved, page, limit);
 
     return res.status(200).json({
       success: true,
       count: agents.length,
+      page,
+      limit,
       data: agents
     });
 

@@ -1,42 +1,11 @@
-const cors = require("cors");
-const allowedOrigins = require("./allowedOrigins");
+
 
 module.exports = (app) => {
-  const corsOptions = {
-    origin: (origin, callback) => {
-      // Check if the requesting origin is in the allowedOrigins[]
-      if (allowedOrigins.includes(origin) || !origin) {
-        callback(null, true);
-      } else {
-        callback(new Error(`Origin "${origin}" is not allowed by CORS.`));
-      }
-    },
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"], // Allowed HTTP methods
-    allowedHeaders: ["Content-Type", "Authorization", "Set-Cookie"], // Allowed headers
-    credentials: true,
-    optionsSuccessStatus: 200, // some legacy browsers (IE11, various SmartTVs) choke on 204
-  };
+  // const corsOptions = { ... } // CORS configuration
 
-  app.use(cors(corsOptions));
-  // app.options("*", cors(corsOptions)); // Handle preflight requests
+  // Temporarily disable CORS by commenting this line
+  // app.use(cors(corsOptions)); 
+  
+  // If you also want to disable preflight handling, comment out this line as well:
+  // app.options("*", cors(corsOptions));
 };
-
-
-// const cors = require("cors");
-// const allowedOrigins = require("./allowedOrigins");
-
-// const corsOptions = {
-//   origin: (origin, callback) => {
-//     if (allowedOrigins.includes(origin) || !origin) {
-//       callback(null, true);
-//     } else {
-//       callback(new Error(`Origin "${origin}" is not allowed by CORS.`));
-//     }
-//   },
-//   credentials: true,
-//   optionsSuccessStatus: 200
-// };
-
-// module.exports = (app) => {
-//   app.use(cors(corsOptions));
-// };
