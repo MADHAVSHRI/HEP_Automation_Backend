@@ -86,7 +86,7 @@ const ReferenceNumber = {
       DO UPDATE SET "vehicleCounter" = daily_pass_counters."vehicleCounter" + 1
       RETURNING "vehicleCounter"
     `;
-    
+
     const result = await client.query(query,[today]);
 
     const count = result.rows[0].vehicleCounter;
@@ -100,6 +100,40 @@ const ReferenceNumber = {
     const year = String(d.getFullYear()).slice(-2);
 
     return `VEH${day}${month}${year}${padded}`;
+  },
+
+  /*
+  ==========================================
+  Generate Vendor Pass Reference Number
+  ==========================================
+  */
+
+  async generateVendorPassReference(client){
+
+  const today = new Date().toISOString().slice(0,10);
+
+  const query = `
+    INSERT INTO daily_pass_counters(date,"vendorPassCounter")
+    VALUES($1,1)
+    ON CONFLICT(date)
+    DO UPDATE SET "vendorPassCounter" =
+    daily_pass_counters."vendorPassCounter" + 1
+    RETURNING "vendorPassCounter"
+  `;
+
+  const result = await client.query(query,[today]);
+
+    const count = result.rows[0].vendorPassCounter;
+
+    const padded = String(count).padStart(4,"0");
+
+    const d = new Date(today);
+
+    const day = String(d.getDate()).padStart(2,"0");
+    const month = String(d.getMonth()+1).padStart(2,"0");
+    const year = String(d.getFullYear()).slice(-2);
+
+    return `V${day}${month}${year}${padded}`;
   }
 
 };

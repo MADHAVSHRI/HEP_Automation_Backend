@@ -834,45 +834,46 @@ exports.login = async (req, res) => {
     }
 
     /* ── 8. Existing session check (Redis + DB) ── */
-    let existingSession;
-    try {
-      existingSession = await getUserSession(user.id);
-      log.info(TAG, "Redis session lookup", { userId: user.id, found: !!existingSession });
-    } catch (redisErr) {
-      log.error(TAG, "Redis getUserSession failed", redisErr, { userId: user.id });
-      // Non-fatal: proceed without session check rather than blocking login
-    }
+    // NOTE: Concurrent session check disabled to allow multiple logins
+    // let existingSession;
+    // try {
+    //   existingSession = await getUserSession(user.id);
+    //   log.info(TAG, "Redis session lookup", { userId: user.id, found: !!existingSession });
+    // } catch (redisErr) {
+    //   log.error(TAG, "Redis getUserSession failed", redisErr, { userId: user.id });
+    //   // Non-fatal: proceed without session check rather than blocking login
+    // }
 
-    if (existingSession) {
-      let dbSession;
-      try {
-        dbSession = await RefreshToken.getSessionBySessionId(existingSession);
-        log.info(TAG, "DB session lookup", { sessionId: existingSession, found: !!dbSession });
-      } catch (dbErr) {
-        log.error(TAG, "DB getSessionBySessionId failed", dbErr, { sessionId: existingSession });
-        return res.status(500).json({ success: false, message: "Session check failed" });
-      }
+    // if (existingSession) {
+    //   let dbSession;
+    //   try {
+    //     dbSession = await RefreshToken.getSessionBySessionId(existingSession);
+    //     log.info(TAG, "DB session lookup", { sessionId: existingSession, found: !!dbSession });
+    //   } catch (dbErr) {
+    //     log.error(TAG, "DB getSessionBySessionId failed", dbErr, { sessionId: existingSession });
+    //     return res.status(500).json({ success: false, message: "Session check failed" });
+    //   }
 
-      if (dbSession) {
-        log.warn(TAG, "Concurrent session conflict", {
-          userId: user.id,
-          sessionId: existingSession,
-        });
-        return res.status(409).json({
-          success: false,
-          message: "User already logged in from another device",
-        });
-      } else {
-        // Stale Redis key — clean it up
-        log.warn(TAG, "Stale Redis session found, cleaning up", { userId: user.id });
-        try {
-          await deleteUserSession(user.id);
-        } catch (cleanupErr) {
-          log.error(TAG, "Failed to delete stale Redis session", cleanupErr, { userId: user.id });
-          // Non-fatal — continue
-        }
-      }
-    }
+    //   if (dbSession) {
+    //     log.warn(TAG, "Concurrent session conflict", {
+    //       userId: user.id,
+    //       sessionId: existingSession,
+    //     });
+    //     return res.status(409).json({
+    //       success: false,
+    //       message: "User already logged in from another device",
+    //     });
+    //   } else {
+    //     // Stale Redis key — clean it up
+    //     log.warn(TAG, "Stale Redis session found, cleaning up", { userId: user.id });
+    //     try {
+    //       await deleteUserSession(user.id);
+    //     } catch (cleanupErr) {
+    //       log.error(TAG, "Failed to delete stale Redis session", cleanupErr, { userId: user.id });
+    //       // Non-fatal — continue
+    //     }
+    //   }
+    // }
 
     /* ── 9. Token generation ── */
     const sessionId = uuidv4();
@@ -923,6 +924,8 @@ exports.login = async (req, res) => {
       accessToken,
       refreshToken,
       role: user.role,
+      departmentName: user.departmentName || null,
+      departmentId: user.departmentId || null,
     });
   } catch (error) {
     log.error(TAG, "Unhandled login error", error);

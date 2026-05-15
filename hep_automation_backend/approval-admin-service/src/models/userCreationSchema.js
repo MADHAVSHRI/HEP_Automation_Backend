@@ -108,7 +108,7 @@ const User = {
         u."status",
         u."departmentId",
         r."roleName" AS role,
-        d."departmentName" AS departmentName
+        d."departmentName" AS "departmentName"
 
       FROM "users" u
 

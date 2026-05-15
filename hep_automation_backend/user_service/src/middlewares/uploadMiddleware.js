@@ -7,6 +7,7 @@ Predefine directories to avoid repeated path.join calls during upload
 */
 const baseDir = "uploads/agent_docs";
 const passRequestBaseDir = "uploads/passRequestDocs";
+const vendorPassBaseDir = "uploads/vendorPassDocs";
 
 
 
@@ -33,6 +34,12 @@ const PERMIT_DIR = path.join(passRequestBaseDir,"vehiclePermit");
 const FITNESS_DIR = path.join(passRequestBaseDir,"vehicleFitness");
 const TAX_DIR = path.join(passRequestBaseDir,"vehicleTax");
 const EMISSION_DIR = path.join(passRequestBaseDir,"vehicleEmission");
+
+const VENDOR_WORK_ORDER_DIR = path.join(vendorPassBaseDir, "workOrder");
+
+if (!fs.existsSync(VENDOR_WORK_ORDER_DIR)) {
+  fs.mkdirSync(VENDOR_WORK_ORDER_DIR, { recursive: true });
+}
 
 /* ===== ORIGINAL LOGIC (unchanged) ===== */
 
@@ -183,6 +190,10 @@ const storage = multer.diskStorage({
         cb(null, EMISSION_DIR);
         break;
 
+      case "vendorWorkOrder":
+        cb(null, VENDOR_WORK_ORDER_DIR);
+        break;
+
       default:
         cb(new Error("Invalid upload field"), "null");
     }
@@ -279,6 +290,10 @@ const storage = multer.diskStorage({
 
     else if (file.fieldname === "vehicleEmission") {
       fileName = `VEHICLEEMISSION${timestamp}.pdf`;
+    }
+
+    else if (file.fieldname === "vendorWorkOrder") {
+      fileName = `VENDORWORKORDER${timestamp}${path.extname(file.originalname)}`;
     }
 
     else if (!fileName) {

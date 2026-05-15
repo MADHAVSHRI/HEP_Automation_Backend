@@ -342,7 +342,7 @@ const getAgentPassRequestsToApproverAdmin = async (req, res) => {
 const viewPassRequestsDocument = async (req, res) => {
   try {
 
-    const { passRequestId, documentType } = req.query;
+    const { passRequestId, documentType, entityIndex, isVendorPass } = req.query;
 
     if (!passRequestId || !documentType) {
       return res.status(400).json({
@@ -351,7 +351,12 @@ const viewPassRequestsDocument = async (req, res) => {
       });
     }
 
-    const fileData = await viewPassRequestsDocuments.getPassDocumentPath(passRequestId, documentType);
+    const fileData = await viewPassRequestsDocuments.getPassDocumentPath(
+      passRequestId,
+      documentType,
+      entityIndex ? parseInt(entityIndex) : 0,
+      isVendorPass === 'true'
+    );
 
     if (!fileData) {
       return res.status(404).json({

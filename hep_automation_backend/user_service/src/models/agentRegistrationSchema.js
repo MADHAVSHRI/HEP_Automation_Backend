@@ -1,7 +1,6 @@
 const { pool } = require("../dbconfig/db");
 
 const Agent = {
-
   async findDuplicate(email, mobileNo, panNumber, gstinNumber) {
     const query = `
       SELECT * FROM "Agents"
@@ -14,34 +13,30 @@ const Agent = {
     return result.rows[0];
   },
 
-//   async generateReferenceNumber() {
+  //   async generateReferenceNumber() {
 
-//   const result = await pool.query(
-//     `SELECT COUNT(*) FROM "Agents"`
-//   );
+  //   const result = await pool.query(
+  //     `SELECT COUNT(*) FROM "Agents"`
+  //   );
 
-//   const next = parseInt(result.rows[0].count) + 1;
+  //   const next = parseInt(result.rows[0].count) + 1;
 
-//   const padded = String(next).padStart(5,"0");
+  //   const padded = String(next).padStart(5,"0");
 
-//   return `CHPT${padded}`;
-// },
+  //   return `CHPT${padded}`;
+  // },
 
   async generateReferenceNumber() {
-
-    const result = await pool.query(
-      `SELECT nextval('agent_reference_seq')`
-    );
+    const result = await pool.query(`SELECT nextval('agent_reference_seq')`);
 
     const next = result.rows[0].nextval;
 
-    const padded = String(next).padStart(5,"0");
+    const padded = String(next).padStart(5, "0");
 
     return `CHPT${padded}`;
   },
-  
-  async updateEmailStatus(agentId) {
 
+  async updateEmailStatus(agentId) {
     const query = `
       UPDATE "Agents"
       SET "isRefNoSentByEmail" = true
@@ -49,10 +44,9 @@ const Agent = {
     `;
 
     await pool.query(query, [agentId]);
-
   },
 
-async create(agentData) {
+  async create(agentData) {
     const referenceNumber = await Agent.generateReferenceNumber();
     const createdAt = new Date().toISOString(); // Set the current timestamp
     const updatedAt = createdAt; // Set updatedAt to the same value as createdAt
@@ -131,8 +125,8 @@ async create(agentData) {
       agentData.contactMobile,
       agentData.contactEmail,
       agentData.termsAccepted,
-      createdAt,  // Include createdAt here
-      updatedAt   // Include updatedAt here
+      createdAt, // Include createdAt here
+      updatedAt, // Include updatedAt here
     ];
 
     try {
@@ -141,12 +135,11 @@ async create(agentData) {
       return result.rows[0];
     } catch (error) {
       console.error("Error creating agent:", error);
-      throw error;  // Re-throw the error so it can be handled elsewhere
+      throw error; // Re-throw the error so it can be handled elsewhere
     }
-},
+  },
 
   async getAllRegisteredAgents(isApproved, page = 1, limit = 50) {
-
     const offset = (page - 1) * limit;
 
     let query = `
@@ -176,7 +169,7 @@ async create(agentData) {
 
     if (isApproved !== undefined) {
       query += ` WHERE "isApproved" = $1`;
-      values.push(isApproved === 'true');
+      values.push(isApproved === "true");
       query += ` ORDER BY "createdAt" DESC LIMIT $2 OFFSET $3`;
       values.push(limit, offset);
     } else {
@@ -189,19 +182,16 @@ async create(agentData) {
   },
 
   async updateEmailStatusByReference(referenceNumber) {
-
-  const query = `
+    const query = `
     UPDATE "Agents"
     SET "isRefNoSentByEmail" = true
     WHERE "referenceNumber" = $1
   `;
 
-  await pool.query(query, [referenceNumber]);
+    await pool.query(query, [referenceNumber]);
+  },
 
-},
-
-  async approveAgent(agentId, loginId, password){
-
+  async approveAgent(agentId, loginId, password) {
     const query = `
       UPDATE "Agents"
       SET
@@ -213,14 +203,12 @@ async create(agentData) {
       RETURNING *
     `;
 
-    const result = await pool.query(query,[agentId,loginId,password]);
+    const result = await pool.query(query, [agentId, loginId, password]);
 
     return result.rows[0];
-
   },
 
-  async rejectAgent(agentId, reason){
-
+  async rejectAgent(agentId, reason) {
     const query = `
       UPDATE "Agents"
       SET
@@ -230,27 +218,23 @@ async create(agentData) {
       RETURNING *
     `;
 
-    const result = await pool.query(query,[agentId,reason]);
+    const result = await pool.query(query, [agentId, reason]);
 
     return result.rows[0];
-
   },
 
-  async updateCredentialEmailStatus(agentId){
-
+  async updateCredentialEmailStatus(agentId) {
     const query = `
       UPDATE "Agents"
       SET "isCredentialSentByEmail" = true
       WHERE id = $1
     `;
 
-    await pool.query(query,[agentId]);
-
+    await pool.query(query, [agentId]);
   },
 
   async getAgentById(agentId) {
-
-  const query = `
+    const query = `
     SELECT
       id,
       "userTypeName",
@@ -275,14 +259,12 @@ async create(agentData) {
     AND status = 'approved'
   `;
 
-  const result = await pool.query(query, [agentId]);
+    const result = await pool.query(query, [agentId]);
 
-  return result.rows[0];
-
-},
+    return result.rows[0];
+  },
 
   async getLoginUser(loginId) {
-
     const query = `
       SELECT
         id,
@@ -296,24 +278,11 @@ async create(agentData) {
     const result = await pool.query(query, [loginId]);
 
     return result.rows[0];
-
   },
 
   async trackRequest(referenceNumber) {
-
     const query = `
-      SELECT
-        id,
-        "referenceNumber",
-        "entityName",
-        "firstName",
-        "lastName",
-        "title",
-        "email",
-        "mobileNo",
-        "status",
-        "rejectedReason",
-        "createdAt"
+      SELECT *
       FROM "Agents"
       WHERE "referenceNumber" = $1
     `;
@@ -321,7 +290,6 @@ async create(agentData) {
     const result = await pool.query(query, [referenceNumber]);
 
     return result.rows[0];
-
   },
 
   async getDocumentPath(referenceNumber, documentType) {
@@ -355,11 +323,9 @@ async create(agentData) {
   },
 
   async updateAgentByReference(referenceNumber, payload) {
-
     const client = await pool.connect();
 
     try {
-
       await client.query("BEGIN");
 
       /* =================================
@@ -373,15 +339,14 @@ async create(agentData) {
         FOR UPDATE
       `;
 
-      const agentResult = await client.query(agentQuery,[referenceNumber]);
+      const agentResult = await client.query(agentQuery, [referenceNumber]);
 
       if (!agentResult.rows.length) {
-
         await client.query("ROLLBACK");
 
         return {
-          success:false,
-          message:"Agent not found"
+          success: false,
+          message: "Agent not found",
         };
       }
 
@@ -391,13 +356,12 @@ async create(agentData) {
         STEP 2 — Check edit permission
       ================================= */
 
-     if (agent.status !== "pending" && agent.status !== "reverted") {
-
+      if (agent.status !== "pending" && agent.status !== "reverted") {
         await client.query("ROLLBACK");
 
         return {
-          success:false,
-          message:"Agent cannot be edited after approval process"
+          success: false,
+          message: "Agent cannot be edited after approval process",
         };
       }
 
@@ -414,21 +378,20 @@ async create(agentData) {
         LIMIT 1
       `;
 
-      const duplicateResult = await client.query(duplicateCheckQuery,[
+      const duplicateResult = await client.query(duplicateCheckQuery, [
         payload.email || agent.email,
         payload.mobileNo || agent.mobileNo,
         payload.panNumber || agent.panNumber,
         payload.gstinNumber || agent.gstinNumber,
-        referenceNumber
+        referenceNumber,
       ]);
 
       if (duplicateResult.rows.length) {
-
         await client.query("ROLLBACK");
 
         return {
-          success:false,
-          message:"Duplicate email/mobile/PAN/GST detected"
+          success: false,
+          message: "Duplicate email/mobile/PAN/GST detected",
         };
       }
 
@@ -438,11 +401,9 @@ async create(agentData) {
 
       const fs = require("fs");
 
-      const replaceFile = (oldFile,newFile) => {
-
-        if(newFile){
-
-          if(oldFile && fs.existsSync(oldFile)){
+      const replaceFile = (oldFile, newFile) => {
+        if (newFile) {
+          if (oldFile && fs.existsSync(oldFile)) {
             fs.unlinkSync(oldFile);
           }
 
@@ -452,10 +413,10 @@ async create(agentData) {
         return oldFile;
       };
 
-      const entityFile = replaceFile(agent.entityFile,payload.entityFile);
-      const gstinDoc = replaceFile(agent.gstinDoc,payload.gstinDoc);
-      const panDoc = replaceFile(agent.panDoc,payload.panDoc);
-      const tanDoc = replaceFile(agent.tanDoc,payload.tanDoc);
+      const entityFile = replaceFile(agent.entityFile, payload.entityFile);
+      const gstinDoc = replaceFile(agent.gstinDoc, payload.gstinDoc);
+      const panDoc = replaceFile(agent.panDoc, payload.panDoc);
+      const tanDoc = replaceFile(agent.tanDoc, payload.tanDoc);
 
       /* =================================
         STEP 5 — Update Query
@@ -500,7 +461,6 @@ async create(agentData) {
       `;
 
       const values = [
-
         payload.entityName || agent.entityName,
         payload.mobileNo || agent.mobileNo,
         payload.email || agent.email,
@@ -527,32 +487,26 @@ async create(agentData) {
         panDoc,
         tanDoc,
 
-        referenceNumber
+        referenceNumber,
       ];
 
-      const result = await client.query(updateQuery,values);
+      const result = await client.query(updateQuery, values);
 
       await client.query("COMMIT");
 
       return {
-        success:true,
-        data:result.rows[0]
+        success: true,
+        data: result.rows[0],
       };
-
-    }
-    catch(error){
-
+    } catch (error) {
       await client.query("ROLLBACK");
       throw error;
-    }
-    finally{
+    } finally {
       client.release();
     }
-
   },
 
-  async revertAgent(agentId, reason){
-
+  async revertAgent(agentId, reason) {
     const query = `
       UPDATE "Agents"
       SET
@@ -563,82 +517,10 @@ async create(agentData) {
       RETURNING *
     `;
 
-    const result = await pool.query(query,[agentId,reason]);
+    const result = await pool.query(query, [agentId, reason]);
 
     return result.rows[0];
-
-  }
+  },
 };
 
-
 module.exports = Agent;
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

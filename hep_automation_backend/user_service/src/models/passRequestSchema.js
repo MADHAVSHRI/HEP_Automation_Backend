@@ -2,9 +2,7 @@ const { pool } = require("../dbconfig/db");
 const ReferenceNumber = require("./referenceNumberSchema");
 
 const Designation = {
-
   async getAllDesignations() {
-
     const query = `
       SELECT id, name
       FROM designations
@@ -15,14 +13,11 @@ const Designation = {
     const result = await pool.query(query);
 
     return result.rows;
-  }
-
+  },
 };
 
 const vehicleTypes = {
-
   async getAllVehicleTypes() {
-
     const query = `
       SELECT id, name
       FROM vehicle_types
@@ -33,14 +28,11 @@ const vehicleTypes = {
     const result = await pool.query(query);
 
     return result.rows;
-  }
-
+  },
 };
 
 const countries = {
-
   async getAllCountries() {
-
     const query = `
       SELECT id, name
       FROM countries
@@ -51,14 +43,11 @@ const countries = {
     const result = await pool.query(query);
 
     return result.rows;
-  }
-
+  },
 };
 
 const hepTypes = {
-
   async getAllHepTypes() {
-
     const query = `
       SELECT id, name
       FROM hep_types
@@ -69,14 +58,11 @@ const hepTypes = {
     const result = await pool.query(query);
 
     return result.rows;
-  }
-
+  },
 };
 
 const visitPurpose = {
-
   async getAllVisitPurposes() {
-
     const query = `
       SELECT id, name
       FROM visit_purposes
@@ -87,272 +73,268 @@ const visitPurpose = {
     const result = await pool.query(query);
 
     return result.rows;
-  }
-
+  },
 };
 
 const PassRequest = {
+  // async createPassRequest(payload, files) {
 
-    // async createPassRequest(payload, files) {
+  //   const client = await pool.connect();
 
-    //   const client = await pool.connect();
+  //   try {
 
-    //   try {
+  //     await client.query("BEGIN");
 
-    //     await client.query("BEGIN");
+  //     const {
+  //       agentId,
+  //       purposeOfVisitId,
+  //       paymentMode,
+  //       baseTotal,
+  //       grossTotal,
+  //       gstAmount,
+  //       netAmount,
+  //       persons,
+  //       vehicles
+  //     } = payload;
 
-    //     const {
-    //       agentId,
-    //       purposeOfVisitId,
-    //       paymentMode,
-    //       baseTotal,
-    //       grossTotal,
-    //       gstAmount,
-    //       netAmount,
-    //       persons,
-    //       vehicles
-    //     } = payload;
+  //     const authLetter = files.authLetter?.[0];
 
-    //     const authLetter = files.authLetter?.[0];
+  //     const passRequestResult = await client.query(
+  //       `
+  //       INSERT INTO pass_requests
+  //       ("agentId","purposeOfVisitId","authLetterFilePath","authLetterFileName","paymentMode","baseTotal",
+  //       "grossTotal","gstAmount","netAmount","status","submittedAt","createdAt","updatedAt")
+  //       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'SUBMITTED',NOW(),NOW(),NOW())
+  //       RETURNING id
+  //       `,
+  //       [
+  //         agentId,
+  //         purposeOfVisitId,
+  //         authLetter.path,
+  //         authLetter.originalname,
+  //         paymentMode,
+  //         baseTotal,
+  //         grossTotal,
+  //         gstAmount,
+  //         netAmount
+  //       ]
+  //     );
 
-    //     const passRequestResult = await client.query(
-    //       `
-    //       INSERT INTO pass_requests
-    //       ("agentId","purposeOfVisitId","authLetterFilePath","authLetterFileName","paymentMode","baseTotal",
-    //       "grossTotal","gstAmount","netAmount","status","submittedAt","createdAt","updatedAt")
-    //       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'SUBMITTED',NOW(),NOW(),NOW())
-    //       RETURNING id
-    //       `,
-    //       [
-    //         agentId,
-    //         purposeOfVisitId,
-    //         authLetter.path,
-    //         authLetter.originalname,
-    //         paymentMode,
-    //         baseTotal,
-    //         grossTotal,
-    //         gstAmount,
-    //         netAmount
-    //       ]
-    //     );
+  //     const passRequestId = passRequestResult.rows[0].id;
 
-    //     const passRequestId = passRequestResult.rows[0].id;
+  //     for (let i = 0; i < persons.length; i++) {
 
-    //     for (let i = 0; i < persons.length; i++) {
+  //     const person = persons[i];
 
-    //     const person = persons[i];
+  //     const aadharFile = files.personAadhar?.[i];
+  //     const photoFile = files.personPhoto?.[i];
+  //     const idProofFile = files.personIdProof?.[i];
+  //     const dlFile = files.driverLicense?.[i];
+  //     const requisitionFile = files.requisitionLetter?.[i];
+  //     const policeFile = files.policeVerification?.[i];
+  //     const employFile = files.employmentProof?.[i];
+  //     const chaFile = files.chaLicenseCopy?.[i];
+  //     const passportFile = files.passportDoc?.[i];
 
-    //     const aadharFile = files.personAadhar?.[i];
-    //     const photoFile = files.personPhoto?.[i];
-    //     const idProofFile = files.personIdProof?.[i];
-    //     const dlFile = files.driverLicense?.[i];
-    //     const requisitionFile = files.requisitionLetter?.[i];
-    //     const policeFile = files.policeVerification?.[i];
-    //     const employFile = files.employmentProof?.[i];
-    //     const chaFile = files.chaLicenseCopy?.[i];
-    //     const passportFile = files.passportDoc?.[i];
+  //       await client.query(
+  //       `
+  //       INSERT INTO pass_persons
+  //       ("passRequestId","rateId","hepTypeId","name","aadharNo",
+  //       "aadharPDFFilePATH","aadharPDFFileName",
+  //       "mobile","email","nationality","countryId","designationId",
+  //       "cardNumber","accessAreaId","withTwoWheeler","vehicleNo",
+  //       "idProofType","idProofNumber",
+  //       "idProofFilePath","idProofFileName",
+  //       "photoFilePath","photoFileName","requisitionLetterPath","requisitionLetterName","driverLicensePath","driverLicenseName",
+  //       "policeVerificationPath","policeVerificationName",
+  //       "employmentProofPath","employmentProofName",
+  //       "chaLicensePath","chaLicenseName",
+  //       "passportPath","passportName",
+  //       "passType","passPeriod","dateFrom","dateTo","amount",
+  //       "createdAt","updatedAt")
 
-    //       await client.query(
-    //       `
-    //       INSERT INTO pass_persons
-    //       ("passRequestId","rateId","hepTypeId","name","aadharNo",
-    //       "aadharPDFFilePATH","aadharPDFFileName",
-    //       "mobile","email","nationality","countryId","designationId",
-    //       "cardNumber","accessAreaId","withTwoWheeler","vehicleNo",
-    //       "idProofType","idProofNumber",
-    //       "idProofFilePath","idProofFileName",
-    //       "photoFilePath","photoFileName","requisitionLetterPath","requisitionLetterName","driverLicensePath","driverLicenseName",
-    //       "policeVerificationPath","policeVerificationName",
-    //       "employmentProofPath","employmentProofName",
-    //       "chaLicensePath","chaLicenseName",
-    //       "passportPath","passportName",
-    //       "passType","passPeriod","dateFrom","dateTo","amount",
-    //       "createdAt","updatedAt")
+  //       VALUES
+  //       ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,
+  //       $23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,NOW(),NOW())
+  //       `,
+  //       [
+  //       passRequestId,
+  //       person.rateId,
+  //       person.hepTypeId,
+  //       person.name,
+  //       person.aadharNo,
 
-    //       VALUES
-    //       ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,
-    //       $23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,NOW(),NOW())
-    //       `,
-    //       [
-    //       passRequestId,
-    //       person.rateId,
-    //       person.hepTypeId,
-    //       person.name,
-    //       person.aadharNo,
+  //       aadharFile?.path || null,
+  //       aadharFile?.originalname || null,
 
-    //       aadharFile?.path || null,
-    //       aadharFile?.originalname || null,
+  //       person.mobile,
+  //       person.email,
+  //       person.nationality,
+  //       person.countryId,
+  //       person.designationId,
+  //       person.cardNumber,
+  //       person.accessAreaId,
+  //       person.withTwoWheeler,
+  //       person.vehicleNo,
+  //       person.idProofType,
+  //       person.idProofNumber,
 
-    //       person.mobile,
-    //       person.email,
-    //       person.nationality,
-    //       person.countryId,
-    //       person.designationId,
-    //       person.cardNumber,
-    //       person.accessAreaId,
-    //       person.withTwoWheeler,
-    //       person.vehicleNo,
-    //       person.idProofType,
-    //       person.idProofNumber,
+  //       idProofFile?.path || null,
+  //       idProofFile?.originalname || null,
 
-    //       idProofFile?.path || null,
-    //       idProofFile?.originalname || null,
+  //       photoFile?.path || null,
+  //       photoFile?.originalname || null,
 
-    //       photoFile?.path || null,
-    //       photoFile?.originalname || null,
+  //       requisitionFile?.path || null,
+  //       requisitionFile?.originalname || null,
 
-    //       requisitionFile?.path || null,
-    //       requisitionFile?.originalname || null,
+  //       dlFile?.path || null, dlFile?.originalname || null,
+  //       policeFile?.path || null, policeFile?.originalname || null,
+  //       employFile?.path || null, employFile?.originalname || null,
+  //       chaFile?.path || null, chaFile?.originalname || null,
+  //       passportFile?.path || null, passportFile?.originalname || null,
 
-    //       dlFile?.path || null, dlFile?.originalname || null,
-    //       policeFile?.path || null, policeFile?.originalname || null,
-    //       employFile?.path || null, employFile?.originalname || null,
-    //       chaFile?.path || null, chaFile?.originalname || null,
-    //       passportFile?.path || null, passportFile?.originalname || null,
+  //       person.passType,
+  //       person.passPeriod,
+  //       person.dateFrom,
+  //       person.dateTo,
+  //       person.amount
+  //       ]
+  //       );
 
-    //       person.passType,
-    //       person.passPeriod,
-    //       person.dateFrom,
-    //       person.dateTo,
-    //       person.amount
-    //       ]
-    //       );
+  //     }
 
-    //     }
+  //     for (let i = 0; i < vehicles.length; i++) {
 
-    //     for (let i = 0; i < vehicles.length; i++) {
+  //     const vehicle = vehicles[i];
+  //     const vehicleFile = files.vehicleRC?.[i];
+  //     const insuranceFile = files.vehicleInsurance?.[i];
+  //     const permitFile = files.vehiclePermit?.[i];
+  //     const fitnessFile = files.vehicleFitness?.[i];
+  //     const reqLetterFile = files.vehicleRequestLetter?.[i];
+  //     const taxFile = files.vehicleTax?.[i];
+  //     const emissionFile = files.vehicleEmission?.[i];
 
-    //     const vehicle = vehicles[i];
-    //     const vehicleFile = files.vehicleRC?.[i];
-    //     const insuranceFile = files.vehicleInsurance?.[i];
-    //     const permitFile = files.vehiclePermit?.[i];
-    //     const fitnessFile = files.vehicleFitness?.[i];
-    //     const reqLetterFile = files.vehicleRequestLetter?.[i];
-    //     const taxFile = files.vehicleTax?.[i];
-    //     const emissionFile = files.vehicleEmission?.[i];
+  //       await client.query(
+  //         `
+  //         INSERT INTO pass_vehicles
+  //         (
+  //           "passRequestId","rateId","vehicleTypeId","registrationNo",
+  //           "rfidCardNumber",
 
-    //       await client.query(
-    //         `
-    //         INSERT INTO pass_vehicles
-    //         (
-    //           "passRequestId","rateId","vehicleTypeId","registrationNo",
-    //           "rfidCardNumber",
+  //           "scannedCopyFilePath","scannedCopyFileName",
 
-    //           "scannedCopyFilePath","scannedCopyFileName",
+  //           "insuranceExpiry","rcValidity","accessAreaId",
 
-    //           "insuranceExpiry","rcValidity","accessAreaId",
+  //           "insuranceFilePath","insuranceFileName",
+  //           "permitFilePath","permitFileName",
+  //           "fitnessFilePath","fitnessFileName",
+  //           "requestLetterPath","requestLetterName",
+  //           "taxDocPath","taxDocName",
+  //           "emissionCertPath","emissionCertName",
 
-    //           "insuranceFilePath","insuranceFileName",
-    //           "permitFilePath","permitFileName",
-    //           "fitnessFilePath","fitnessFileName",
-    //           "requestLetterPath","requestLetterName",
-    //           "taxDocPath","taxDocName",
-    //           "emissionCertPath","emissionCertName",
+  //           "passType","passPeriod","dateFrom","dateTo","amount",
+  //           "createdAt","updatedAt"
+  //         )
 
-    //           "passType","passPeriod","dateFrom","dateTo","amount",
-    //           "createdAt","updatedAt"
-    //         )
+  //         VALUES
+  //         (
+  //           $1,$2,$3,$4,$5,
+  //           $6,$7,
+  //           $8,$9,$10,
+  //           $11,$12,
+  //           $13,$14,
+  //           $15,$16,
+  //           $17,$18,
+  //           $19,$20,
+  //           $21,$22,
+  //           $23,$24,$25,$26,$27,
+  //           NOW(),NOW()
+  //         )
+  //         `,
+  //         [
+  //           passRequestId,
+  //           vehicle.rateId,
+  //           vehicle.vehicleTypeId,
+  //           vehicle.registrationNo,
+  //           vehicle.rfidCardNumber,
 
-    //         VALUES
-    //         (
-    //           $1,$2,$3,$4,$5,
-    //           $6,$7,
-    //           $8,$9,$10,
-    //           $11,$12,
-    //           $13,$14,
-    //           $15,$16,
-    //           $17,$18,
-    //           $19,$20,
-    //           $21,$22,
-    //           $23,$24,$25,$26,$27,
-    //           NOW(),NOW()
-    //         )
-    //         `,
-    //         [
-    //           passRequestId,
-    //           vehicle.rateId,
-    //           vehicle.vehicleTypeId,
-    //           vehicle.registrationNo,
-    //           vehicle.rfidCardNumber,
+  //           vehicleFile?.path || null,
+  //           vehicleFile?.originalname || null,
 
-    //           vehicleFile?.path || null,
-    //           vehicleFile?.originalname || null,
+  //           vehicle.insuranceExpiry,
+  //           vehicle.rcValidity,
+  //           vehicle.accessAreaId,
 
-    //           vehicle.insuranceExpiry,
-    //           vehicle.rcValidity,
-    //           vehicle.accessAreaId,
+  //           insuranceFile?.path || null,
+  //           insuranceFile?.originalname || null,
 
-    //           insuranceFile?.path || null,
-    //           insuranceFile?.originalname || null,
+  //           permitFile?.path || null,
+  //           permitFile?.originalname || null,
 
-    //           permitFile?.path || null,
-    //           permitFile?.originalname || null,
+  //           fitnessFile?.path || null,
+  //           fitnessFile?.originalname || null,
 
-    //           fitnessFile?.path || null,
-    //           fitnessFile?.originalname || null,
+  //           reqLetterFile?.path || null,
+  //           reqLetterFile?.originalname || null,
 
-    //           reqLetterFile?.path || null,
-    //           reqLetterFile?.originalname || null,
+  //           taxFile?.path || null,
+  //           taxFile?.originalname || null,
 
-    //           taxFile?.path || null,
-    //           taxFile?.originalname || null,
+  //           emissionFile?.path || null,
+  //           emissionFile?.originalname || null,
 
-    //           emissionFile?.path || null,
-    //           emissionFile?.originalname || null,
+  //           vehicle.passType,
+  //           vehicle.passPeriod,
+  //           vehicle.dateFrom,
+  //           vehicle.dateTo,
+  //           vehicle.amount
+  //         ]
+  //       );
+  //     }
 
-    //           vehicle.passType,
-    //           vehicle.passPeriod,
-    //           vehicle.dateFrom,
-    //           vehicle.dateTo,
-    //           vehicle.amount
-    //         ]
-    //       );
-    //     }
+  //     await client.query("COMMIT");
 
-    //     await client.query("COMMIT");
+  //     return passRequestId;
 
-    //     return passRequestId;
+  //   } catch (error) {
 
-    //   } catch (error) {
+  //     await client.query("ROLLBACK");
+  //     throw error;
 
-    //     await client.query("ROLLBACK");
-    //     throw error;
+  //   } finally {
 
-    //   } finally {
+  //     client.release();
 
-    //     client.release();
+  //   }
 
-    //   }
+  // },
 
-    // },
+  async createPassRequest(payload, files) {
+    const client = await pool.connect();
 
-    async createPassRequest(payload, files) {
+    try {
+      await client.query("BEGIN");
 
-      const client = await pool.connect();
+      const {
+        agentId,
+        purposeOfVisitId,
+        paymentMode,
+        baseTotal,
+        grossTotal,
+        gstAmount,
+        netAmount,
+        persons,
+        vehicles,
+      } = payload;
 
-      try {
+      const authLetter = files.authLetter?.[0];
 
-        await client.query("BEGIN");
-
-        const {
-          agentId,
-          purposeOfVisitId,
-          paymentMode,
-          baseTotal,
-          grossTotal,
-          gstAmount,
-          netAmount,
-          persons,
-          vehicles
-        } = payload;
-
-        const authLetter = files.authLetter?.[0];
-
-        /* ===== CHANGE START =====
+      /* ===== CHANGE START =====
           Generate Pass Request Reference Number
         ===== */
 
-        /* ===== CHANGE START =====
+      /* ===== CHANGE START =====
    SAFE REFERENCE NUMBER GENERATION (Retry Logic)
 ===== */
 
@@ -362,17 +344,15 @@ const PassRequest = {
       let retries = 0;
 
       while (!inserted && retries < 5) {
-
         referenceNo = await ReferenceNumber.generatePassReference(client);
 
         try {
-
           const passRequestResult = await client.query(
             `
             INSERT INTO pass_requests
             ("referenceNo","agentId","purposeOfVisitId","authLetterFilePath","authLetterFileName","paymentMode","baseTotal",
-            "grossTotal","gstAmount","netAmount","status","submittedAt","createdAt","updatedAt")
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'SUBMITTED',NOW(),NOW(),NOW())
+            "grossTotal","gstAmount","netAmount","status","originType","submittedAt","createdAt","updatedAt")
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'SUBMITTED','AGENT',NOW(),NOW(),NOW())
             RETURNING id
             `,
             [
@@ -385,67 +365,59 @@ const PassRequest = {
               baseTotal,
               grossTotal,
               gstAmount,
-              netAmount
-            ]
+              netAmount,
+            ],
           );
 
           passRequestId = passRequestResult.rows[0].id;
           inserted = true;
-
         } catch (err) {
-
           if (err.code === "23505") {
-
             console.warn("Duplicate reference detected, retrying...");
             retries++;
-
           } else {
             throw err;
           }
-
         }
-
       }
 
       if (!inserted) {
         throw new Error("Failed to generate unique reference number");
       }
 
-/* ===== CHANGE END ===== */
+      /* ===== CHANGE END ===== */
 
-        // const passRequestId = passRequestResult.rows[0].id;
+      // const passRequestId = passRequestResult.rows[0].id;
 
-        /*
+      /*
         ===============================
         INSERT PERSON PASSES
         ===============================
         */
 
-        for (let i = 0; i < persons.length; i++) {
+      for (let i = 0; i < persons.length; i++) {
+        const person = persons[i];
 
-          const person = persons[i];
+        const aadharFile = files.personAadhar?.[i];
+        const photoFile = files.personPhoto?.[i];
+        const idProofFile = files.personIdProof?.[i];
+        const dlFile = files.driverLicense?.[i];
+        const requisitionFile = files.requisitionLetter?.[i];
+        const policeFile = files.policeVerification?.[i];
+        const employFile = files.employmentProof?.[i];
+        const chaFile = files.chaLicenseCopy?.[i];
+        const passportFile = files.passportDoc?.[i];
 
-          const aadharFile = files.personAadhar?.[i];
-          const photoFile = files.personPhoto?.[i];
-          const idProofFile = files.personIdProof?.[i];
-          const dlFile = files.driverLicense?.[i];
-          const requisitionFile = files.requisitionLetter?.[i];
-          const policeFile = files.policeVerification?.[i];
-          const employFile = files.employmentProof?.[i];
-          const chaFile = files.chaLicenseCopy?.[i];
-          const passportFile = files.passportDoc?.[i];
-
-          /* ===== CHANGE START =====
+        /* ===== CHANGE START =====
             Generate Person Pass Number
           ===== */
 
-          const personPassNo = await ReferenceNumber.generatePersonPassNo(client);
+        const personPassNo = await ReferenceNumber.generatePersonPassNo(client);
 
-          /* ===== CHANGE END ===== */
+        /* ===== CHANGE END ===== */
 
-
-          await client.query(
-            `
+        await client.query(
+          `
             INSERT INTO pass_persons
             ("personPassNo","passRequestId","rateId","hepTypeId","name","aadharNo",
             "aadharPDFFilePATH","aadharPDFFileName",
@@ -465,83 +437,86 @@ const PassRequest = {
             ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,
             $23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,NOW(),NOW())
             `,
-            [
-              personPassNo,
-              passRequestId,
-              person.rateId,
-              person.hepTypeId,
-              person.name,
-              person.aadharNo,
+          [
+            personPassNo,
+            passRequestId,
+            person.rateId,
+            person.hepTypeId,
+            person.name,
+            person.aadharNo,
 
-              aadharFile?.path || null,
-              aadharFile?.originalname || null,
+            aadharFile?.path || null,
+            aadharFile?.originalname || null,
 
-              person.mobile,
-              person.email,
-              person.nationality,
-              person.countryId,
-              person.designationId,
-              person.cardNumber,
-              person.accessAreaId,
-              person.withTwoWheeler,
-              person.vehicleNo,
-              person.idProofType,
-              person.idProofNumber,
+            person.mobile,
+            person.email,
+            person.nationality,
+            person.countryId,
+            person.designationId,
+            person.cardNumber,
+            person.accessAreaId,
+            person.withTwoWheeler,
+            person.vehicleNo,
+            person.idProofType,
+            person.idProofNumber,
 
-              idProofFile?.path || null,
-              idProofFile?.originalname || null,
+            idProofFile?.path || null,
+            idProofFile?.originalname || null,
 
-              photoFile?.path || null,
-              photoFile?.originalname || null,
+            photoFile?.path || null,
+            photoFile?.originalname || null,
 
-              requisitionFile?.path || null,
-              requisitionFile?.originalname || null,
+            requisitionFile?.path || null,
+            requisitionFile?.originalname || null,
 
-              dlFile?.path || null, dlFile?.originalname || null,
-              policeFile?.path || null, policeFile?.originalname || null,
-              employFile?.path || null, employFile?.originalname || null,
-              chaFile?.path || null, chaFile?.originalname || null,
-              passportFile?.path || null, passportFile?.originalname || null,
+            dlFile?.path || null,
+            dlFile?.originalname || null,
+            policeFile?.path || null,
+            policeFile?.originalname || null,
+            employFile?.path || null,
+            employFile?.originalname || null,
+            chaFile?.path || null,
+            chaFile?.originalname || null,
+            passportFile?.path || null,
+            passportFile?.originalname || null,
 
-              person.passType,
-              person.passPeriod,
-              person.dateFrom,
-              person.dateTo,
-              person.amount
-            ]
-          );
-        }
+            person.passType,
+            person.passPeriod,
+            person.dateFrom,
+            person.dateTo,
+            person.amount,
+          ],
+        );
+      }
 
-
-        /*
+      /*
         ===============================
         INSERT VEHICLE PASSES
         ===============================
         */
 
-        for (let i = 0; i < vehicles.length; i++) {
+      for (let i = 0; i < vehicles.length; i++) {
+        const vehicle = vehicles[i];
 
-          const vehicle = vehicles[i];
+        const vehicleFile = files.vehicleRC?.[i];
+        const insuranceFile = files.vehicleInsurance?.[i];
+        const permitFile = files.vehiclePermit?.[i];
+        const fitnessFile = files.vehicleFitness?.[i];
+        const reqLetterFile = files.vehicleRequestLetter?.[i];
+        const taxFile = files.vehicleTax?.[i];
+        const emissionFile = files.vehicleEmission?.[i];
 
-          const vehicleFile = files.vehicleRC?.[i];
-          const insuranceFile = files.vehicleInsurance?.[i];
-          const permitFile = files.vehiclePermit?.[i];
-          const fitnessFile = files.vehicleFitness?.[i];
-          const reqLetterFile = files.vehicleRequestLetter?.[i];
-          const taxFile = files.vehicleTax?.[i];
-          const emissionFile = files.vehicleEmission?.[i];
-
-          /* ===== CHANGE START =====
+        /* ===== CHANGE START =====
             Generate Vehicle Pass Number
           ===== */
 
-          const vehiclePassNo = await ReferenceNumber.generateVehiclePassNo(client);
+        const vehiclePassNo =
+          await ReferenceNumber.generateVehiclePassNo(client);
 
-          /* ===== CHANGE END ===== */
+        /* ===== CHANGE END ===== */
 
-
-          await client.query(
-            `
+        await client.query(
+          `
             INSERT INTO pass_vehicles
             (
               "vehiclePassNo","passRequestId","rateId","vehicleTypeId","registrationNo",
@@ -577,82 +552,74 @@ const PassRequest = {
               NOW(),NOW()
             )
             `,
-            [
-              vehiclePassNo,
-              passRequestId,
-              vehicle.rateId,
-              vehicle.vehicleTypeId,
-              vehicle.registrationNo,
-              vehicle.rfidCardNumber || null,
+          [
+            vehiclePassNo,
+            passRequestId,
+            vehicle.rateId,
+            vehicle.vehicleTypeId,
+            vehicle.registrationNo,
+            vehicle.rfidCardNumber || null,
 
-              vehicleFile?.path || null,
-              vehicleFile?.originalname || null,
+            vehicleFile?.path || null,
+            vehicleFile?.originalname || null,
 
-              vehicle.insuranceExpiry,
-              vehicle.rcValidity,
-              vehicle.accessAreaId,
+            vehicle.insuranceExpiry,
+            vehicle.rcValidity,
+            vehicle.accessAreaId,
 
-              insuranceFile?.path || null,
-              insuranceFile?.originalname || null,
+            insuranceFile?.path || null,
+            insuranceFile?.originalname || null,
 
-              permitFile?.path || null,
-              permitFile?.originalname || null,
+            permitFile?.path || null,
+            permitFile?.originalname || null,
 
-              fitnessFile?.path || null,
-              fitnessFile?.originalname || null,
+            fitnessFile?.path || null,
+            fitnessFile?.originalname || null,
 
-              reqLetterFile?.path || null,
-              reqLetterFile?.originalname || null,
+            reqLetterFile?.path || null,
+            reqLetterFile?.originalname || null,
 
-              taxFile?.path || null,
-              taxFile?.originalname || null,
+            taxFile?.path || null,
+            taxFile?.originalname || null,
 
-              emissionFile?.path || null,
-              emissionFile?.originalname || null,
+            emissionFile?.path || null,
+            emissionFile?.originalname || null,
 
-              vehicle.passType,
-              vehicle.passPeriod,
-              vehicle.dateFrom,
-              vehicle.dateTo,
-              vehicle.amount
-            ]
-          );
-        }
-
-        await client.query("COMMIT");
-
-        return passRequestId;
-
-      } catch (error) {
-
-        await client.query("ROLLBACK");
-        throw error;
-
-      } finally {
-
-        client.release();
-
+            vehicle.passType,
+            vehicle.passPeriod,
+            vehicle.dateFrom,
+            vehicle.dateTo,
+            vehicle.amount,
+          ],
+        );
       }
-    },
 
-    async approvePerson(personId){
+      await client.query("COMMIT");
 
-      const query = `
+      return passRequestId;
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  },
+
+  async approvePerson(personId) {
+    const query = `
         UPDATE pass_persons
         SET status='approved'
         WHERE id=$1
         RETURNING *
       `;
 
-      const result = await pool.query(query,[personId]);
+    const result = await pool.query(query, [personId]);
 
-      return result.rows[0];
+    return result.rows[0];
+  },
 
-    },
-
-    async rejectPerson(personId, reason){
-
-      const query = `
+  async rejectPerson(personId, reason) {
+    const query = `
         UPDATE pass_persons
         SET status='rejected',
             "rejectedReason"=$2
@@ -660,29 +627,25 @@ const PassRequest = {
         RETURNING *
       `;
 
-      const result = await pool.query(query,[personId, reason]);
+    const result = await pool.query(query, [personId, reason]);
 
-      return result.rows[0];
+    return result.rows[0];
+  },
 
-    },
-
-    async approveVehicle(vehicleId){
-
-      const query = `
+  async approveVehicle(vehicleId) {
+    const query = `
         UPDATE pass_vehicles
         SET status='approved'
         WHERE id=$1
         RETURNING *
       `;
 
-      const result = await pool.query(query,[vehicleId]);
+    const result = await pool.query(query, [vehicleId]);
 
-      return result.rows[0];
+    return result.rows[0];
+  },
 
-    },
-
-    async rejectVehicle(vehicleId, reason){
-
+  async rejectVehicle(vehicleId, reason) {
     const query = `
       UPDATE pass_vehicles
       SET status='rejected',
@@ -691,15 +654,13 @@ const PassRequest = {
       RETURNING *
     `;
 
-    const result = await pool.query(query,[vehicleId, reason]);
+    const result = await pool.query(query, [vehicleId, reason]);
 
     return result.rows[0];
+  },
 
-    },
-
-    async completePassReview(passRequestId){
-
-      const pendingCheck = `
+  async completePassReview(passRequestId) {
+    const pendingCheck = `
         SELECT
         (SELECT COUNT(*) FROM pass_persons
         WHERE "passRequestId"=$1 AND status='pending') as pendingPersons,
@@ -708,33 +669,29 @@ const PassRequest = {
         WHERE "passRequestId"=$1 AND status='pending') as pendingVehicles
       `;
 
-      const check = await pool.query(pendingCheck,[passRequestId]);
+    const check = await pool.query(pendingCheck, [passRequestId]);
 
-      const { pendingpersons , pendingvehicles } = check.rows[0];
+    const { pendingpersons, pendingvehicles } = check.rows[0];
 
-      if(pendingpersons > 0 || pendingvehicles > 0){
-        throw new Error("All entities must be reviewed before completing");
-      }
+    if (pendingpersons > 0 || pendingvehicles > 0) {
+      throw new Error("All entities must be reviewed before completing");
+    }
 
-      const query = `
+    const query = `
         UPDATE pass_requests
         SET status='COMPLETED'
         WHERE id=$1
         RETURNING *
       `;
 
-      const result = await pool.query(query,[passRequestId]);
+    const result = await pool.query(query, [passRequestId]);
 
-      return result.rows[0];
-
-    }
-
+    return result.rows[0];
+  },
 };
 
 const getPassRequest = {
-
   async getAgentPassRequests(agentId) {
-
     const query = `
       SELECT
         pr.id,
@@ -837,130 +794,138 @@ const getPassRequest = {
     const result = await pool.query(query, [agentId]);
 
     return result.rows;
-  }
-
+  },
 };
 
 const Master = {
+  async getPersonsByAgent(agentId) {
+    const query = `
+    SELECT 
+    pp.id,
+    pp."passRequestId",
+    pp.name,
+    pp."aadharNo",
+    pp.mobile,
+    pp.email,
+    pp.nationality,
+    pp."countryId",
+    pp."visaNo",
+    pp."designationId",
+    pp."designationOther",
+    pp."cardNumber",
+    pp."accessAreaId",
+    pp."withTwoWheeler",
+    pp."vehicleNo",
+    pp."idProofType",
+    pp."idProofNumber",
+    
+    -- ALL FILES (Added missing mandatory docs)
+    pp."aadharPDFFilePATH",
+    pp."aadharPDFFileName",
+    pp."idProofFilePath",
+    pp."idProofFileName",
+    pp."photoFilePath",
+    pp."photoFileName",
+    pp."requisitionLetterPath",
+    pp."requisitionLetterName",
+    pp."driverLicensePath",
+    pp."driverLicenseName",
+    pp."policeVerificationPath",
+    pp."policeVerificationName",
+    pp."employmentProofPath",
+    pp."employmentProofName",
+    pp."chaLicensePath",
+    pp."chaLicenseName",
+    pp."passportPath",
+    pp."passportName",
+    
+    -- PASS DETAILS
+    pp."passType",
+    pp."passPeriod",
+    pp."dateFrom",
+    pp."dateTo",
+    pp.amount,
+    pp."createdAt",
+    pp."updatedAt",
+    
+    d.name AS "designationName",
+    pr."referenceNo"
+    
+    FROM pass_persons pp
+    
+    JOIN pass_requests pr
+    ON pr.id = pp."passRequestId"
+    
+    LEFT JOIN designations d
+    ON d.id = pp."designationId"
+    
+    WHERE pr."agentId" = $1
+    AND pp."isActive" = true
+    
+    ORDER BY pp."createdAt" DESC
+    `;
 
-  async getPersonsByAgent(agentId){
-
-  const query = `
-  SELECT
-  pp.id,
-  pp."passRequestId",
-  pp.name,
-  pp."aadharNo",
-  pp.mobile,
-  pp.email,
-  pp.nationality,
-  pp."countryId",
-  pp."visaNo",
-  pp."designationId",
-  pp."designationOther",
-  pp."cardNumber",
-  pp."accessAreaId",
-  pp."withTwoWheeler",
-  pp."vehicleNo",
-
-  pp."idProofType",
-  pp."idProofNumber",
-
-  -- FILES
-  pp."aadharPDFFilePATH",
-  pp."aadharPDFFileName",
-  pp."idProofFilePath",
-  pp."idProofFileName",
-  pp."photoFilePath",
-  pp."photoFileName",
-
-  -- PASS DETAILS
-  pp."passType",
-  pp."passPeriod",
-  pp."dateFrom",
-  pp."dateTo",
-  pp.amount,
-
-  pp."createdAt",
-  pp."updatedAt",
-
-  d.name AS "designationName",
-  pr."referenceNo"
-
-  FROM pass_persons pp
-
-  JOIN pass_requests pr
-  ON pr.id = pp."passRequestId"
-
-  LEFT JOIN designations d
-  ON d.id = pp."designationId"
-
-  WHERE pr."agentId" = $1
-  AND pp."isActive" = true
-
-  ORDER BY pp."createdAt" DESC
-  `;
-
-  const result = await pool.query(query,[agentId]);
-
-  return result.rows;
-
+    const result = await pool.query(query, [agentId]);
+    return result.rows;
   },
 
-  async getVehiclesByAgent(agentId){
+  async getVehiclesByAgent(agentId) {
+    const query = `
+    SELECT 
+    pv.id,
+    pv."passRequestId",
+    pv."registrationNo",
+    pv."rfidCardNumber",
+    
+    -- ALL FILES (Added missing mandatory docs)
+    pv."scannedCopyFilePath",
+    pv."scannedCopyFileName",
+    pv."insuranceFilePath",
+    pv."insuranceFileName",
+    pv."permitFilePath",
+    pv."permitFileName",
+    pv."fitnessFilePath",
+    pv."fitnessFileName",
+    pv."requestLetterPath",
+    pv."requestLetterName",
+    pv."taxDocPath",
+    pv."taxDocName",
+    pv."emissionCertPath",
+    pv."emissionCertName",
+    
+    pv."insuranceExpiry",
+    pv."rcValidity",
+    pv."accessAreaId",
+    pv."passType",
+    pv."passPeriod",
+    pv."dateFrom",
+    pv."dateTo",
+    pv.amount,
+    pv."createdAt",
+    pv."updatedAt",
+    
+    vt.name AS "vehicleTypeName",
+    pr."referenceNo"
+    
+    FROM pass_vehicles pv
+    
+    JOIN pass_requests pr
+    ON pr.id = pv."passRequestId"
+    
+    LEFT JOIN vehicle_types vt
+    ON vt.id = pv."vehicleTypeId"
+    
+    WHERE pr."agentId" = $1
+    AND pv."isActive" = true
+    
+    ORDER BY pv."createdAt" DESC
+    `;
 
-  const query = `
-  SELECT
-  pv.id,
-  pv."passRequestId",
-
-  pv."registrationNo",
-  pv."rfidCardNumber",
-
-  -- FILES
-  pv."scannedCopyFilePath",
-  pv."scannedCopyFileName",
-
-  pv."insuranceExpiry",
-  pv."rcValidity",
-
-  pv."accessAreaId",
-
-  pv."passType",
-  pv."passPeriod",
-  pv."dateFrom",
-  pv."dateTo",
-  pv.amount,
-
-  pv."createdAt",
-  pv."updatedAt",
-
-  vt.name AS "vehicleTypeName",
-  pr."referenceNo"
-
-  FROM pass_vehicles pv
-
-  JOIN pass_requests pr
-  ON pr.id = pv."passRequestId"
-
-  LEFT JOIN vehicle_types vt
-  ON vt.id = pv."vehicleTypeId"
-
-  WHERE pr."agentId" = $1
-  AND pv."isActive" = true
-
-  ORDER BY pv."createdAt" DESC
-  `;
-
-  const result = await pool.query(query,[agentId]);
-
-  return result.rows;
-
+    const result = await pool.query(query, [agentId]);
+    return result.rows;
   },
 
-
-  async getPersonCount(agentId){
-
+  async getPersonCount(agentId) {
     const query = `
     SELECT COUNT(*) AS "personCount"
     FROM pass_persons pp
@@ -972,15 +937,12 @@ const Master = {
     AND pp."isActive" = true
     `;
 
-    const result = await pool.query(query,[agentId]);
+    const result = await pool.query(query, [agentId]);
 
     return result.rows[0].personCount;
-
   },
 
-
-  async getVehicleCount(agentId){
-
+  async getVehicleCount(agentId) {
     const query = `
     SELECT COUNT(*) AS "vehicleCount"
     FROM pass_vehicles pv
@@ -992,12 +954,10 @@ const Master = {
     AND pv."isActive" = true
     `;
 
-    const result = await pool.query(query,[agentId]);
+    const result = await pool.query(query, [agentId]);
 
     return result.rows[0].vehicleCount;
-
-  }
-
+  },
 };
 
 // const getAgentPassRequestsDetails = {
@@ -1128,11 +1088,8 @@ const Master = {
 //   },
 // };
 
-
 const getAgentPassRequestsDetails = {
-
   async getAgentPassRequestsToApproverAdmin(role, departmentId) {
-
     let query = `
     SELECT
       pr.id,
@@ -1207,9 +1164,7 @@ const getAgentPassRequestsDetails = {
     ========================================= */
 
     if (role === "Approval") {
-
       if (departmentId === 7) {
-
         /* Marine Dept → Only Seafarers persons */
 
         query += `
@@ -1222,9 +1177,7 @@ const getAgentPassRequestsDetails = {
           AND ht.name = 'Seafarers'
         )
         `;
-
       } else {
-
         /* Traffic Dept → Drivers + Personnel + Vehicles */
 
         query += `
@@ -1252,20 +1205,122 @@ const getAgentPassRequestsDetails = {
     `;
 
     const result = await pool.query(query);
+    let rows = result.rows;
 
-    return result.rows;
-  }
+    /* =========================================
+       Append Vendor Pass submissions
+       (Traffic-side approvers only — Marine = 7 excluded)
+       Include VENDOR_SUBMITTED, APPROVED, and REJECTED statuses
+    ========================================= */
+    if (role === "Approval" && departmentId !== 7) {
+      const vendorRes = await pool.query(`
+        SELECT
+          v.id,
+          v."referenceNo",
+          v.status,
+          v."submittedAt",
+          v."createdAt",
+          v."companyName"      AS "entityName",
+          v."vendorEmail"      AS "email",
+          v."vendorMobile"     AS "mobileNo",
+          v."submittedPersons",
+          v."submittedVehicles"
+        FROM vendor_pass_requests v
+        WHERE v.status IN ('VENDOR_SUBMITTED', 'APPROVED', 'REJECTED')
+        ORDER BY v."submittedAt" DESC
+      `);
 
+      const vendorRows = vendorRes.rows.map((v) => ({
+        id: v.id,
+        referenceNo: v.referenceNo,
+        status: v.status === 'VENDOR_SUBMITTED' ? 'SUBMITTED' : v.status,
+        submittedAt: v.submittedAt,
+        createdAt: v.createdAt,
+        entityName: v.entityName,
+        email: v.email,
+        mobileNo: v.mobileNo,
+        gstinNumber: null,
+        panNumber: null,
+        persons: (Array.isArray(v.submittedPersons) ? v.submittedPersons : []).map(
+          (p, i) => ({ id: `vpr-${v.id}-p-${i}`, ...p })
+        ),
+        vehicles: (Array.isArray(v.submittedVehicles) ? v.submittedVehicles : []).map(
+          (veh, i) => ({ id: `vpr-${v.id}-v-${i}`, ...veh })
+        ),
+        originType: "VENDOR",
+      }));
+
+      rows = [...vendorRows, ...rows];
+    }
+
+    return rows;
+  },
 };
 
-const viewPassRequestsDocuments = { 
-    async getPassDocumentPath(passRequestId, documentType) {
+const viewPassRequestsDocuments = {
+  async getPassDocumentPath(passRequestId, documentType, entityIndex = 0, isVendorPass = false) {
+    // Vendor pass documents are stored in JSONB fields
+    if (isVendorPass) {
+      const vendorQuery = `
+        SELECT "submittedPersons", "submittedVehicles"
+        FROM vendor_pass_requests
+        WHERE id = $1
+      `;
+      const vendorRes = await pool.query(vendorQuery, [passRequestId]);
+      if (vendorRes.rows.length === 0) {
+        return null;
+      }
 
+      const submittedPersons = vendorRes.rows[0].submittedPersons || [];
+      const submittedVehicles = vendorRes.rows[0].submittedVehicles || [];
+
+      let entity;
+      let pathKey;
+
+      // Map document types to JSONB keys for persons
+      const personDocMap = {
+        personPhoto: "photoFilePath",
+        personAadhar: "aadharPDFFilePATH",
+        personIdProof: "idProofFilePath",
+        requisitionLetter: "requisitionLetterPath",
+        driverLicense: "driverLicensePath",
+        policeVerification: "policeVerificationPath",
+        employmentProof: "employmentProofPath",
+        chaLicenseCopy: "chaLicensePath",
+        passportDoc: "passportDocPath",
+      };
+
+      // Map document types to JSONB keys for vehicles
+      const vehicleDocMap = {
+        vehicleRC: "scannedCopyFilePath",
+        vehicleInsurance: "insuranceFilePath",
+        vehiclePermit: "permitFilePath",
+        vehicleFitness: "fitnessFilePath",
+        vehicleRequestLetter: "requestLetterPath",
+        vehicleTax: "taxFilePath",
+        vehicleEmission: "emissionFilePath",
+      };
+
+      if (personDocMap[documentType]) {
+        pathKey = personDocMap[documentType];
+        if (submittedPersons[entityIndex] && submittedPersons[entityIndex][pathKey]) {
+          return { filePath: submittedPersons[entityIndex][pathKey] };
+        }
+      } else if (vehicleDocMap[documentType]) {
+        pathKey = vehicleDocMap[documentType];
+        if (submittedVehicles[entityIndex] && submittedVehicles[entityIndex][pathKey]) {
+          return { filePath: submittedVehicles[entityIndex][pathKey] };
+        }
+      }
+
+      return null;
+    }
+
+    // Normal pass request documents (from pass_persons and pass_vehicles tables)
     let columnName;
     let tableName;
 
     switch (documentType) {
-
       // PERSON FILES
       case "personPhoto":
         columnName = "photoFilePath";
@@ -1363,14 +1418,8 @@ const viewPassRequestsDocuments = {
     const result = await pool.query(query, [passRequestId]);
 
     return result.rows[0];
-  }
+  },
 };
-
-
-
-
-
-
 
 module.exports = {
   Designation,
@@ -1382,25 +1431,8 @@ module.exports = {
   getPassRequest,
   Master,
   getAgentPassRequestsDetails,
-  viewPassRequestsDocuments
+  viewPassRequestsDocuments,
 };
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 // json_agg(
 //           DISTINCT jsonb_build_object(

@@ -7,6 +7,7 @@ const deptUserActivatedTemplate = require("../emailTemplates/deptUserAccountActi
 const deptUserDisabledTemplate = require("../emailTemplates/deptUserAccountDeactivationTemplate");
 const updatedAfterRevertTemplate = require("../emailTemplates/updatedAfterRevertEmail");
 const revertedAgentRequestTemplate = require("../emailTemplates/revertedAgentRequestTemplate");
+const vendorPassLinkTemplate = require("../emailTemplates/vendorPassLinkTemplate");
 
 const sendReferenceEmail = async (email, name, referenceNumber) => {
 
@@ -126,6 +127,34 @@ const sendRevertedAgentRequestEmail = async (email,name,referenceNumber,reason) 
 
 };
 
+const sendVendorPassLinkEmail = async ({
+  email,
+  companyName,
+  referenceNo,
+  link,
+  validUpto,
+  departmentName,
+}) => {
+
+  const html = vendorPassLinkTemplate({
+    companyName,
+    referenceNo,
+    link,
+    validUpto,
+    departmentName,
+  });
+
+  const mailOptions = {
+    from: process.env.EMAIL_USER,
+    to: email,
+    subject: `Chennai Port — Vendor Pass Application (${referenceNo})`,
+    html
+  };
+
+  return transporter.sendMail(mailOptions);
+};
+
 module.exports = { sendReferenceEmail, sendApprovalEmail, 
   sendRejectionEmail, sendDeptUserCreationEmail, sendDeptUserActivatedEmail, 
-  sendDeptUserDisabledEmail, sendUpdatedAfterRevertEmail, sendRevertedAgentRequestEmail };
+  sendDeptUserDisabledEmail, sendUpdatedAfterRevertEmail, sendRevertedAgentRequestEmail,
+  sendVendorPassLinkEmail };

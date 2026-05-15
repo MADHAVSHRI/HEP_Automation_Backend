@@ -10,5 +10,6 @@ router.post("/sendDeptUserActivated", emailController.sendDeptUserActivated);
 router.post("/sendDeptUserDisabled", emailController.sendDeptUserDisabled);
 router.post("/sendReverted", emailController.sendRevertedAgentRequest);
 router.post("/sendUpdatedAfterRevert", emailController.sendUpdatedAfterRevert);
+router.post("/sendVendorPassLink", emailController.sendVendorPassLink);
 
 module.exports = router;
