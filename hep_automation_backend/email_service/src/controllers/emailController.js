@@ -1,7 +1,7 @@
 const { sendReferenceEmail, sendApprovalEmail, sendRejectionEmail, 
   sendDeptUserCreationEmail, sendDeptUserActivatedEmail, sendDeptUserDisabledEmail,
   sendRevertedAgentRequestEmail,sendUpdatedAfterRevertEmail,
-  sendVendorPassLinkEmail } = require("../services/emailService");
+  sendVendorPassLinkEmail, sendPassRevertedEmail } = require("../services/emailService");
 
 exports.sendReference = async (req, res) => {
 
@@ -251,6 +251,46 @@ exports.sendVendorPassLink = async (req, res) => {
   } catch (error) {
 
     console.error("sendVendorPassLink error:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "Email sending failed"
+    });
+
+  }
+
+};
+
+exports.sendPassReverted = async (req, res) => {
+
+  try {
+
+    const { email, name, referenceNumber, revertedEntities, revertedCount } = req.body;
+
+    console.log(`[EMAIL-CTRL] Received pass reverted email request for ${email}`);
+    console.log(`[EMAIL-CTRL] Payload:`, JSON.stringify(req.body, null, 2));
+
+    if (!email || !referenceNumber || !revertedEntities) {
+      console.log(`[EMAIL-CTRL] Missing required fields: email=${email}, referenceNumber=${referenceNumber}, revertedEntities=${revertedEntities}`);
+      return res.status(400).json({
+        success: false,
+        message: "email, referenceNumber and revertedEntities are required"
+      });
+    }
+
+    console.log(`[EMAIL-CTRL] Calling sendPassRevertedEmail for ${email}`);
+    await sendPassRevertedEmail(email, name, referenceNumber, revertedEntities, revertedCount);
+
+    console.log(`[EMAIL-CTRL] Email sent successfully to ${email}`);
+    return res.json({
+      success: true,
+      message: "Pass reverted email sent successfully"
+    });
+
+  } catch (error) {
+
+    console.error("[EMAIL-CTRL] sendPassReverted error:", error);
+    console.error("[EMAIL-CTRL] Error stack:", error.stack);
 
     res.status(500).json({
       success: false,

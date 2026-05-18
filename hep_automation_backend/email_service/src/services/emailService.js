@@ -8,6 +8,7 @@ const deptUserDisabledTemplate = require("../emailTemplates/deptUserAccountDeact
 const updatedAfterRevertTemplate = require("../emailTemplates/updatedAfterRevertEmail");
 const revertedAgentRequestTemplate = require("../emailTemplates/revertedAgentRequestTemplate");
 const vendorPassLinkTemplate = require("../emailTemplates/vendorPassLinkTemplate");
+const revertedPassTemplate = require("../emailTemplates/revertedPassTemplate");
 
 const sendReferenceEmail = async (email, name, referenceNumber) => {
 
@@ -154,7 +155,26 @@ const sendVendorPassLinkEmail = async ({
   return transporter.sendMail(mailOptions);
 };
 
+const sendPassRevertedEmail = async (email, name, referenceNumber, revertedEntities, revertedCount) => {
+  console.log(`[EMAIL-SVC] Preparing to send revert email to ${email}`);
+  console.log(`[EMAIL-SVC] Reverted entities count: ${revertedCount || revertedEntities?.length || 0}`);
+  
+  const html = revertedPassTemplate(name, referenceNumber, revertedEntities, revertedCount);
+
+  const mailOptions = {
+    from: process.env.EMAIL_USER,
+    to: email,
+    subject: `⚠️ Chennai Port Pass Application Reverted (${referenceNumber})`,
+    html
+  };
+
+  console.log(`[EMAIL-SVC] Sending email via transporter to ${email}`);
+  const result = await transporter.sendMail(mailOptions);
+  console.log(`[EMAIL-SVC] Email sent successfully:`, result.messageId);
+  return result;
+};
+
 module.exports = { sendReferenceEmail, sendApprovalEmail, 
   sendRejectionEmail, sendDeptUserCreationEmail, sendDeptUserActivatedEmail, 
   sendDeptUserDisabledEmail, sendUpdatedAfterRevertEmail, sendRevertedAgentRequestEmail,
-  sendVendorPassLinkEmail };
+  sendVendorPassLinkEmail, sendPassRevertedEmail };

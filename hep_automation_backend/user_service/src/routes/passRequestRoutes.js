@@ -56,11 +56,22 @@ router.put("/approve-person",verifyToken,passRequestController.approvePerson);
 
 router.put("/reject-person",verifyToken,passRequestController.rejectPerson);
 
+router.put("/revert-person",verifyToken,passRequestController.revertPerson);
+
 router.put("/approve-vehicle",verifyToken,passRequestController.approveVehicle);
 
 router.put("/reject-vehicle",verifyToken,passRequestController.rejectVehicle);
 
+router.put("/revert-vehicle",verifyToken,passRequestController.revertVehicle);
+
 router.put("/complete-review",verifyToken,passRequestController.completeReview);
+
+router.get("/getPassDetails/:passRequestId", verifyToken, passRequestController.getPassDetails);
+
+// Phase 2: Edit and resubmit reverted passes
+router.put("/update-pass-person/:personId", verifyToken, passRequestController.updatePassPerson);
+router.put("/update-pass-vehicle/:vehicleId", verifyToken, passRequestController.updatePassVehicle);
+router.put("/resubmit-reverted-pass/:passRequestId", verifyToken, passRequestController.resubmitRevertedPass);
 
 module.exports = router;
 

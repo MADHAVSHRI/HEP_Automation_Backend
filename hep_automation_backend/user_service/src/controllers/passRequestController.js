@@ -518,6 +518,72 @@ const rejectVehicle = async(req,res)=>{
 
 }
 
+const revertPerson = async(req,res)=>{
+
+  try{
+
+    const {personId, revertReason} = req.body;
+
+    if(!revertReason){
+      return res.status(400).json({
+        success:false,
+        message:"Revert reason is required"
+      });
+    }
+
+    const person = await PassRequest.revertPerson(personId, revertReason);
+
+    return res.json({
+      success:true,
+      data:person
+    });
+
+  }catch(error){
+
+    console.error(error);
+
+    res.status(500).json({
+      success:false,
+      message:"Internal server error"
+    });
+
+  }
+
+}
+
+const revertVehicle = async(req,res)=>{
+
+  try{
+
+    const {vehicleId, revertReason} = req.body;
+
+    if(!revertReason){
+      return res.status(400).json({
+        success:false,
+        message:"Revert reason is required"
+      });
+    }
+
+    const vehicle = await PassRequest.revertVehicle(vehicleId, revertReason);
+
+    return res.json({
+      success:true,
+      data:vehicle
+    });
+
+  }catch(error){
+
+    console.error(error);
+
+    res.status(500).json({
+      success:false,
+      message:"Internal server error"
+    });
+
+  }
+
+}
+
 const completeReview = async(req,res)=>{
 
   try{
@@ -566,6 +632,129 @@ const getQrData = async (req, res) => {
   }
 };
 
+const getPassDetails = async (req, res) => {
+  try {
+    const { passRequestId } = req.params;
+
+    const passData = await getAgentPassRequestsDetails.getPassById(passRequestId);
+
+    if (!passData) {
+      return res.status(404).json({
+        success: false,
+        message: "Pass request not found"
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: passData
+    });
+
+  } catch (error) {
+    console.error("GET PASS DETAILS ERROR", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+// ============================================
+// PHASE 2: EDIT AND RESUBMIT REVERTED PASSES
+// ============================================
+
+const updatePassPerson = async (req, res) => {
+  try {
+    const { personId } = req.params;
+    const updateData = req.body;
+
+    const { updateRevertedPerson } = require("../models/passRequestSchema").getAgentPassRequestsDetails;
+
+    const result = await updateRevertedPerson(personId, updateData);
+
+    if (!result.success) {
+      return res.status(400).json({
+        success: false,
+        message: result.message
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Person updated successfully",
+      data: result.data
+    });
+
+  } catch (error) {
+    console.error("UPDATE PASS PERSON ERROR", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+const updatePassVehicle = async (req, res) => {
+  try {
+    const { vehicleId } = req.params;
+    const updateData = req.body;
+
+    const { updateRevertedVehicle } = require("../models/passRequestSchema").getAgentPassRequestsDetails;
+
+    const result = await updateRevertedVehicle(vehicleId, updateData);
+
+    if (!result.success) {
+      return res.status(400).json({
+        success: false,
+        message: result.message
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Vehicle updated successfully",
+      data: result.data
+    });
+
+  } catch (error) {
+    console.error("UPDATE PASS VEHICLE ERROR", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+const resubmitRevertedPass = async (req, res) => {
+  try {
+    const { passRequestId } = req.params;
+
+    const { resubmitRevertedPassRequest } = require("../models/passRequestSchema").getAgentPassRequestsDetails;
+
+    const result = await resubmitRevertedPassRequest(passRequestId);
+
+    if (!result.success) {
+      return res.status(400).json({
+        success: false,
+        message: result.message
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Pass resubmitted successfully",
+      data: result.data
+    });
+
+  } catch (error) {
+    console.error("RESUBMIT REVERTED PASS ERROR", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
 module.exports = {
   getNationalities,
   getPassTypes,
@@ -583,8 +772,15 @@ module.exports = {
   viewPassRequestsDocument,
   approvePerson,
   rejectPerson,
+  revertPerson,
   approveVehicle,
   rejectVehicle,
+  revertVehicle,
   completeReview,
-  getQrData
+  getQrData,
+  getPassDetails,
+  // Phase 2: Edit and resubmit reverted passes
+  updatePassPerson,
+  updatePassVehicle,
+  resubmitRevertedPass
 };

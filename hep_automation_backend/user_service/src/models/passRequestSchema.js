@@ -659,6 +659,34 @@ const PassRequest = {
     return result.rows[0];
   },
 
+  async revertPerson(personId, reason) {
+    const query = `
+        UPDATE pass_persons
+        SET status='reverted',
+            "rejectedReason"=$2
+        WHERE id=$1
+        RETURNING *
+      `;
+
+    const result = await pool.query(query, [personId, reason]);
+
+    return result.rows[0];
+  },
+
+  async revertVehicle(vehicleId, reason) {
+    const query = `
+      UPDATE pass_vehicles
+      SET status='reverted',
+          "rejectedReason"=$2
+      WHERE id=$1
+      RETURNING *
+    `;
+
+    const result = await pool.query(query, [vehicleId, reason]);
+
+    return result.rows[0];
+  },
+
   async completePassReview(passRequestId) {
     const pendingCheck = `
         SELECT
@@ -666,17 +694,54 @@ const PassRequest = {
         WHERE "passRequestId"=$1 AND status='pending') as pendingPersons,
 
         (SELECT COUNT(*) FROM pass_vehicles
-        WHERE "passRequestId"=$1 AND status='pending') as pendingVehicles
+        WHERE "passRequestId"=$1 AND status='pending') as pendingVehicles,
+
+        (SELECT COUNT(*) FROM pass_persons
+        WHERE "passRequestId"=$1 AND status='reverted') as revertedPersons,
+
+        (SELECT COUNT(*) FROM pass_vehicles
+        WHERE "passRequestId"=$1 AND status='reverted') as revertedVehicles
       `;
 
     const check = await pool.query(pendingCheck, [passRequestId]);
 
-    const { pendingpersons, pendingvehicles } = check.rows[0];
+    const { pendingpersons, pendingvehicles, revertedpersons, revertedvehicles } = check.rows[0];
 
     if (pendingpersons > 0 || pendingvehicles > 0) {
       throw new Error("All entities must be reviewed before completing");
     }
 
+    // Check if any entities were reverted
+    const hasReverted = (revertedpersons > 0 || revertedvehicles > 0);
+    
+    if (hasReverted) {
+      // If reverted entities exist, update pass request with revert tracking
+      // Set status to 'REVERTED' so it moves to processed tab for approver
+      // But stays in "Reverted Applications" for user
+      const query = `
+        UPDATE pass_requests
+        SET 
+          status = 'REVERTED',
+          "hasRevertedEntities" = true,
+          "revertCount" = "revertCount" + 1,
+          "lastRevertedAt" = NOW()
+        WHERE id=$1
+        RETURNING *
+      `;
+      const result = await pool.query(query, [passRequestId]);
+      
+      return {
+        ...result.rows[0],
+        reviewStatus: 'REVERTED',
+        message: 'Review saved. Pass request has reverted entities that need correction.',
+        revertedEntities: {
+          persons: parseInt(revertedpersons),
+          vehicles: parseInt(revertedvehicles)
+        }
+      };
+    }
+
+    // No reverted entities - mark as COMPLETED
     const query = `
         UPDATE pass_requests
         SET status='COMPLETED'
@@ -686,7 +751,263 @@ const PassRequest = {
 
     const result = await pool.query(query, [passRequestId]);
 
-    return result.rows[0];
+    return {
+      ...result.rows[0],
+      reviewStatus: 'COMPLETED',
+      message: 'Review completed successfully.'
+    };
+  },
+
+  // ============================================
+  // PHASE 2: EDIT AND RESUBMIT REVERTED PASSES
+  // ============================================
+
+  async updateRevertedPerson(personId, updateData) {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      // Check if person exists and is reverted
+      const checkQuery = `
+        SELECT id, status FROM pass_persons WHERE id = $1
+      `;
+      const checkResult = await client.query(checkQuery, [personId]);
+
+      if (checkResult.rows.length === 0) {
+        return { success: false, message: 'Person not found' };
+      }
+
+      if (checkResult.rows[0].status !== 'reverted') {
+        return { success: false, message: 'Person is not in reverted status' };
+      }
+
+      // Build update query dynamically based on provided fields
+      const allowedFields = [
+        'name', 'mobile', 'aadharNo', 'hepTypeId', 'passType',
+        'passPeriod', 'dateFrom', 'dateTo', 'amount', 'countryId',
+        'designation', 'idProofType', 'photoFilePath'
+      ];
+
+      const updates = [];
+      const values = [];
+      let paramIndex = 1;
+
+      for (const field of allowedFields) {
+        if (updateData[field] !== undefined) {
+          // Map camelCase to snake_case for DB
+          const dbField = field.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
+          // Handle special case mappings
+          const fieldMap = {
+            'a_adhar_no': 'aadhar_no',
+            'hep_type_id': 'hep_type_id',
+            'pass_type': 'pass_type',
+            'pass_period': 'pass_period',
+            'date_from': 'date_from',
+            'date_to': 'date_to',
+            'country_id': 'country_id',
+            'id_proof_type': 'id_proof_type',
+            'photo_file_path': 'photo_file_path'
+          };
+          const finalDbField = fieldMap[dbField] || dbField;
+
+          updates.push(`"${finalDbField}" = $${paramIndex}`);
+          values.push(updateData[field]);
+          paramIndex++;
+        }
+      }
+
+      // Always update status to 'pending' and clear rejectedReason
+      updates.push(`status = $${paramIndex}`);
+      values.push('pending');
+      paramIndex++;
+
+      updates.push(`"rejectedReason" = $${paramIndex}`);
+      values.push(null);
+      paramIndex++;
+
+      updates.push(`"updatedAt" = $${paramIndex}`);
+      values.push(new Date());
+      paramIndex++;
+
+      // Add personId as the last parameter
+      values.push(personId);
+
+      const updateQuery = `
+        UPDATE pass_persons
+        SET ${updates.join(', ')}
+        WHERE id = $${paramIndex}
+        RETURNING *
+      `;
+
+      const result = await client.query(updateQuery, values);
+      await client.query('COMMIT');
+
+      return {
+        success: true,
+        data: result.rows[0],
+        message: 'Person updated successfully'
+      };
+
+    } catch (error) {
+      await client.query('ROLLBACK');
+      console.error('UPDATE REVERTED PERSON ERROR:', error);
+      return { success: false, message: error.message };
+    } finally {
+      client.release();
+    }
+  },
+
+  async updateRevertedVehicle(vehicleId, updateData) {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      // Check if vehicle exists and is reverted
+      const checkQuery = `
+        SELECT id, status FROM pass_vehicles WHERE id = $1
+      `;
+      const checkResult = await client.query(checkQuery, [vehicleId]);
+
+      if (checkResult.rows.length === 0) {
+        return { success: false, message: 'Vehicle not found' };
+      }
+
+      if (checkResult.rows[0].status !== 'reverted') {
+        return { success: false, message: 'Vehicle is not in reverted status' };
+      }
+
+      // Build update query dynamically
+      const allowedFields = [
+        'registrationNo', 'regNo', 'engineNo', 'chassisNo',
+        'vehicleTypeId', 'fuelType', 'insuranceExpiry', 'insuranceFilePath'
+      ];
+
+      const updates = [];
+      const values = [];
+      let paramIndex = 1;
+
+      for (const field of allowedFields) {
+        if (updateData[field] !== undefined) {
+          // Map to DB field names
+          const fieldMap = {
+            'registrationNo': 'registration_no',
+            'regNo': 'registration_no',
+            'engineNo': 'engine_no',
+            'chassisNo': 'chassis_no',
+            'vehicleTypeId': 'vehicle_type_id',
+            'fuelType': 'fuel_type',
+            'insuranceExpiry': 'insurance_expiry',
+            'insuranceFilePath': 'insurance_file_path'
+          };
+          const dbField = fieldMap[field] || field;
+
+          updates.push(`"${dbField}" = $${paramIndex}`);
+          values.push(updateData[field]);
+          paramIndex++;
+        }
+      }
+
+      // Always update status to 'pending' and clear rejectedReason
+      updates.push(`status = $${paramIndex}`);
+      values.push('pending');
+      paramIndex++;
+
+      updates.push(`"rejectedReason" = $${paramIndex}`);
+      values.push(null);
+      paramIndex++;
+
+      updates.push(`"updatedAt" = $${paramIndex}`);
+      values.push(new Date());
+      paramIndex++;
+
+      // Add vehicleId as the last parameter
+      values.push(vehicleId);
+
+      const updateQuery = `
+        UPDATE pass_vehicles
+        SET ${updates.join(', ')}
+        WHERE id = $${paramIndex}
+        RETURNING *
+      `;
+
+      const result = await client.query(updateQuery, values);
+      await client.query('COMMIT');
+
+      return {
+        success: true,
+        data: result.rows[0],
+        message: 'Vehicle updated successfully'
+      };
+
+    } catch (error) {
+      await client.query('ROLLBACK');
+      console.error('UPDATE REVERTED VEHICLE ERROR:', error);
+      return { success: false, message: error.message };
+    } finally {
+      client.release();
+    }
+  },
+
+  async resubmitRevertedPassRequest(passRequestId) {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      // Check if pass exists and is in REVERTED status
+      const checkQuery = `
+        SELECT id, status FROM pass_requests WHERE id = $1
+      `;
+      const checkResult = await client.query(checkQuery, [passRequestId]);
+
+      if (checkResult.rows.length === 0) {
+        return { success: false, message: 'Pass request not found' };
+      }
+
+      if (checkResult.rows[0].status !== 'REVERTED') {
+        return { success: false, message: 'Pass is not in reverted status' };
+      }
+
+      // Check if there are still reverted entities
+      const revertedCheck = `
+        SELECT
+          (SELECT COUNT(*) FROM pass_persons WHERE "passRequestId" = $1 AND status = 'reverted') as reverted_persons,
+          (SELECT COUNT(*) FROM pass_vehicles WHERE "passRequestId" = $1 AND status = 'reverted') as reverted_vehicles
+      `;
+      const revertedResult = await client.query(revertedCheck, [passRequestId]);
+      const { reverted_persons, reverted_vehicles } = revertedResult.rows[0];
+
+      if (parseInt(reverted_persons) > 0 || parseInt(reverted_vehicles) > 0) {
+        return {
+          success: false,
+          message: `Cannot resubmit. ${reverted_persons} persons and ${reverted_vehicles} vehicles still need to be updated.`
+        };
+      }
+
+      // Update pass status back to PENDING
+      const updateQuery = `
+        UPDATE pass_requests
+        SET status = 'PENDING',
+            "updatedAt" = NOW()
+        WHERE id = $1
+        RETURNING *
+      `;
+
+      const result = await client.query(updateQuery, [passRequestId]);
+      await client.query('COMMIT');
+
+      return {
+        success: true,
+        data: result.rows[0],
+        message: 'Pass resubmitted successfully'
+      };
+
+    } catch (error) {
+      await client.query('ROLLBACK');
+      console.error('RESUBMIT REVERTED PASS ERROR:', error);
+      return { success: false, message: error.message };
+    } finally {
+      client.release();
+    }
   },
 };
 
@@ -716,6 +1037,7 @@ const getPassRequest = {
             jsonb_build_object(
               'id',           pp.id,
               'name',         pp.name,
+              'email',        pp.email,
               'aadharNo',     pp."aadharNo",
               'mobile',       pp.mobile,
               'hepTypeId',    pp."hepTypeId",
@@ -728,6 +1050,7 @@ const getPassRequest = {
               'rejectedReason', pp."rejectedReason",
               'personPassNo', pp."personPassNo",
               'photoFilePath', pp."photoFilePath",
+              'photoFileName', pp."photoFileName",
               'designationId', pp."designationId",
               'accessAreaId', pp."accessAreaId",
               'nationality',  pp.nationality,
@@ -739,13 +1062,21 @@ const getPassRequest = {
               'idProofType',  pp."idProofType",
               'idProofNumber', pp."idProofNumber",
               'aadharPDFFilePATH', pp."aadharPDFFilePATH",
+              'aadharPDFFileName', pp."aadharPDFFileName",
               'idProofFilePath', pp."idProofFilePath",
+              'idProofFileName', pp."idProofFileName",
               'requisitionLetterPath', pp."requisitionLetterPath",
+              'requisitionLetterName', pp."requisitionLetterName",
               'driverLicensePath', pp."driverLicensePath",
+              'driverLicenseName', pp."driverLicenseName",
               'policeVerificationPath', pp."policeVerificationPath",
+              'policeVerificationName', pp."policeVerificationName",
               'employmentProofPath', pp."employmentProofPath",
+              'employmentProofName', pp."employmentProofName",
               'chaLicensePath', pp."chaLicensePath",
-              'passportPath', pp."passportPath"
+              'chaLicenseName', pp."chaLicenseName",
+              'passportPath', pp."passportPath",
+              'passportName', pp."passportName"
             )
           ) AS persons
         FROM pass_persons pp
@@ -773,12 +1104,19 @@ const getPassRequest = {
               'rcValidity',       pv."rcValidity",
               'accessAreaId',     pv."accessAreaId",
               'scannedCopyFilePath', pv."scannedCopyFilePath",
+              'scannedCopyFileName', pv."scannedCopyFileName",
               'insuranceFilePath', pv."insuranceFilePath",
+              'insuranceFileName', pv."insuranceFileName",
               'permitFilePath',   pv."permitFilePath",
+              'permitFileName',   pv."permitFileName",
               'fitnessFilePath',  pv."fitnessFilePath",
+              'fitnessFileName',  pv."fitnessFileName",
               'requestLetterPath', pv."requestLetterPath",
+              'requestLetterName', pv."requestLetterName",
               'taxDocPath',       pv."taxDocPath",
-              'emissionCertPath', pv."emissionCertPath"
+              'taxDocName',       pv."taxDocName",
+              'emissionCertPath', pv."emissionCertPath",
+              'emissionCertName', pv."emissionCertName"
             )
           ) AS vehicles
         FROM pass_vehicles pv
@@ -1254,6 +1592,63 @@ const getAgentPassRequestsDetails = {
     }
 
     return rows;
+  },
+
+  async getPassById(passRequestId) {
+    const query = `
+    SELECT
+      pr.id,
+      pr."referenceNo",
+      pr.status,
+      pr."submittedAt",
+      pr."createdAt",
+      pr."hasRevertedEntities",
+      pr."revertCount",
+      pr."lastRevertedAt",
+
+      a."entityName" AS "agentName",
+      a."email" AS "agentEmail",
+      a."mobileNo" AS "agentMobile",
+      a."firstName",
+      a."lastName",
+
+      COALESCE(p.persons, '[]') AS persons,
+      COALESCE(v.vehicles, '[]') AS vehicles
+
+    FROM pass_requests pr
+
+    LEFT JOIN "Agents" a
+      ON a.id = pr."agentId"
+
+    LEFT JOIN (
+      SELECT
+        pp."passRequestId",
+        json_agg(
+          to_jsonb(pp) ||
+          jsonb_build_object(
+            'country', c.name,
+            'hepType', ht.name
+          )
+        ) AS persons
+      FROM pass_persons pp
+      LEFT JOIN countries c ON c.id = pp."countryId"
+      LEFT JOIN hep_types ht ON ht.id = pp."hepTypeId"
+      GROUP BY pp."passRequestId"
+    ) p ON p."passRequestId" = pr.id
+
+    LEFT JOIN (
+      SELECT
+        pv."passRequestId",
+        json_agg(to_jsonb(pv)) AS vehicles
+      FROM pass_vehicles pv
+      GROUP BY pv."passRequestId"
+    ) v ON v."passRequestId" = pr.id
+
+    WHERE pr.id = $1 AND pr."isActive" = true
+    `;
+
+    const result = await pool.query(query, [passRequestId]);
+    return result.rows[0] || null;
   },
 };
 

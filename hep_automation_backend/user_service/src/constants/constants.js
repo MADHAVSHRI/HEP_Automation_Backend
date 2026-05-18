@@ -14,7 +14,8 @@ const USER_ROLES = {
 const PASS_ENTITY_STATUS = Object.freeze({
   PENDING: "pending",
   APPROVED: "approved",
-  REJECTED: "rejected"
+  REJECTED: "rejected",
+  REVERTED: "reverted"
 });
 
 const PASS_REQUEST_STATUS = Object.freeze({
