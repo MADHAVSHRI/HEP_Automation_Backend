@@ -1,7 +1,7 @@
 const { sendReferenceEmail, sendApprovalEmail, sendRejectionEmail, 
   sendDeptUserCreationEmail, sendDeptUserActivatedEmail, sendDeptUserDisabledEmail,
   sendRevertedAgentRequestEmail,sendUpdatedAfterRevertEmail,
-  sendVendorPassLinkEmail, sendPassRevertedEmail } = require("../services/emailService");
+  sendVendorPassLinkEmail, sendPassRevertedEmail, sendVendorPassApprovedEmail } = require("../services/emailService");
 
 exports.sendReference = async (req, res) => {
 
@@ -299,4 +299,52 @@ exports.sendPassReverted = async (req, res) => {
 
   }
 
+};
+
+exports.sendVendorPassApproved = async (req, res) => {
+  try {
+    const {
+      email,
+      companyName,
+      referenceNo,
+      qrLink,
+      approvedPersonsCount,
+      approvedVehiclesCount,
+      validUpto,
+      departmentName
+    } = req.body;
+
+    console.log(`[EMAIL-CTRL] Received vendor pass approved email request for ${email}`);
+
+    if (!email || !referenceNo || !qrLink) {
+      return res.status(400).json({
+        success: false,
+        message: "email, referenceNo and qrLink are required"
+      });
+    }
+
+    await sendVendorPassApprovedEmail({
+      email,
+      companyName,
+      referenceNo,
+      qrLink,
+      approvedPersonsCount,
+      approvedVehiclesCount,
+      validUpto,
+      departmentName
+    });
+
+    console.log(`[EMAIL-CTRL] Vendor pass approved email sent to ${email}`);
+    return res.json({
+      success: true,
+      message: "Vendor pass approved email sent successfully"
+    });
+
+  } catch (error) {
+    console.error("[EMAIL-CTRL] sendVendorPassApproved error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Email sending failed"
+    });
+  }
 };

@@ -767,9 +767,9 @@ const PassRequest = {
     try {
       await client.query('BEGIN');
 
-      // Check if person exists and is reverted
+      // Check if person exists
       const checkQuery = `
-        SELECT id, status FROM pass_persons WHERE id = $1
+        SELECT id FROM pass_persons WHERE id = $1
       `;
       const checkResult = await client.query(checkQuery, [personId]);
 
@@ -777,15 +777,12 @@ const PassRequest = {
         return { success: false, message: 'Person not found' };
       }
 
-      if (checkResult.rows[0].status !== 'reverted') {
-        return { success: false, message: 'Person is not in reverted status' };
-      }
-
       // Build update query dynamically based on provided fields
+      // Only include fields that exist in pass_persons table
       const allowedFields = [
         'name', 'mobile', 'aadharNo', 'hepTypeId', 'passType',
         'passPeriod', 'dateFrom', 'dateTo', 'amount', 'countryId',
-        'designation', 'idProofType', 'photoFilePath'
+        'idProofType', 'photoFilePath'
       ];
 
       const updates = [];
@@ -794,37 +791,14 @@ const PassRequest = {
 
       for (const field of allowedFields) {
         if (updateData[field] !== undefined) {
-          // Map camelCase to snake_case for DB
-          const dbField = field.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
-          // Handle special case mappings
-          const fieldMap = {
-            'a_adhar_no': 'aadhar_no',
-            'hep_type_id': 'hep_type_id',
-            'pass_type': 'pass_type',
-            'pass_period': 'pass_period',
-            'date_from': 'date_from',
-            'date_to': 'date_to',
-            'country_id': 'country_id',
-            'id_proof_type': 'id_proof_type',
-            'photo_file_path': 'photo_file_path'
-          };
-          const finalDbField = fieldMap[dbField] || dbField;
-
-          updates.push(`"${finalDbField}" = $${paramIndex}`);
+          // Use exact column names from DB schema (camelCase)
+          updates.push(`"${field}" = $${paramIndex}`);
           values.push(updateData[field]);
           paramIndex++;
         }
       }
 
-      // Always update status to 'pending' and clear rejectedReason
-      updates.push(`status = $${paramIndex}`);
-      values.push('pending');
-      paramIndex++;
-
-      updates.push(`"rejectedReason" = $${paramIndex}`);
-      values.push(null);
-      paramIndex++;
-
+      // Only update updatedAt, not status
       updates.push(`"updatedAt" = $${paramIndex}`);
       values.push(new Date());
       paramIndex++;
@@ -862,9 +836,12 @@ const PassRequest = {
     try {
       await client.query('BEGIN');
 
-      // Check if vehicle exists and is reverted
+      console.log('UPDATE REVERTED VEHICLE - vehicleId:', vehicleId);
+      console.log('UPDATE REVERTED VEHICLE - updateData:', JSON.stringify(updateData));
+
+      // Check if vehicle exists
       const checkQuery = `
-        SELECT id, status FROM pass_vehicles WHERE id = $1
+        SELECT id FROM pass_vehicles WHERE id = $1
       `;
       const checkResult = await client.query(checkQuery, [vehicleId]);
 
@@ -872,50 +849,40 @@ const PassRequest = {
         return { success: false, message: 'Vehicle not found' };
       }
 
-      if (checkResult.rows[0].status !== 'reverted') {
-        return { success: false, message: 'Vehicle is not in reverted status' };
-      }
-
       // Build update query dynamically
+      // Only include fields that exist in pass_vehicles table
       const allowedFields = [
-        'registrationNo', 'regNo', 'engineNo', 'chassisNo',
-        'vehicleTypeId', 'fuelType', 'insuranceExpiry', 'insuranceFilePath'
+        'registrationNo', 'vehicleTypeId', 'insuranceExpiry',
+        'rcValidity', 'passType', 'passPeriod', 'dateFrom', 'dateTo', 'amount'
       ];
 
       const updates = [];
       const values = [];
       let paramIndex = 1;
 
-      for (const field of allowedFields) {
-        if (updateData[field] !== undefined) {
-          // Map to DB field names
-          const fieldMap = {
-            'registrationNo': 'registration_no',
-            'regNo': 'registration_no',
-            'engineNo': 'engine_no',
-            'chassisNo': 'chassis_no',
-            'vehicleTypeId': 'vehicle_type_id',
-            'fuelType': 'fuel_type',
-            'insuranceExpiry': 'insurance_expiry',
-            'insuranceFilePath': 'insurance_file_path'
-          };
-          const dbField = fieldMap[field] || field;
+      // Use registrationNo if regNo is also provided (they map to same column)
+      const regNo = updateData.registrationNo || updateData.regNo;
 
-          updates.push(`"${dbField}" = $${paramIndex}`);
-          values.push(updateData[field]);
+      for (const field of allowedFields) {
+        let fieldValue = updateData[field];
+
+        // Handle special case for registrationNo/regNo
+        if (field === 'registrationNo') {
+          fieldValue = regNo;
+        }
+
+        if (fieldValue !== undefined) {
+          // Use exact column names from DB schema (camelCase)
+          updates.push(`"${field}" = $${paramIndex}`);
+          values.push(fieldValue);
           paramIndex++;
         }
       }
 
-      // Always update status to 'pending' and clear rejectedReason
-      updates.push(`status = $${paramIndex}`);
-      values.push('pending');
-      paramIndex++;
+      console.log('UPDATE REVERTED VEHICLE - updates:', updates);
+      console.log('UPDATE REVERTED VEHICLE - values:', values);
 
-      updates.push(`"rejectedReason" = $${paramIndex}`);
-      values.push(null);
-      paramIndex++;
-
+      // Only update updatedAt, not status
       updates.push(`"updatedAt" = $${paramIndex}`);
       values.push(new Date());
       paramIndex++;
@@ -967,26 +934,28 @@ const PassRequest = {
         return { success: false, message: 'Pass is not in reverted status' };
       }
 
-      // Check if there are still reverted entities
-      const revertedCheck = `
-        SELECT
-          (SELECT COUNT(*) FROM pass_persons WHERE "passRequestId" = $1 AND status = 'reverted') as reverted_persons,
-          (SELECT COUNT(*) FROM pass_vehicles WHERE "passRequestId" = $1 AND status = 'reverted') as reverted_vehicles
-      `;
-      const revertedResult = await client.query(revertedCheck, [passRequestId]);
-      const { reverted_persons, reverted_vehicles } = revertedResult.rows[0];
+      // Reset reverted persons and vehicles to 'pending' so only they need re-review
+      // Already approved/rejected entities stay as-is
+      await client.query(`
+        UPDATE pass_persons
+        SET status = 'pending',
+            "rejectedReason" = NULL,
+            "updatedAt" = NOW()
+        WHERE "passRequestId" = $1 AND status = 'reverted'
+      `, [passRequestId]);
 
-      if (parseInt(reverted_persons) > 0 || parseInt(reverted_vehicles) > 0) {
-        return {
-          success: false,
-          message: `Cannot resubmit. ${reverted_persons} persons and ${reverted_vehicles} vehicles still need to be updated.`
-        };
-      }
+      await client.query(`
+        UPDATE pass_vehicles
+        SET status = 'pending',
+            "rejectedReason" = NULL,
+            "updatedAt" = NOW()
+        WHERE "passRequestId" = $1 AND status = 'reverted'
+      `, [passRequestId]);
 
-      // Update pass status back to PENDING
+      // Update pass status back to SUBMITTED
       const updateQuery = `
         UPDATE pass_requests
-        SET status = 'PENDING',
+        SET status = 'SUBMITTED',
             "updatedAt" = NOW()
         WHERE id = $1
         RETURNING *

@@ -9,6 +9,7 @@ const updatedAfterRevertTemplate = require("../emailTemplates/updatedAfterRevert
 const revertedAgentRequestTemplate = require("../emailTemplates/revertedAgentRequestTemplate");
 const vendorPassLinkTemplate = require("../emailTemplates/vendorPassLinkTemplate");
 const revertedPassTemplate = require("../emailTemplates/revertedPassTemplate");
+const vendorPassApprovedTemplate = require("../emailTemplates/vendorPassApprovedTemplate");
 
 const sendReferenceEmail = async (email, name, referenceNumber) => {
 
@@ -157,7 +158,7 @@ const sendVendorPassLinkEmail = async ({
 
 const sendPassRevertedEmail = async (email, name, referenceNumber, revertedEntities, revertedCount) => {
   console.log(`[EMAIL-SVC] Preparing to send revert email to ${email}`);
-  console.log(`[EMAIL-SVC] Reverted entities count: ${revertedCount || revertedEntities?.length || 0}`);
+  console.log(`[EMAIL-SVC] Reverted count: ${revertedCount || revertedEntities?.length || 0}`);
   
   const html = revertedPassTemplate(name, referenceNumber, revertedEntities, revertedCount);
 
@@ -174,7 +175,40 @@ const sendPassRevertedEmail = async (email, name, referenceNumber, revertedEntit
   return result;
 };
 
+const sendVendorPassApprovedEmail = async ({
+  email,
+  companyName,
+  referenceNo,
+  qrLink,
+  approvedPersonsCount,
+  approvedVehiclesCount,
+  validUpto,
+  departmentName,
+}) => {
+  const html = vendorPassApprovedTemplate({
+    companyName,
+    referenceNo,
+    qrLink,
+    approvedPersonsCount,
+    approvedVehiclesCount,
+    validUpto,
+    departmentName,
+  });
+
+  const mailOptions = {
+    from: process.env.EMAIL_USER,
+    to: email,
+    subject: `✅ Your Chennai Port Vendor Pass is Approved (${referenceNo})`,
+    html
+  };
+
+  console.log(`[EMAIL-SVC] Sending vendor pass approval email to ${email}`);
+  const result = await transporter.sendMail(mailOptions);
+  console.log(`[EMAIL-SVC] Vendor approval email sent:`, result.messageId);
+  return result;
+};
+
 module.exports = { sendReferenceEmail, sendApprovalEmail, 
   sendRejectionEmail, sendDeptUserCreationEmail, sendDeptUserActivatedEmail, 
   sendDeptUserDisabledEmail, sendUpdatedAfterRevertEmail, sendRevertedAgentRequestEmail,
-  sendVendorPassLinkEmail, sendPassRevertedEmail };
+  sendVendorPassLinkEmail, sendPassRevertedEmail, sendVendorPassApprovedEmail };

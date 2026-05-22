@@ -1,20 +1,7 @@
 const crypto = require("crypto");
 const axios = require("axios");
 const VendorPassRequest = require("../models/vendorPassRequestSchema");
-
-const MONTH_CODES = [
-  "JAN","FEB","MAR","APR","MAY","JUN",
-  "JUL","AUG","SEP","OCT","NOV","DEC",
-];
-
-const VISITOR_TYPES = [
-  { id: 1, name: "Govt Officials" },
-  { id: 2, name: "Consultants" },
-  { id: 3, name: "Students" },
-  { id: 4, name: "Vendors" },
-  { id: 5, name: "VIPs" },
-  { id: 6, name: "Others" },
-];
+const { MONTH_CODES, VISITOR_TYPES } = require("../constants/constants");
 
 const { pool } = require("../dbconfig/db");
 const ReferenceNumber = require("../models/referenceNumberSchema");

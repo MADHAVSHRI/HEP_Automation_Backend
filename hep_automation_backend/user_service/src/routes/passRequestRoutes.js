@@ -52,6 +52,12 @@ router.get(
   passRequestController.getQrData
 );
 
+// Vendor pass QR data endpoint (public - no auth required, token-based access)
+router.get(
+  "/vendor-qr-data/:vendorPassId",
+  passRequestController.getVendorQrData
+);
+
 router.put("/approve-person",verifyToken,passRequestController.approvePerson);
 
 router.put("/reject-person",verifyToken,passRequestController.rejectPerson);
@@ -72,6 +78,9 @@ router.get("/getPassDetails/:passRequestId", verifyToken, passRequestController.
 router.put("/update-pass-person/:personId", verifyToken, passRequestController.updatePassPerson);
 router.put("/update-pass-vehicle/:vehicleId", verifyToken, passRequestController.updatePassVehicle);
 router.put("/resubmit-reverted-pass/:passRequestId", verifyToken, passRequestController.resubmitRevertedPass);
+
+// Public QR validation endpoint — called by gate scanner when a QR is scanned
+router.get("/validate-qr/:passNo", passRequestController.validateQrPass);
 
 module.exports = router;
 

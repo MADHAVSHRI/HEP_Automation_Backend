@@ -12,5 +12,6 @@ router.post("/sendReverted", emailController.sendRevertedAgentRequest);
 router.post("/sendUpdatedAfterRevert", emailController.sendUpdatedAfterRevert);
 router.post("/sendVendorPassLink", emailController.sendVendorPassLink);
 router.post("/sendPassReverted", emailController.sendPassReverted);
+router.post("/sendVendorPassApproved", emailController.sendVendorPassApproved);
 
 module.exports = router;

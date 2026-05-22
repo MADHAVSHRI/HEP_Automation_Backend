@@ -8,6 +8,7 @@ const FONT_REGULAR    = path.join(__dirname, "../assets/NotoSansDevanagari-Regul
 const FONT_BOLD       = path.join(__dirname, "../assets/NotoSansDevanagari-Bold.ttf");
 
 const USER_SERVICE = process.env.USER_SERVICE_URL;
+
 exports.generatePass = async (passRequestId, token) => {
   const response = await axios.get(
     `${USER_SERVICE}/api/pass-request/qr-data/${passRequestId}`,
@@ -15,16 +16,70 @@ exports.generatePass = async (passRequestId, token) => {
       headers: {
         Authorization: token,
         "x-service-name": "QR Service"
+      }
     }
-    }
-    );
+  );
   const data = response.data;
   if ((!data.persons || data.persons.length === 0) &&
     (!data.vehicles || data.vehicles.length === 0)) {
     throw new Error("No approved passes found");
-}
+  }
   return await generatePDF(data);
+};
 
+exports.generateVendorPass = async (vendorPassId) => {
+  const response = await axios.get(
+    `${USER_SERVICE}/api/pass-request/vendor-qr-data/${vendorPassId}`,
+    {
+      headers: {
+        "x-service-name": "QR Service"
+      }
+    }
+  );
+  const data = response.data;
+  if ((!data.persons || data.persons.length === 0) &&
+    (!data.vehicles || data.vehicles.length === 0)) {
+    throw new Error("No approved vendor passes found");
+  }
+  return await generatePDF(data);
+};
+
+/**
+ * Generate PDF for a single vendor pass entity (person or vehicle)
+ * Reuses the same generatePDF template but filters to one entity
+ */
+exports.generateVendorSinglePass = async (vendorPassId, entityType, entityIndex) => {
+  const response = await axios.get(
+    `${USER_SERVICE}/api/pass-request/vendor-qr-data/${vendorPassId}`,
+    {
+      headers: {
+        "x-service-name": "QR Service"
+      }
+    }
+  );
+  const data = response.data;
+
+  // Filter to single entity
+  let filteredData;
+  if (entityType === "person") {
+    const persons = data.persons || [];
+    const idx = parseInt(entityIndex, 10);
+    if (!persons[idx]) {
+      throw new Error("Person not found");
+    }
+    filteredData = { persons: [persons[idx]], vehicles: [], referenceNo: data.referenceNo };
+  } else if (entityType === "vehicle") {
+    const vehicles = data.vehicles || [];
+    const idx = parseInt(entityIndex, 10);
+    if (!vehicles[idx]) {
+      throw new Error("Vehicle not found");
+    }
+    filteredData = { persons: [], vehicles: [vehicles[idx]], referenceNo: data.referenceNo };
+  } else {
+    throw new Error("Invalid entity type. Use 'person' or 'vehicle'");
+  }
+
+  return await generatePDF(filteredData);
 };
 
 async function generateQR(data){

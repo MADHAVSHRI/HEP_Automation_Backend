@@ -1,5 +1,9 @@
 const { pool } = require("../dbconfig/db");
 const ReferenceNumber = require("./referenceNumberSchema");
+const axios = require("axios");
+
+const EMAIL_SERVICE_URL = process.env.EMAIL_SERVICE_URL || "http://localhost:5002";
+const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:3000";
 
 /**
  * Raw-SQL data layer for vendor_pass_requests, mirroring the style used in
@@ -181,6 +185,14 @@ const VendorPassRequest = {
         vehicles[i].vehiclePassNo = vehiclePassNo;
       }
 
+      // Ensure every person/vehicle has a status for traffic approver UI
+      persons.forEach((p) => {
+        if (!p.status) p.status = "pending";
+      });
+      vehicles.forEach((v) => {
+        if (!v.status) v.status = "pending";
+      });
+
       // Update vendor_pass_requests
       const result = await client.query(
         `UPDATE "vendor_pass_requests"
@@ -194,9 +206,110 @@ const VendorPassRequest = {
         [JSON.stringify(persons), JSON.stringify(vehicles), token]
       );
 
+      const vendorPass = result.rows[0];
+
+      // Insert into vendor_pass_persons
+      for (const p of persons) {
+        await client.query(
+          `INSERT INTO "vendor_pass_persons" (
+            "vendorPassRequestId", "personPassNo", "name", "mobile", "aadharNo",
+            "email", "nationality", "dateFrom", "dateTo",
+            "photoFilePath", "photoFileName",
+            "idProofFilePath", "idProofFileName",
+            "aadharPDFFilePATH", "aadharPDFFileName",
+            "passportPath", "passportName",
+            "requisitionLetterPath", "requisitionLetterName",
+            "driverLicensePath", "driverLicenseName",
+            "policeVerificationPath", "policeVerificationName",
+            "employmentProofPath", "employmentProofName",
+            "chaLicensePath", "chaLicenseName",
+            "passType", "passPeriod", "amount",
+            "status", "createdAt", "updatedAt"
+          ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,NOW(),NOW())`,
+          [
+            vendorPass.id,
+            p.personPassNo,
+            p.personName || p.name || null,
+            p.mobileNumber || p.mobile || null,
+            p.aadharNumber || p.aadharNo || null,
+            p.email || null,
+            p.nationality || "INDIAN",
+            p.dateFrom || null,
+            p.dateTo || null,
+            p.photoFilePath || null,
+            p.photoFileName || null,
+            p.idProofFilePath || null,
+            p.idProofFileName || null,
+            p.aadharPDFFilePATH || null,
+            p.aadharPDFFileName || null,
+            p.passportPath || null,
+            p.passportName || null,
+            p.requisitionLetterPath || null,
+            p.requisitionLetterName || null,
+            p.driverLicensePath || null,
+            p.driverLicenseName || null,
+            p.policeVerificationPath || null,
+            p.policeVerificationName || null,
+            p.employmentProofPath || null,
+            p.employmentProofName || null,
+            p.chaLicensePath || null,
+            p.chaLicenseName || null,
+            p.passType || null,
+            p.passPeriod || null,
+            p.amount || 0,
+            "pending",
+          ]
+        );
+      }
+
+      // Insert into vendor_pass_vehicles
+      for (const v of vehicles) {
+        await client.query(
+          `INSERT INTO "vendor_pass_vehicles" (
+            "vendorPassRequestId", "vehiclePassNo", "vehicleRegistrationNo", "vehicleType",
+            "dateFrom", "dateTo",
+            "scannedCopyFilePath", "scannedCopyFileName",
+            "insuranceFilePath", "insuranceFileName",
+            "permitFilePath", "permitFileName",
+            "fitnessFilePath", "fitnessFileName",
+            "requestLetterPath", "requestLetterName",
+            "taxFilePath", "taxFileName",
+            "emissionFilePath", "emissionFileName",
+            "passType", "passPeriod", "amount",
+            "status", "createdAt", "updatedAt"
+          ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,NOW(),NOW())`,
+          [
+            vendorPass.id,
+            v.vehiclePassNo,
+            v.vehicleRegistrationNo || v.registrationNo || v.regNo || null,
+            v.vehicleType || null,
+            v.dateFrom || null,
+            v.dateTo || null,
+            v.scannedCopyFilePath || null,
+            v.scannedCopyFileName || null,
+            v.insuranceFilePath || null,
+            v.insuranceFileName || null,
+            v.permitFilePath || null,
+            v.permitFileName || null,
+            v.fitnessFilePath || null,
+            v.fitnessFileName || null,
+            v.requestLetterPath || null,
+            v.requestLetterName || null,
+            v.taxFilePath || null,
+            v.taxFileName || null,
+            v.emissionFilePath || null,
+            v.emissionFileName || null,
+            v.passType || null,
+            v.passPeriod || null,
+            v.amount || 0,
+            "pending",
+          ]
+        );
+      }
+
       await client.query("COMMIT");
       client.release();
-      return result.rows[0] || null;
+      return vendorPass || null;
     } catch (error) {
       console.error("submitVendorForm error:", error);
       await client.query("ROLLBACK");
@@ -216,6 +329,16 @@ const VendorPassRequest = {
        "updatedAt" = NOW()
        WHERE id = $1
        RETURNING *`,
+      [vendorPassId]
+    );
+    // Sync to vendor_pass_persons table
+    await pool.query(
+      `UPDATE "vendor_pass_persons" vpp
+       SET "status" = 'approved', "updatedAt" = NOW()
+       FROM "vendor_pass_requests" vpr
+       WHERE vpr.id = $1
+         AND vpp."vendorPassRequestId" = vpr.id
+         AND vpp."personPassNo" = (vpr."submittedPersons"->${personIndex}->>'personPassNo')`,
       [vendorPassId]
     );
     return result.rows[0] || null;
@@ -238,6 +361,16 @@ const VendorPassRequest = {
        RETURNING *`,
       [vendorPassId, JSON.stringify(rejectedReason)]
     );
+    // Sync to vendor_pass_persons table
+    await pool.query(
+      `UPDATE "vendor_pass_persons" vpp
+       SET "status" = 'rejected', "rejectedReason" = $2, "updatedAt" = NOW()
+       FROM "vendor_pass_requests" vpr
+       WHERE vpr.id = $1
+         AND vpp."vendorPassRequestId" = vpr.id
+         AND vpp."personPassNo" = (vpr."submittedPersons"->${personIndex}->>'personPassNo')`,
+      [vendorPassId, rejectedReason]
+    );
     return result.rows[0] || null;
   },
 
@@ -252,6 +385,16 @@ const VendorPassRequest = {
        "updatedAt" = NOW()
        WHERE id = $1
        RETURNING *`,
+      [vendorPassId]
+    );
+    // Sync to vendor_pass_vehicles table
+    await pool.query(
+      `UPDATE "vendor_pass_vehicles" vpv
+       SET "status" = 'approved', "updatedAt" = NOW()
+       FROM "vendor_pass_requests" vpr
+       WHERE vpr.id = $1
+         AND vpv."vendorPassRequestId" = vpr.id
+         AND vpv."vehiclePassNo" = (vpr."submittedVehicles"->${vehicleIndex}->>'vehiclePassNo')`,
       [vendorPassId]
     );
     return result.rows[0] || null;
@@ -274,6 +417,16 @@ const VendorPassRequest = {
        RETURNING *`,
       [vendorPassId, JSON.stringify(rejectedReason)]
     );
+    // Sync to vendor_pass_vehicles table
+    await pool.query(
+      `UPDATE "vendor_pass_vehicles" vpv
+       SET "status" = 'rejected', "rejectedReason" = $2, "updatedAt" = NOW()
+       FROM "vendor_pass_requests" vpr
+       WHERE vpr.id = $1
+         AND vpv."vendorPassRequestId" = vpr.id
+         AND vpv."vehiclePassNo" = (vpr."submittedVehicles"->${vehicleIndex}->>'vehiclePassNo')`,
+      [vendorPassId, rejectedReason]
+    );
     return result.rows[0] || null;
   },
 
@@ -282,9 +435,10 @@ const VendorPassRequest = {
     try {
       await client.query("BEGIN");
 
-      // Get current vendor pass
+      // Get current vendor pass with all details needed for email
       const vendorRes = await client.query(
-        `SELECT "submittedPersons", "submittedVehicles"
+        `SELECT "submittedPersons", "submittedVehicles", "vendorEmail",
+                "companyName", "referenceNo", "validUpto", "departmentName"
          FROM "vendor_pass_requests"
          WHERE id = $1`,
         [vendorPassId]
@@ -294,7 +448,9 @@ const VendorPassRequest = {
         throw new Error("Vendor pass request not found");
       }
 
-      const { submittedPersons, submittedVehicles } = vendorRes.rows[0];
+      const row = vendorRes.rows[0];
+      const submittedPersons = row.submittedPersons;
+      const submittedVehicles = row.submittedVehicles;
       const persons = Array.isArray(submittedPersons) ? submittedPersons : [];
       const vehicles = Array.isArray(submittedVehicles) ? submittedVehicles : [];
 
@@ -307,8 +463,10 @@ const VendorPassRequest = {
       }
 
       // Check if any approved (to determine final status)
-      const hasApprovedPerson = persons.some(p => p.status === 'approved');
-      const hasApprovedVehicle = vehicles.some(v => v.status === 'approved');
+      const approvedPersons = persons.filter(p => p.status === 'approved');
+      const approvedVehicles = vehicles.filter(v => v.status === 'approved');
+      const hasApprovedPerson = approvedPersons.length > 0;
+      const hasApprovedVehicle = approvedVehicles.length > 0;
 
       const finalStatus = (hasApprovedPerson || hasApprovedVehicle) ? 'APPROVED' : 'REJECTED';
 
@@ -323,6 +481,30 @@ const VendorPassRequest = {
 
       await client.query("COMMIT");
       client.release();
+
+      // Send approval email if approved
+      if (finalStatus === 'APPROVED' && row.vendorEmail) {
+        try {
+          const qrLink = `${FRONTEND_URL}/vendor_pass_approved/${vendorPassId}`;
+
+          await axios.post(`${EMAIL_SERVICE_URL}/api/email/sendVendorPassApproved`, {
+            email: row.vendorEmail,
+            companyName: row.companyName,
+            referenceNo: row.referenceNo,
+            qrLink: qrLink,
+            approvedPersonsCount: approvedPersons.length,
+            approvedVehiclesCount: approvedVehicles.length,
+            validUpto: row.validUpto,
+            departmentName: row.departmentName
+          });
+
+          console.log(`[VENDOR-PASS] Approval email sent to ${row.vendorEmail} for ${row.referenceNo}`);
+        } catch (emailError) {
+          // Log error but don't fail the approval
+          console.error("[VENDOR-PASS] Failed to send approval email:", emailError.message);
+        }
+      }
+
       return result.rows[0];
     } catch (error) {
       await client.query("ROLLBACK");

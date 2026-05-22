@@ -7,8 +7,9 @@ const {
   ACCESS_AREAS
 } = require("../constants/constants");
 const passRequestService = require("../services/passRequestService");
-const { Designation, vehicleTypes, PassRequest, hepTypes, 
+const { Designation, vehicleTypes, PassRequest, hepTypes,
         countries, visitPurpose, getPassRequest, Master, getAgentPassRequestsDetails, viewPassRequestsDocuments } = require("../models/passRequestSchema");
+const { pool } = require("../dbconfig/db");
 
 const getNationalities = (req, res) => {
   const sorted = NATIONALITIES.slice().sort((a, b) =>
@@ -632,6 +633,31 @@ const getQrData = async (req, res) => {
   }
 };
 
+const getVendorQrData = async (req, res) => {
+  try {
+    const { vendorPassId } = req.params;
+
+    const data = await passRequestService.getVendorQrData(vendorPassId);
+
+    return res.json(data);
+
+  } catch (error) {
+    console.error("VENDOR QR DATA ERROR", error);
+
+    if (error.message === "No approved vendor pass found") {
+      return res.status(404).json({
+        success: false,
+        message: error.message
+      });
+    }
+
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
 const getPassDetails = async (req, res) => {
   try {
     const { passRequestId } = req.params;
@@ -668,9 +694,9 @@ const updatePassPerson = async (req, res) => {
     const { personId } = req.params;
     const updateData = req.body;
 
-    const { updateRevertedPerson } = require("../models/passRequestSchema").getAgentPassRequestsDetails;
+    const { PassRequest } = require("../models/passRequestSchema");
 
-    const result = await updateRevertedPerson(personId, updateData);
+    const result = await PassRequest.updateRevertedPerson(personId, updateData);
 
     if (!result.success) {
       return res.status(400).json({
@@ -699,9 +725,12 @@ const updatePassVehicle = async (req, res) => {
     const { vehicleId } = req.params;
     const updateData = req.body;
 
-    const { updateRevertedVehicle } = require("../models/passRequestSchema").getAgentPassRequestsDetails;
+    console.log('UPDATE VEHICLE - vehicleId:', vehicleId);
+    console.log('UPDATE VEHICLE - updateData:', updateData);
 
-    const result = await updateRevertedVehicle(vehicleId, updateData);
+    const { PassRequest } = require("../models/passRequestSchema");
+
+    const result = await PassRequest.updateRevertedVehicle(vehicleId, updateData);
 
     if (!result.success) {
       return res.status(400).json({
@@ -729,9 +758,9 @@ const resubmitRevertedPass = async (req, res) => {
   try {
     const { passRequestId } = req.params;
 
-    const { resubmitRevertedPassRequest } = require("../models/passRequestSchema").getAgentPassRequestsDetails;
+    const { PassRequest } = require("../models/passRequestSchema");
 
-    const result = await resubmitRevertedPassRequest(passRequestId);
+    const result = await PassRequest.resubmitRevertedPassRequest(passRequestId);
 
     if (!result.success) {
       return res.status(400).json({
@@ -750,6 +779,221 @@ const resubmitRevertedPass = async (req, res) => {
     console.error("RESUBMIT REVERTED PASS ERROR", error);
     return res.status(500).json({
       success: false,
+      message: error.message
+    });
+  }
+};
+
+const validateQrPass = async (req, res) => {
+  try {
+    const { passNo } = req.params;
+    if (!passNo) {
+      return res.status(400).json({
+        success: false,
+        message: "passNo is required"
+      });
+    }
+
+    const now = new Date();
+
+    // 1. Try normal pass persons
+    const personQuery = `
+      SELECT pp.id, pp.name, pp.mobile, pp."aadharNo", pp."personPassNo",
+             pp."dateFrom", pp."dateTo", pp.status,
+             a."entityName" AS company,
+             'person' AS entityType,
+             pr."referenceNo"
+      FROM pass_persons pp
+      JOIN pass_requests pr ON pr.id = pp."passRequestId"
+      JOIN "Agents" a ON a.id = pr."agentId"
+      WHERE pp."personPassNo" = $1
+    `;
+    const personResult = await pool.query(personQuery, [passNo]);
+    if (personResult.rows.length > 0) {
+      const row = personResult.rows[0];
+      if (row.status !== 'approved') {
+        return res.status(403).json({
+          success: false,
+          valid: false,
+          message: "Pass is not approved",
+          data: { status: row.status }
+        });
+      }
+      if (row.dateTo && new Date(row.dateTo) < now) {
+        return res.status(403).json({
+          success: false,
+          valid: false,
+          message: "Pass has expired",
+          data: { validTo: row.dateTo }
+        });
+      }
+      return res.status(200).json({
+        success: true,
+        valid: true,
+        message: "Pass is valid",
+        data: {
+          entityType: 'person',
+          passNo: row.personPassNo,
+          name: row.name,
+          company: row.company,
+          referenceNo: row.referenceNo,
+          validFrom: row.dateFrom,
+          validTo: row.dateTo,
+        }
+      });
+    }
+
+    // 2. Try normal pass vehicles
+    const vehicleQuery = `
+      SELECT pv.id, pv."registrationNo", pv."vehiclePassNo",
+             pv."dateFrom", pv."dateTo", pv.status,
+             a."entityName" AS company,
+             'vehicle' AS entityType,
+             pr."referenceNo"
+      FROM pass_vehicles pv
+      JOIN pass_requests pr ON pr.id = pv."passRequestId"
+      JOIN "Agents" a ON a.id = pr."agentId"
+      WHERE pv."vehiclePassNo" = $1
+    `;
+    const vehicleResult = await pool.query(vehicleQuery, [passNo]);
+    if (vehicleResult.rows.length > 0) {
+      const row = vehicleResult.rows[0];
+      if (row.status !== 'approved') {
+        return res.status(403).json({
+          success: false,
+          valid: false,
+          message: "Pass is not approved",
+          data: { status: row.status }
+        });
+      }
+      if (row.dateTo && new Date(row.dateTo) < now) {
+        return res.status(403).json({
+          success: false,
+          valid: false,
+          message: "Pass has expired",
+          data: { validTo: row.dateTo }
+        });
+      }
+      return res.status(200).json({
+        success: true,
+        valid: true,
+        message: "Pass is valid",
+        data: {
+          entityType: 'vehicle',
+          passNo: row.vehiclePassNo,
+          registrationNo: row.registrationNo,
+          company: row.company,
+          referenceNo: row.referenceNo,
+          validFrom: row.dateFrom,
+          validTo: row.dateTo,
+        }
+      });
+    }
+
+    // 3. Try vendor pass persons
+    const vpPersonQuery = `
+      SELECT vp.id, vp.name, vp.mobile, vp."aadharNo", vp."personPassNo",
+             vp."dateFrom", vp."dateTo", vp.status,
+             vpr."companyName" AS company,
+             'vendor-person' AS entityType,
+             vpr."referenceNo"
+      FROM vendor_pass_persons vp
+      JOIN vendor_pass_requests vpr ON vpr.id = vp."vendorPassRequestId"
+      WHERE vp."personPassNo" = $1
+    `;
+    const vpPersonResult = await pool.query(vpPersonQuery, [passNo]);
+    if (vpPersonResult.rows.length > 0) {
+      const row = vpPersonResult.rows[0];
+      if (row.status !== 'approved') {
+        return res.status(403).json({
+          success: false,
+          valid: false,
+          message: "Pass is not approved",
+          data: { status: row.status }
+        });
+      }
+      if (row.dateTo && new Date(row.dateTo) < now) {
+        return res.status(403).json({
+          success: false,
+          valid: false,
+          message: "Pass has expired",
+          data: { validTo: row.dateTo }
+        });
+      }
+      return res.status(200).json({
+        success: true,
+        valid: true,
+        message: "Pass is valid",
+        data: {
+          entityType: 'vendor-person',
+          passNo: row.personPassNo,
+          name: row.name,
+          company: row.company,
+          referenceNo: row.referenceNo,
+          validFrom: row.dateFrom,
+          validTo: row.dateTo,
+        }
+      });
+    }
+
+    // 4. Try vendor pass vehicles
+    const vpVehicleQuery = `
+      SELECT vv.id, vv."vehicleRegistrationNo", vv."vehiclePassNo",
+             vv."dateFrom", vv."dateTo", vv.status,
+             vpr."companyName" AS company,
+             'vendor-vehicle' AS entityType,
+             vpr."referenceNo"
+      FROM vendor_pass_vehicles vv
+      JOIN vendor_pass_requests vpr ON vpr.id = vv."vendorPassRequestId"
+      WHERE vv."vehiclePassNo" = $1
+    `;
+    const vpVehicleResult = await pool.query(vpVehicleQuery, [passNo]);
+    if (vpVehicleResult.rows.length > 0) {
+      const row = vpVehicleResult.rows[0];
+      if (row.status !== 'approved') {
+        return res.status(403).json({
+          success: false,
+          valid: false,
+          message: "Pass is not approved",
+          data: { status: row.status }
+        });
+      }
+      if (row.dateTo && new Date(row.dateTo) < now) {
+        return res.status(403).json({
+          success: false,
+          valid: false,
+          message: "Pass has expired",
+          data: { validTo: row.dateTo }
+        });
+      }
+      return res.status(200).json({
+        success: true,
+        valid: true,
+        message: "Pass is valid",
+        data: {
+          entityType: 'vendor-vehicle',
+          passNo: row.vehiclePassNo,
+          registrationNo: row.vehicleRegistrationNo,
+          company: row.company,
+          referenceNo: row.referenceNo,
+          validFrom: row.dateFrom,
+          validTo: row.dateTo,
+        }
+      });
+    }
+
+    // Pass not found
+    return res.status(404).json({
+      success: false,
+      valid: false,
+      message: "Pass not found"
+    });
+
+  } catch (error) {
+    console.error("validateQrPass error:", error);
+    return res.status(500).json({
+      success: false,
+      valid: false,
       message: error.message
     });
   }
@@ -778,7 +1022,9 @@ module.exports = {
   revertVehicle,
   completeReview,
   getQrData,
+  getVendorQrData,
   getPassDetails,
+  validateQrPass,
   // Phase 2: Edit and resubmit reverted passes
   updatePassPerson,
   updatePassVehicle,

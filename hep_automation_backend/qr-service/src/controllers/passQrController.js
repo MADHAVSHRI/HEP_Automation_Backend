@@ -38,3 +38,56 @@ exports.generatePassQR = async (req,res) => {
     }
 
 };
+
+exports.generateVendorQr = async (req, res) => {
+  try {
+    const { vendorPassId } = req.params;
+    if (!vendorPassId) {
+      return res.status(400).json({
+        success: false,
+        message: "vendorPassId required"
+      });
+    }
+    const pdfBuffer = await passQrService.generateVendorPass(vendorPassId);
+    res.setHeader("Content-Type", "application/pdf");
+    return res.send(pdfBuffer);
+  } catch (error) {
+    if (error.message === "No approved vendor passes found") {
+      return res.status(404).json({
+        success: false,
+        message: error.message
+      });
+    }
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+exports.generateVendorSingleQr = async (req, res) => {
+  try {
+    const { vendorPassId, entityType, entityIndex } = req.params;
+    if (!vendorPassId || !entityType || entityIndex === undefined) {
+      return res.status(400).json({
+        success: false,
+        message: "vendorPassId, entityType, and entityIndex are required"
+      });
+    }
+    const pdfBuffer = await passQrService.generateVendorSinglePass(vendorPassId, entityType, entityIndex);
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `inline; filename="VendorPass_${entityType}_${entityIndex}.pdf"`);
+    return res.send(pdfBuffer);
+  } catch (error) {
+    if (error.message === "Person not found" || error.message === "Vehicle not found") {
+      return res.status(404).json({
+        success: false,
+        message: error.message
+      });
+    }
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};

@@ -27,9 +27,9 @@ const PASS_REQUEST_STATUS = Object.freeze({
 
 
 const PASS_TYPES = [
-  { value: "DAILY", label: "Daily Pass" ,id: 1},
-  { value: "MONTHLY", label: "Monthly Pass", id: 2 },
-  { value: "YEARLY", label: "Annual Pass", id: 3 }
+  { value: "DAILY", label: "Daily" ,id: 1},
+  { value: "MONTHLY", label: "Monthly", id: 2 },
+  { value: "YEARLY", label: "Annual", id: 3 }
 ];
 
 const NATIONALITIES = [
@@ -56,6 +56,20 @@ const ACCESS_AREAS = [
   { value: "OTHER GATES ONLY", label: "Other Gates Only", id: 2 }
 ];
 
+const MONTH_CODES = [
+  "JAN","FEB","MAR","APR","MAY","JUN",
+  "JUL","AUG","SEP","OCT","NOV","DEC",
+];
+
+const VISITOR_TYPES = [
+  { id: 1, name: "Govt Officials" },
+  { id: 2, name: "Consultants" },
+  { id: 3, name: "Students" },
+  { id: 4, name: "Vendors" },
+  { id: 5, name: "VIPs" },
+  { id: 6, name: "Others" },
+];
+
 module.exports = {
   AGENT_STATUS,
   AGENT_STATUS_LIST: Object.values(AGENT_STATUS),
@@ -68,5 +82,7 @@ module.exports = {
   PASS_ENTITY_STATUS,
   PASS_ENTITY_STATUS_LIST: Object.values(PASS_ENTITY_STATUS),
   PASS_REQUEST_STATUS,
-  PASS_REQUEST_STATUS_LIST: Object.values(PASS_REQUEST_STATUS)
+  PASS_REQUEST_STATUS_LIST: Object.values(PASS_REQUEST_STATUS),
+  VISITOR_TYPES,
+  MONTH_CODES,
 };

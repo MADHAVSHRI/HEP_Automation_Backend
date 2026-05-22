@@ -10,4 +10,10 @@ router.get(
   passQrController.generatePassQR
 );
 
+// Vendor pass QR generation (public route - no auth needed)
+router.get("/vendor-generate-qr/:vendorPassId", passQrController.generateVendorQr);
+
+// Single entity vendor pass QR generation (public route - no auth needed)
+router.get("/vendor-generate-single-qr/:vendorPassId/:entityType/:entityIndex", passQrController.generateVendorSingleQr);
+
 module.exports = router;
