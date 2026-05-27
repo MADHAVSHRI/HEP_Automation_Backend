@@ -381,6 +381,7 @@ exports.getPublicByToken = async (req, res) => {
     return res.status(200).json({
       success: true,
       data: {
+        id: intake.id,
         referenceNo: intake.referenceNo,
         departmentName: intake.departmentName,
         companyName: intake.companyName,
@@ -415,6 +416,31 @@ exports.getPublicByToken = async (req, res) => {
     return res
       .status(500)
       .json({ success: false, message: "Internal server error" });
+  }
+};
+
+/* ──────────────────────────────────────────────────────────────────────
+   GET /api/vendor-pass/public/work-order/:id  (no auth)
+   Serves the work order file uploaded by the department
+   ────────────────────────────────────────────────────────────────────── */
+
+exports.getWorkOrderFile = async (req, res) => {
+  try {
+    const fs = require("fs");
+    const path = require("path");
+    const intake = await VendorPassRequest.getById(Number(req.params.id));
+    if (!intake || !intake.workOrderFilePath) {
+      return res.status(404).json({ success: false, message: "Work order file not found" });
+    }
+    const absolutePath = path.resolve(intake.workOrderFilePath);
+    if (!fs.existsSync(absolutePath)) {
+      return res.status(404).json({ success: false, message: "File not found on server" });
+    }
+    res.setHeader("Content-Disposition", `inline; filename="${intake.workOrderFileName || "workorder"}"`);
+    res.sendFile(absolutePath);
+  } catch (error) {
+    console.error("getWorkOrderFile error:", error);
+    return res.status(500).json({ success: false, message: "Internal server error" });
   }
 };
 
@@ -620,6 +646,112 @@ exports.rejectVendorPerson = async (req, res) => {
   }
 };
 
+exports.updateVendorPerson = async (req, res) => {
+  try {
+    const { id, personIndex } = req.params;
+    let data = req.body;
+    
+    // Attach files if any
+    const files = req.files || {};
+    const attachFile = (entry, fieldName, pathKey, nameKey) => {
+      const f = files[fieldName]?.[0];
+      if (f) {
+        entry[pathKey] = f.path;
+        entry[nameKey] = f.originalname;
+      }
+    };
+
+    attachFile(data, "personPhoto", "photoFilePath", "photoFileName");
+    attachFile(data, "personAadhar", "aadharPDFFilePATH", "aadharPDFFileName");
+    attachFile(data, "personIdProof", "idProofFilePath", "idProofFileName");
+    attachFile(data, "requisitionLetter", "requisitionLetterPath", "requisitionLetterName");
+    attachFile(data, "driverLicense", "driverLicensePath", "driverLicenseName");
+    attachFile(data, "policeVerification", "policeVerificationPath", "policeVerificationName");
+    attachFile(data, "employmentProof", "employmentProofPath", "employmentProofName");
+    attachFile(data, "chaLicenseCopy", "chaLicensePath", "chaLicenseName");
+    attachFile(data, "passportDoc", "passportPath", "passportName");
+    attachFile(data, "cdcDocument", "cdcDocumentPath", "cdcDocumentName");
+    attachFile(data, "declarationForm", "declarationFormPath", "declarationFormName");
+
+    const result = await VendorPassRequest.updateVendorPerson(
+      Number(id),
+      Number(personIndex),
+      data
+    );
+    return res.json({ success: true, data: result });
+  } catch (error) {
+    console.error("updateVendorPerson error:", error);
+    return res.status(500).json({ success: false, message: error.message || "Internal server error" });
+  }
+};
+
+exports.updateVendorVehicle = async (req, res) => {
+  try {
+    const { id, vehicleIndex } = req.params;
+    let data = req.body;
+
+    const files = req.files || {};
+    const attachFile = (entry, fieldName, pathKey, nameKey) => {
+      const f = files[fieldName]?.[0];
+      if (f) {
+        entry[pathKey] = f.path;
+        entry[nameKey] = f.originalname;
+      }
+    };
+
+    attachFile(data, "vehicleRC", "scannedCopyFilePath", "scannedCopyFileName");
+    attachFile(data, "vehicleInsurance", "insuranceFilePath", "insuranceFileName");
+    attachFile(data, "vehiclePermit", "permitFilePath", "permitFileName");
+    attachFile(data, "vehicleFitness", "fitnessFilePath", "fitnessFileName");
+    attachFile(data, "vehicleRequestLetter", "requestLetterPath", "requestLetterName");
+    attachFile(data, "vehicleTax", "taxFilePath", "taxFileName");
+    attachFile(data, "vehicleEmission", "emissionFilePath", "emissionFileName");
+
+    const result = await VendorPassRequest.updateVendorVehicle(
+      Number(id),
+      Number(vehicleIndex),
+      data
+    );
+    return res.json({ success: true, data: result });
+  } catch (error) {
+    console.error("updateVendorVehicle error:", error);
+    return res.status(500).json({ success: false, message: error.message || "Internal server error" });
+  }
+};
+
+exports.resubmitVendorPass = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await VendorPassRequest.resubmitRevertedVendorPass(Number(id));
+    return res.json({ success: true, data: result });
+  } catch (error) {
+    console.error("resubmitVendorPass error:", error);
+    return res.status(500).json({ success: false, message: error.message || "Internal server error" });
+  }
+};
+
+exports.revertVendorPerson = async (req, res) => {
+  try {
+    const { id, personIndex } = req.params;
+    const { revertReason } = req.body;
+    if (!revertReason) {
+      return res.status(400).json({ success: false, message: "revertReason is required" });
+    }
+    const result = await VendorPassRequest.revertVendorPerson(
+      Number(id),
+      Number(personIndex),
+      revertReason
+    );
+    if (!result) {
+      return res.status(404).json({ success: false, message: "Vendor pass not found" });
+    }
+    return res.json({ success: true, data: result });
+  } catch (error) {
+    console.error("revertVendorPerson error:", error);
+    return res.status(500).json({ success: false, message: error.message || "Internal server error" });
+  }
+};
+
 exports.approveVendorVehicle = async (req, res) => {
   try {
     const { id, vehicleIndex } = req.params;
@@ -652,6 +784,28 @@ exports.rejectVendorVehicle = async (req, res) => {
     return res.json({ success: true, data: result });
   } catch (error) {
     console.error("rejectVendorVehicle error:", error);
+    return res.status(500).json({ success: false, message: error.message || "Internal server error" });
+  }
+};
+
+exports.revertVendorVehicle = async (req, res) => {
+  try {
+    const { id, vehicleIndex } = req.params;
+    const { revertReason } = req.body;
+    if (!revertReason) {
+      return res.status(400).json({ success: false, message: "revertReason is required" });
+    }
+    const result = await VendorPassRequest.revertVendorVehicle(
+      Number(id),
+      Number(vehicleIndex),
+      revertReason
+    );
+    if (!result) {
+      return res.status(404).json({ success: false, message: "Vendor pass not found" });
+    }
+    return res.json({ success: true, data: result });
+  } catch (error) {
+    console.error("revertVendorVehicle error:", error);
     return res.status(500).json({ success: false, message: error.message || "Internal server error" });
   }
 };

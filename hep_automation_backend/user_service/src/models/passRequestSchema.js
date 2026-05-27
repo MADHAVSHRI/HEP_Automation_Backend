@@ -1533,7 +1533,7 @@ const getAgentPassRequestsDetails = {
           v."submittedPersons",
           v."submittedVehicles"
         FROM vendor_pass_requests v
-        WHERE v.status IN ('VENDOR_SUBMITTED', 'APPROVED', 'REJECTED')
+        WHERE v.status IN ('VENDOR_SUBMITTED', 'APPROVED', 'REJECTED', 'REVERTED', 'COMPLETED')
         ORDER BY v."submittedAt" DESC
       `);
 

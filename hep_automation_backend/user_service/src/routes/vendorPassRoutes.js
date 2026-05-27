@@ -10,6 +10,7 @@ const vendorPassController = require("../controllers/vendorPassController");
  * verifyToken. The vendor email link must work without authentication.
  */
 router.get("/visitor-types", verifyToken, vendorPassController.getVisitorTypes);
+router.get("/public/work-order/:id", vendorPassController.getWorkOrderFile);
 router.get("/public/:token", vendorPassController.getPublicByToken);
 router.post(
   "/public/:token/submit",
@@ -32,6 +33,41 @@ router.post(
     { name: "vehicleEmission", maxCount: 50 },
   ]),
   vendorPassController.submitPublicVendorForm
+);
+
+router.put(
+  "/public/:id/update-person/:personIndex",
+  upload.fields([
+    { name: "personPhoto", maxCount: 1 },
+    { name: "personAadhar", maxCount: 1 },
+    { name: "personIdProof", maxCount: 1 },
+    { name: "requisitionLetter", maxCount: 1 },
+    { name: "driverLicense", maxCount: 1 },
+    { name: "policeVerification", maxCount: 1 },
+    { name: "employmentProof", maxCount: 1 },
+    { name: "chaLicenseCopy", maxCount: 1 },
+    { name: "passportDoc", maxCount: 1 },
+  ]),
+  vendorPassController.updateVendorPerson
+);
+
+router.put(
+  "/public/:id/update-vehicle/:vehicleIndex",
+  upload.fields([
+    { name: "vehicleRC", maxCount: 1 },
+    { name: "vehicleInsurance", maxCount: 1 },
+    { name: "vehiclePermit", maxCount: 1 },
+    { name: "vehicleFitness", maxCount: 1 },
+    { name: "vehicleRequestLetter", maxCount: 1 },
+    { name: "vehicleTax", maxCount: 1 },
+    { name: "vehicleEmission", maxCount: 1 },
+  ]),
+  vendorPassController.updateVendorVehicle
+);
+
+router.put(
+  "/public/:id/resubmit",
+  vendorPassController.resubmitVendorPass
 );
 
 /**
@@ -84,6 +120,18 @@ router.put(
   "/:id/reject-vehicle/:vehicleIndex",
   verifyToken,
   vendorPassController.rejectVendorVehicle
+);
+
+router.put(
+  "/:id/revert-person/:personIndex",
+  verifyToken,
+  vendorPassController.revertVendorPerson
+);
+
+router.put(
+  "/:id/revert-vehicle/:vehicleIndex",
+  verifyToken,
+  vendorPassController.revertVendorVehicle
 );
 
 router.put(

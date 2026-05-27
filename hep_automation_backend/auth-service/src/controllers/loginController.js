@@ -475,7 +475,7 @@
 
 const axios = require("axios");
 const bcrypt = require("bcrypt");
-const { v4: uuidv4 } = require("uuid");
+const { randomUUID: uuidv4 } = require("crypto");
 const jwt = require("jsonwebtoken");
 const RefreshToken = require("../models/refreshTokenSchema");
 const { generateAccessToken, generateRefreshToken } = require("../utils/jwt");

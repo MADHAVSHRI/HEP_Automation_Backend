@@ -184,6 +184,7 @@ const sendVendorPassApprovedEmail = async ({
   approvedVehiclesCount,
   validUpto,
   departmentName,
+  finalStatus = 'APPROVED'
 }) => {
   const html = vendorPassApprovedTemplate({
     companyName,
@@ -193,12 +194,20 @@ const sendVendorPassApprovedEmail = async ({
     approvedVehiclesCount,
     validUpto,
     departmentName,
+    finalStatus
   });
+
+  let subject = `✅ Your Chennai Port Vendor Pass is Approved (${referenceNo})`;
+  if (finalStatus === 'COMPLETED') {
+    subject = `✅ Your Chennai Port Vendor Pass Review is Completed (${referenceNo})`;
+  } else if (finalStatus === 'REVERTED') {
+    subject = `⚠️ Action Required: Vendor Pass Returned for Correction (${referenceNo})`;
+  }
 
   const mailOptions = {
     from: process.env.EMAIL_USER,
     to: email,
-    subject: `✅ Your Chennai Port Vendor Pass is Approved (${referenceNo})`,
+    subject,
     html
   };
 

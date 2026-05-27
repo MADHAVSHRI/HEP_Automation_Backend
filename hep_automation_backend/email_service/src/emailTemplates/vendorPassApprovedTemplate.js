@@ -6,30 +6,50 @@ const vendorPassApprovedTemplate = ({
   approvedVehiclesCount,
   validUpto,
   departmentName,
+  finalStatus = 'APPROVED'
 }) => {
+  let themeColor = "#16a34a";
+  let themeGradient = "linear-gradient(90deg,#16a34a,#22c55e)";
+  let bgColor = "#dcfce7";
+  let title = "Vendor Pass Approved";
+  let greetingMessage = "<strong>Great news!</strong> Your vendor pass application has been <strong>APPROVED</strong>. You can now view and download your QR codes for entry/exit at Chennai Port.";
+  
+  if (finalStatus === 'COMPLETED') {
+    themeColor = "#2563eb"; // Blue
+    themeGradient = "linear-gradient(90deg,#2563eb,#3b82f6)";
+    bgColor = "#eff6ff";
+    title = "Vendor Pass Review Completed";
+    greetingMessage = "Your vendor pass application review is <strong>COMPLETED</strong>. Please check your tracking link to see the approved or rejected passes.";
+  } else if (finalStatus === 'REVERTED') {
+    themeColor = "#ea580c"; // Orange
+    themeGradient = "linear-gradient(90deg,#ea580c,#f97316)";
+    bgColor = "#fff7ed";
+    title = "Vendor Pass Returned for Correction";
+    greetingMessage = "<strong>Action Required:</strong> Some passes in your vendor application were returned for correction. Please review the reasons and resubmit.";
+  }
+
   return `
   <div style="font-family: Arial, sans-serif; color:#1f2937; max-width:600px; margin:0 auto;">
-    <div style="background: linear-gradient(90deg,#16a34a,#22c55e); color:#fff; padding:20px 24px; border-radius:8px 8px 0 0;">
-      <h2 style="margin:0;">Chennai Port — Vendor Pass Approved</h2>
+    <div style="background: ${themeGradient}; color:#fff; padding:20px 24px; border-radius:8px 8px 0 0;">
+      <h2 style="margin:0;">Chennai Port — ${title}</h2>
       <p style="margin:4px 0 0; font-size:13px; opacity:0.9;">
-        Approved by ${departmentName || "Chennai Port Authority"}
+        Reviewed by ${departmentName || "Chennai Port Authority"}
       </p>
     </div>
 
-    <div style="border:1px solid #dcfce7; border-top:none; padding:24px; border-radius:0 0 8px 8px;">
+    <div style="border:1px solid ${bgColor}; border-top:none; padding:24px; border-radius:0 0 8px 8px;">
       <p>Dear ${companyName || "Vendor"},</p>
 
-      <p style="background:#dcfce7; padding:12px 16px; border-radius:6px; color:#166534;">
-        <strong>Great news!</strong> Your vendor pass application has been <strong>APPROVED</strong>.
-        You can now view and download your QR codes for entry/exit at Chennai Port.
+      <p style="background:${bgColor}; padding:12px 16px; border-radius:6px; color:${themeColor};">
+        ${greetingMessage}
       </p>
 
       <p style="margin:24px 0; text-align:center;">
         <a href="${qrLink}"
-           style="background:#16a34a; color:#fff; text-decoration:none;
+           style="background:${themeColor}; color:#fff; text-decoration:none;
                   padding:14px 28px; border-radius:6px; font-weight:600;
                   display:inline-block; font-size:15px;">
-          View Your Pass QR Codes
+          ${finalStatus === 'REVERTED' ? 'Review & Resubmit Passes' : 'View Your Pass QR Codes'}
         </a>
       </p>
 

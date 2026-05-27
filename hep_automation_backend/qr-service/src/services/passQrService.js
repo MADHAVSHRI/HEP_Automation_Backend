@@ -37,8 +37,12 @@ exports.generateVendorPass = async (vendorPassId) => {
     }
   );
   const data = response.data;
-  if ((!data.persons || data.persons.length === 0) &&
-    (!data.vehicles || data.vehicles.length === 0)) {
+  
+  // Filter only approved entities
+  data.persons = (data.persons || []).filter(p => p.status === 'approved');
+  data.vehicles = (data.vehicles || []).filter(v => v.status === 'approved');
+
+  if (data.persons.length === 0 && data.vehicles.length === 0) {
     throw new Error("No approved vendor passes found");
   }
   return await generatePDF(data);
@@ -59,22 +63,24 @@ exports.generateVendorSinglePass = async (vendorPassId, entityType, entityIndex)
   );
   const data = response.data;
 
+  // Filter only approved entities (since frontend maps over approved arrays)
+  const approvedPersons = (data.persons || []).filter(p => p.status === 'approved');
+  const approvedVehicles = (data.vehicles || []).filter(v => v.status === 'approved');
+
   // Filter to single entity
   let filteredData;
   if (entityType === "person") {
-    const persons = data.persons || [];
     const idx = parseInt(entityIndex, 10);
-    if (!persons[idx]) {
+    if (!approvedPersons[idx]) {
       throw new Error("Person not found");
     }
-    filteredData = { persons: [persons[idx]], vehicles: [], referenceNo: data.referenceNo };
+    filteredData = { persons: [approvedPersons[idx]], vehicles: [], referenceNo: data.referenceNo };
   } else if (entityType === "vehicle") {
-    const vehicles = data.vehicles || [];
     const idx = parseInt(entityIndex, 10);
-    if (!vehicles[idx]) {
+    if (!approvedVehicles[idx]) {
       throw new Error("Vehicle not found");
     }
-    filteredData = { persons: [], vehicles: [vehicles[idx]], referenceNo: data.referenceNo };
+    filteredData = { persons: [], vehicles: [approvedVehicles[idx]], referenceNo: data.referenceNo };
   } else {
     throw new Error("Invalid entity type. Use 'person' or 'vehicle'");
   }

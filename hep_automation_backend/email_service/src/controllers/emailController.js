@@ -311,10 +311,11 @@ exports.sendVendorPassApproved = async (req, res) => {
       approvedPersonsCount,
       approvedVehiclesCount,
       validUpto,
-      departmentName
+      departmentName,
+      finalStatus
     } = req.body;
 
-    console.log(`[EMAIL-CTRL] Received vendor pass approved email request for ${email}`);
+    console.log(`[EMAIL-CTRL] Received vendor pass email request for ${email}, status: ${finalStatus || 'APPROVED'}`);
 
     if (!email || !referenceNo || !qrLink) {
       return res.status(400).json({
@@ -331,7 +332,8 @@ exports.sendVendorPassApproved = async (req, res) => {
       approvedPersonsCount,
       approvedVehiclesCount,
       validUpto,
-      departmentName
+      departmentName,
+      finalStatus: finalStatus || 'APPROVED'
     });
 
     console.log(`[EMAIL-CTRL] Vendor pass approved email sent to ${email}`);
