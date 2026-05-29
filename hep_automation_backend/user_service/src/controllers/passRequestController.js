@@ -612,12 +612,41 @@ const completeReview = async(req,res)=>{
 }
 
 
+// const getQrData = async (req, res) => {
+//   try {
+
+//     const { passRequestId } = req.params;
+
+//     const data = await passRequestService.getQrData(passRequestId);
+
+//     return res.json(data);
+
+//   } catch (error) {
+
+//     console.error("QR DATA ERROR", error);
+
+//     return res.status(500).json({
+//       success:false,
+//       message:error.message
+//     });
+
+//   }
+// };
+
+
 const getQrData = async (req, res) => {
   try {
 
     const { passRequestId } = req.params;
 
-    const data = await passRequestService.getQrData(passRequestId);
+    // NEW
+    const { type, entityId } = req.query;
+
+    const data = await passRequestService.getQrData(
+      passRequestId,
+      type,
+      entityId
+    );
 
     return res.json(data);
 
@@ -632,6 +661,7 @@ const getQrData = async (req, res) => {
 
   }
 };
+
 
 const getVendorQrData = async (req, res) => {
   try {
@@ -999,6 +1029,96 @@ const validateQrPass = async (req, res) => {
   }
 };
 
+const saveQrPdfPath = async (
+  req,
+  res
+) => {
+  try {
+
+    const {
+      type,
+      entityId,
+      qrPdfPath,
+    } = req.body;
+
+    const result =
+      await passRequestService.saveQrPdfPath(
+        type,
+        entityId,
+        qrPdfPath
+      );
+
+    return res.status(200).json({
+      success: true,
+      data: result,
+    });
+
+  } catch (err) {
+
+    console.error(
+      "SAVE QR PDF PATH ERROR",
+      err
+    );
+
+    return res.status(500).json({
+      success: false,
+      message:
+        "Failed to save qr pdf path",
+    });
+  }
+};
+
+const validateSecureQr = async (
+  req,
+  res
+) => {
+  try {
+    const {
+      entityId,
+      passRequestId,
+      qrUuid,
+      type,
+    } = req.body;
+
+    if (
+      !entityId ||
+      !passRequestId ||
+      !qrUuid ||
+      !type
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Missing validation payload",
+      });
+    }
+
+    const result =
+      await passRequestService.validateQr({
+        entityId,
+        passRequestId,
+        qrUuid,
+        type,
+      });
+
+    return res.status(200).json({
+      success: true,
+      ...result,
+    });
+
+  } catch (error) {
+    console.error(
+      "VALIDATE QR ERROR",
+      error
+    );
+
+    return res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
 module.exports = {
   getNationalities,
   getPassTypes,
@@ -1028,5 +1148,7 @@ module.exports = {
   // Phase 2: Edit and resubmit reverted passes
   updatePassPerson,
   updatePassVehicle,
-  resubmitRevertedPass
+  resubmitRevertedPass,
+  saveQrPdfPath,
+  validateSecureQr
 };

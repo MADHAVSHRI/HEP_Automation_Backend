@@ -1,31 +1,88 @@
 const QRCode = require("qrcode");
 const PDFDocument = require("pdfkit");
 const axios = require("axios");
+const fs = require("fs");
 const puppeteer = require("puppeteer");
 const path = require("path");
+const jwt = require("jsonwebtoken");
+const {
+  getPdfPath,
+  ensureDirectory,
+  fileExists,
+} = require("../utils/pdfStorage");
 const LOGO_PATH       = path.join(__dirname, "../assets/PortTrustLogo.jpeg");
 const FONT_REGULAR    = path.join(__dirname, "../assets/NotoSansDevanagari-Regular.ttf");
 const FONT_BOLD       = path.join(__dirname, "../assets/NotoSansDevanagari-Bold.ttf");
 
 const USER_SERVICE = process.env.USER_SERVICE_URL;
 
-exports.generatePass = async (passRequestId, token) => {
-  const response = await axios.get(
-    `${USER_SERVICE}/api/pass-request/qr-data/${passRequestId}`,
-    {
-      headers: {
-        Authorization: token,
-        "x-service-name": "QR Service"
-      }
-    }
-  );
+exports.generatePass = async (
+  passRequestId,
+  token,
+  type = null,
+  entityId = null
+) => {
+
+  let url = `${USER_SERVICE}/api/pass-request/qr-data/${passRequestId}`;
+
+  // NEW LOGIC
+  const queryParams = [];
+
+  if (type) {
+    queryParams.push(`type=${encodeURIComponent(type)}`);
+  }
+
+  if (entityId) {
+    queryParams.push(`entityId=${encodeURIComponent(entityId)}`);
+  }
+
+  if (queryParams.length > 0) {
+    url += `?${queryParams.join("&")}`;
+  }
+
+  const response = await axios.get(url, {
+    headers: {
+      Authorization: token,
+      "x-service-name": "QR Service",
+    },
+  });
+
   const data = response.data;
-  if ((!data.persons || data.persons.length === 0) &&
-    (!data.vehicles || data.vehicles.length === 0)) {
+
+  if (
+    (!data.persons || data.persons.length === 0) &&
+    (!data.vehicles || data.vehicles.length === 0)
+  ) {
     throw new Error("No approved passes found");
   }
-  return await generatePDF(data);
+
+  // return await generatePDF(data);
+  const pdfBuffer = await handlePdfStorage(
+  data,
+  type,
+  entityId
+);
+
+return pdfBuffer;
 };
+
+// exports.generatePass = async (passRequestId, token) => {
+//   const response = await axios.get(
+//     `${USER_SERVICE}/api/pass-request/qr-data/${passRequestId}`,
+//     {
+//       headers: {
+//         Authorization: token,
+//         "x-service-name": "QR Service"
+//       }
+//     }
+//   );
+//   const data = response.data;
+//   if ((!data.persons || data.persons.length === 0) &&
+//     (!data.vehicles || data.vehicles.length === 0)) {
+//     throw new Error("No approved passes found");
+//   }
+//   return await generatePDF(data);
+// };
 
 exports.generateVendorPass = async (vendorPassId) => {
   const response = await axios.get(
@@ -93,6 +150,102 @@ async function generateQR(data){
 
 }
 
+function generateSecureQrToken({
+  entityId,
+  passRequestId,
+  qrUuid,
+  type,
+}) {
+  const secret = process.env.QR_SECRET;
+  if (!secret) {
+    throw new Error("Environment variable QR_SECRET is required to sign tokens");
+  }
+
+  return jwt.sign(
+    {
+      entityId,
+      passRequestId,
+      qrUuid,
+      type,
+    },
+    secret,
+    {
+      expiresIn: "36500d",
+      issuer: "hep-qr-service",
+    }
+  );
+}
+
+async function handlePdfStorage(
+  data,
+  type,
+  entityId
+) {
+  let pass;
+
+  if (type === "person") {
+    pass = data.persons?.find(
+      (p) => p.id === Number(entityId)
+    );
+  } else {
+    pass = data.vehicles?.find(
+      (v) => v.id === Number(entityId)
+    );
+  }
+
+  if (!pass) {
+    throw new Error("Pass not found");
+  }
+
+  const passNo =
+    type === "person"
+      ? pass.personPassNo
+      : pass.vehiclePassNo;
+
+  const { filePath, folderPath } =
+    getPdfPath({
+      passReferenceNo: pass.referenceNo,
+      type,
+      passNo,
+    });
+
+  // FAST PATH → file exists
+  const exists = await fileExists(filePath);
+
+  if (exists) {
+    console.log(
+      `Serving cached PDF: ${filePath}`
+    );
+
+    return fs.promises.readFile(filePath);
+  }
+
+  // GENERATE PATH
+  console.log(
+    `Generating PDF: ${filePath}`
+  );
+
+  await ensureDirectory(folderPath);
+
+  const pdfBuffer = await generatePDF(data);
+
+  await fs.promises.writeFile(
+    filePath,
+    pdfBuffer
+  );
+
+  await axios.post(
+  `${USER_SERVICE}/api/pass-request/save-qr-pdf-path`,
+  {
+    type,
+    entityId,
+    qrPdfPath: filePath,
+  }
+);
+
+  return pdfBuffer;
+}
+
 async function generatePDF(data) {
   const PAGE_W   = 595;
   const PAGE_H   = 230;  // ← reduced from 310, tight like reference
@@ -134,7 +287,15 @@ async function generatePDF(data) {
   // ── PERSON PAGES ──────────────────────────────────────────
   for (let i = 0; i < persons.length; i++) {
     const person = persons[i];
-    const qr = await generateQR(person.personPassNo || String(person.id));
+    // const qr = await generateQR(person.personPassNo || String(person.id));
+    const secureQrToken = generateSecureQrToken({
+      entityId: person.id,
+      passRequestId: person.passRequestId,
+      qrUuid: person.qrUuid,
+      type: "person",
+    });
+
+    const qr = await generateQR(secureQrToken);
 
     drawHeader();
 
@@ -213,7 +374,15 @@ async function generatePDF(data) {
   // ── VEHICLE PAGES ──────────────────────────────────────────
   for (let i = 0; i < vehicles.length; i++) {
     const vehicle = vehicles[i];
-    const qr = await generateQR(vehicle.vehiclePassNo || String(vehicle.id));
+    // const qr = await generateQR(vehicle.vehiclePassNo || String(vehicle.id));
+    const secureQrToken = generateSecureQrToken({
+      entityId: vehicle.id,
+      passRequestId: vehicle.passRequestId,
+      qrUuid: vehicle.qrUuid,
+      type: "vehicle",
+    });
+
+    const qr = await generateQR(secureQrToken);
 
     if (persons.length > 0 || i > 0) doc.addPage();
 
@@ -259,7 +428,62 @@ async function generatePDF(data) {
   });
 }
 
+exports.validateQr = async (
+  qrToken
+) => {
 
+  const secret =
+    process.env.QR_SECRET;
+
+  if (!secret) {
+    throw new Error(
+      "Environment variable QR_SECRET is required"
+    );
+  }
+
+  const payload = jwt.verify(
+    qrToken,
+    secret,
+    {
+      issuer: "hep-qr-service",
+    }
+  );
+
+  // TYPE GUARD
+  if (
+    typeof payload === "string"
+  ) {
+    throw new Error(
+      "Invalid QR payload"
+    );
+  }
+
+  const response =
+    await axios.post(
+      `${USER_SERVICE}/api/pass-request/validate-qr`,
+      {
+        entityId:
+          payload.entityId,
+
+        passRequestId:
+          payload.passRequestId,
+
+        qrUuid:
+          payload.qrUuid,
+
+        type:
+          payload.type,
+      },
+      {
+        headers: {
+          "x-service-name":
+            "QR Service",
+        },
+      }
+    );
+
+  return response.data;
+};
 
 
 

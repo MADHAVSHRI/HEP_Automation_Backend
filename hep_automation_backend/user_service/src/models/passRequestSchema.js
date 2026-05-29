@@ -1,5 +1,6 @@
 const { pool } = require("../dbconfig/db");
 const ReferenceNumber = require("./referenceNumberSchema");
+const crypto = require("crypto");
 
 const Designation = {
   async getAllDesignations() {
@@ -605,13 +606,40 @@ const PassRequest = {
     }
   },
 
+  // async approvePerson(personId) {
+  //   const query = `
+  //       UPDATE pass_persons
+  //       SET status='approved'
+  //       WHERE id=$1
+  //       RETURNING *
+  //     `;
+
+  //   const result = await pool.query(query, [personId]);
+
+  //   return result.rows[0];
+  // },
+
   async approvePerson(personId) {
     const query = `
-        UPDATE pass_persons
-        SET status='approved'
-        WHERE id=$1
-        RETURNING *
-      `;
+      UPDATE pass_persons
+      SET
+        status = 'approved',
+
+        "qrUuid" = CASE
+          WHEN "qrUuid" IS NULL
+          THEN gen_random_uuid()
+          ELSE "qrUuid"
+        END,
+
+        "qrIssuedAt" = CASE
+          WHEN "qrIssuedAt" IS NULL
+          THEN NOW()
+          ELSE "qrIssuedAt"
+        END
+
+      WHERE id = $1
+      RETURNING *
+    `;
 
     const result = await pool.query(query, [personId]);
 
@@ -632,13 +660,41 @@ const PassRequest = {
     return result.rows[0];
   },
 
+  // async approveVehicle(vehicleId) {
+  //   const query = `
+  //       UPDATE pass_vehicles
+  //       SET status='approved'
+  //       WHERE id=$1
+  //       RETURNING *
+  //     `;
+
+  //   const result = await pool.query(query, [vehicleId]);
+
+  //   return result.rows[0];
+  // },
+
   async approveVehicle(vehicleId) {
+
     const query = `
-        UPDATE pass_vehicles
-        SET status='approved'
-        WHERE id=$1
-        RETURNING *
-      `;
+      UPDATE pass_vehicles
+      SET
+        status = 'approved',
+
+        "qrUuid" = CASE
+          WHEN "qrUuid" IS NULL
+          THEN gen_random_uuid()
+          ELSE "qrUuid"
+        END,
+
+        "qrIssuedAt" = CASE
+          WHEN "qrIssuedAt" IS NULL
+          THEN NOW()
+          ELSE "qrIssuedAt"
+        END
+
+      WHERE id = $1
+      RETURNING *
+    `;
 
     const result = await pool.query(query, [vehicleId]);
 

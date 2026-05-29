@@ -1,54 +1,3 @@
-// const { pool } = require("../dbconfig/db");
-
-// exports.getQrData = async (passRequestId) => {
-
-//   const personsQuery = `
-//   SELECT
-//     pp.id,
-//     pp.name,
-//     pp.mobile,
-//     pp."aadharNo",
-//     pp."personPassNo",
-//     pp."dateFrom",
-//     pp."dateTo",
-//     pp."photoFilePath",
-//     a."entityName" AS company
-//   FROM pass_persons pp
-//   JOIN pass_requests pr
-//     ON pr.id = pp."passRequestId"
-//   JOIN "Agents" a
-//     ON a.id = pr."agentId"
-//   WHERE pp."passRequestId"=$1
-//   AND pp.status='approved'
-//   `;
-
-//   const vehiclesQuery = `
-//   SELECT
-//     pv.id,
-//     pv."registrationNo",
-//     pv."vehiclePassNo",
-//     pv."dateFrom",
-//     pv."dateTo",
-//     a."entityName" AS company
-//   FROM pass_vehicles pv
-//   JOIN pass_requests pr
-//     ON pr.id = pv."passRequestId"
-//   JOIN "Agents" a
-//     ON a.id = pr."agentId"
-//   WHERE pv."passRequestId"=$1
-//   AND pv.status='approved'
-//   `;
-
-//   const personsResult = await pool.query(personsQuery,[passRequestId]);
-//   const vehiclesResult = await pool.query(vehiclesQuery,[passRequestId]);
-
-//   return {
-//     persons: personsResult.rows,
-//     vehicles: vehiclesResult.rows
-//   };
-
-// };
-
 const { pool } = require("../dbconfig/db");
 const fs = require("fs").promises;
 const fsSync = require("fs");
@@ -112,11 +61,14 @@ const formatISTDateTime = (dateValue, isEndOfDay = false) => {
   });
 };
 
-exports.getQrData = async (passRequestId) => {
+exports.getQrData = async (passRequestId, type ='null', entityId='null') => {
 
   const personsQuery = `
   SELECT
     pp.id,
+    pp."passRequestId",
+    pp."qrUuid",
+    pr."referenceNo",
     pp.name,
     pp.mobile,
     pp."aadharNo",
@@ -130,11 +82,15 @@ exports.getQrData = async (passRequestId) => {
   JOIN "Agents" a ON a.id = pr."agentId"
   WHERE pp."passRequestId"=$1
   AND pp.status='approved'
+  ${type === "person" && entityId ? `AND pp.id=${Number(entityId)}` : ""}
   `;
 
   const vehiclesQuery = `
   SELECT
     pv.id,
+    pv."passRequestId",
+    pv."qrUuid",
+    pr."referenceNo",
     pv."registrationNo",
     pv."vehiclePassNo",
     pv."dateFrom",
@@ -145,6 +101,7 @@ exports.getQrData = async (passRequestId) => {
   JOIN "Agents" a ON a.id = pr."agentId"
   WHERE pv."passRequestId"=$1
   AND pv.status='approved'
+  ${type === "vehicle" && entityId ? `AND pv.id=${Number(entityId)}` : ""}
   `;
 
   const [personsResult, vehiclesResult] = await Promise.all([
@@ -466,4 +423,157 @@ async function getVendorQrDataLegacy(vendorPassId) {
     }));
 
   return { persons, vehicles, referenceNo: row.referenceNo };
-}
+};
+
+exports.saveQrPdfPath = async (
+  type,
+  entityId,
+  qrPdfPath
+) => {
+
+  const table =
+    type === "person"
+      ? "pass_persons"
+      : "pass_vehicles";
+
+  const query = `
+    UPDATE ${table}
+    SET "qrPdfPath" = $1
+    WHERE id = $2
+    RETURNING *
+  `;
+
+  const result = await pool.query(
+    query,
+    [qrPdfPath, entityId]
+  );
+
+  return result.rows[0];
+};
+
+exports.validateQr = async ({
+  entityId,
+  passRequestId,
+  qrUuid,
+  type,
+}) => {
+  const table =
+    type === "vehicle"
+      ? "pass_vehicles"
+      : "pass_persons";
+
+  const passNoColumn =
+    type === "vehicle"
+      ? `"vehiclePassNo"`
+      : `"personPassNo"`;
+
+  const now = new Date();
+
+  const query = `
+    SELECT
+      id,
+      ${passNoColumn} AS "passNo",
+      status,
+      "dateFrom",
+      "dateTo",
+      "isActive",
+      "isBlocked",
+      "qrRevoked",
+      "scanCount"
+    FROM ${table}
+    WHERE id = $1
+    AND "passRequestId" = $2
+    AND "qrUuid" = $3
+    LIMIT 1
+  `;
+
+  const result = await pool.query(query, [
+    entityId,
+    passRequestId,
+    qrUuid,
+  ]);
+
+  if (result.rows.length === 0) {
+    return {
+      valid: false,
+      message: "Invalid QR",
+    };
+  }
+
+  const row = result.rows[0];
+
+  // approved?
+  if (row.status !== "approved") {
+    return {
+      valid: false,
+      message: "Pass not approved",
+    };
+  }
+
+  // revoked?
+  if (row.qrRevoked) {
+    return {
+      valid: false,
+      message: "QR revoked",
+    };
+  }
+
+  // active?
+  if (!row.isActive) {
+    return {
+      valid: false,
+      message: "Pass inactive",
+    };
+  }
+
+  // blocked?
+  if (row.isBlocked) {
+    return {
+      valid: false,
+      message: "Pass blocked",
+    };
+  }
+
+  // date valid?
+  if (
+    row.dateFrom &&
+    new Date(row.dateFrom) > now
+  ) {
+    return {
+      valid: false,
+      message: "Pass not yet active",
+    };
+  }
+
+  if (
+    row.dateTo &&
+    new Date(row.dateTo) < now
+  ) {
+    return {
+      valid: false,
+      message: "Pass expired",
+    };
+  }
+
+  // atomic scan update
+  await pool.query(
+    `
+      UPDATE ${table}
+      SET
+        "scanCount" = "scanCount" + 1,
+        "lastScannedAt" = NOW()
+      WHERE id = $1
+    `,
+    [row.id]
+  );
+
+  return {
+    valid: true,
+    message: "Pass valid",
+    data: {
+      passNo: row.passNo,
+      scanCount:
+        Number(row.scanCount) + 1,
+    },
+  };
+};
