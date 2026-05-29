@@ -134,9 +134,33 @@ const VendorPassRequest = {
     const query = `
       SELECT
         v.*,
-        u."userName" AS "createdByUserName"
+        u."userName" AS "createdByUserName",
+        COALESCE(p.person_count, 0) AS "personApplied",
+        COALESCE(p.person_approved, 0) AS "personApproved",
+        COALESCE(p.person_rejected, 0) AS "personRejected",
+        COALESCE(veh.vehicle_count, 0) AS "vehicleApplied",
+        COALESCE(veh.vehicle_approved, 0) AS "vehicleApproved",
+        COALESCE(veh.vehicle_rejected, 0) AS "vehicleRejected"
       FROM "vendor_pass_requests" v
       LEFT JOIN "users" u ON u.id = v."createdByUserId"
+      LEFT JOIN (
+        SELECT
+          "vendorPassRequestId",
+          COUNT(*) AS person_count,
+          COUNT(CASE WHEN status = 'approved' THEN 1 END) AS person_approved,
+          COUNT(CASE WHEN status = 'rejected' THEN 1 END) AS person_rejected
+        FROM vendor_pass_persons
+        GROUP BY "vendorPassRequestId"
+      ) p ON p."vendorPassRequestId" = v.id
+      LEFT JOIN (
+        SELECT
+          "vendorPassRequestId",
+          COUNT(*) AS vehicle_count,
+          COUNT(CASE WHEN status = 'approved' THEN 1 END) AS vehicle_approved,
+          COUNT(CASE WHEN status = 'rejected' THEN 1 END) AS vehicle_rejected
+        FROM vendor_pass_vehicles
+        GROUP BY "vendorPassRequestId"
+      ) veh ON veh."vendorPassRequestId" = v.id
       ${whereSql}
       ORDER BY v."createdAt" DESC
       LIMIT 500
@@ -196,14 +220,12 @@ const VendorPassRequest = {
       // Update vendor_pass_requests
       const result = await client.query(
         `UPDATE "vendor_pass_requests"
-         SET "submittedPersons" = $1,
-             "submittedVehicles" = $2,
-             "status" = 'VENDOR_SUBMITTED',
+         SET "status" = 'VENDOR_SUBMITTED',
              "submittedAt" = NOW(),
              "updatedAt" = NOW()
-       WHERE "token" = $3
+       WHERE "token" = $1
        RETURNING *`,
-        [JSON.stringify(persons), JSON.stringify(vehicles), token]
+        [token]
       );
 
       const vendorPass = result.rows[0];
@@ -224,8 +246,13 @@ const VendorPassRequest = {
             "employmentProofPath", "employmentProofName",
             "chaLicensePath", "chaLicenseName",
             "passType", "passPeriod", "amount",
-            "status", "createdAt", "updatedAt"
-          ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,NOW(),NOW())`,
+            "status", "createdAt", "updatedAt",
+            "rateId", "hepTypeId", "designationId", "designationOther",
+            "idProofType", "idProofNumber", "countryId", "accessAreaId",
+            "cardNumber", "visaNo", "passportNo", "cdcNumber",
+            "seafarerPassFor", "seafarerIdType", "withTwoWheeler", "vehicleNo",
+            "cdcDocumentPath", "cdcDocumentName", "declarationFormPath", "declarationFormName"
+          ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,NOW(),NOW(),$32,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42,$43,$44,$45,$46,$47,$48,$49,$50,$51)`,
           [
             vendorPass.id,
             p.personPassNo,
@@ -258,6 +285,26 @@ const VendorPassRequest = {
             p.passPeriod || null,
             p.amount || 0,
             "pending",
+            p.rateId != null ? Number(p.rateId) : null,
+            p.hepTypeId != null ? Number(p.hepTypeId) : (p.hepType != null ? Number(p.hepType) : null),
+            p.designationId != null ? Number(p.designationId) : (p.designation != null ? Number(p.designation) : null),
+            p.designationOther || null,
+            p.idProofType || null,
+            p.idProofNumber || null,
+            p.countryId != null ? Number(p.countryId) : (p.country != null ? Number(p.country) : null),
+            p.accessAreaId || (p.accessArea || null),
+            p.cardNumber || null,
+            p.visaNo || null,
+            p.passportNo || null,
+            p.cdcNumber || null,
+            p.seafarerPassFor || null,
+            p.seafarerIdType || null,
+            p.withTwoWheeler === true || p.withTwoWheeler === "true",
+            p.vehicleNo || null,
+            p.cdcDocumentPath || null,
+            p.cdcDocumentName || null,
+            p.declarationFormPath || null,
+            p.declarationFormName || null,
           ]
         );
       }
@@ -276,8 +323,9 @@ const VendorPassRequest = {
             "taxFilePath", "taxFileName",
             "emissionFilePath", "emissionFileName",
             "passType", "passPeriod", "amount",
-            "status", "createdAt", "updatedAt"
-          ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,NOW(),NOW())`,
+            "status", "createdAt", "updatedAt",
+            "rateId", "vehicleTypeId", "fuelType", "insuranceExpiry", "rcValidity", "accessAreaId"
+          ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,NOW(),NOW(),$25,$26,$27,$28,$29,$30)`,
           [
             vendorPass.id,
             v.vehiclePassNo,
@@ -303,6 +351,12 @@ const VendorPassRequest = {
             v.passPeriod || null,
             v.amount || 0,
             "pending",
+            v.rateId != null ? Number(v.rateId) : null,
+            v.vehicleTypeId != null ? Number(v.vehicleTypeId) : (v.type != null ? Number(v.type) : null),
+            v.fuelType || null,
+            v.insuranceExpiry || null,
+            v.rcValidity || null,
+            v.accessAreaId || (v.accessArea || null),
           ]
         );
       }
@@ -319,358 +373,261 @@ const VendorPassRequest = {
   },
 
   async approveVendorPerson(vendorPassId, personIndex) {
-    const result = await pool.query(
-      `UPDATE "vendor_pass_requests"
-       SET "submittedPersons" = jsonb_set(
-         "submittedPersons",
-         array[${personIndex}::text, 'status'],
-         '"approved"'::jsonb
-       ),
-       "updatedAt" = NOW()
-       WHERE id = $1
-       RETURNING *`,
+    const personRes = await pool.query(
+      `SELECT id FROM "vendor_pass_persons" WHERE "vendorPassRequestId" = $1 ORDER BY id ASC`,
       [vendorPassId]
     );
-    // Sync to vendor_pass_persons table
+    const person = personRes.rows[personIndex];
+    if (!person) return null;
+
     await pool.query(
-      `UPDATE "vendor_pass_persons" vpp
+      `UPDATE "vendor_pass_persons"
        SET "status" = 'approved', "updatedAt" = NOW()
-       FROM "vendor_pass_requests" vpr
-       WHERE vpr.id = $1
-         AND vpp."vendorPassRequestId" = vpr.id
-         AND vpp."personPassNo" = (vpr."submittedPersons"->${personIndex}->>'personPassNo')`,
+       WHERE id = $1`,
+      [person.id]
+    );
+
+    const result = await pool.query(
+      `SELECT * FROM "vendor_pass_requests" WHERE id = $1`,
       [vendorPassId]
     );
     return result.rows[0] || null;
   },
 
   async rejectVendorPerson(vendorPassId, personIndex, rejectedReason) {
-    const result = await pool.query(
-      `UPDATE "vendor_pass_requests"
-       SET "submittedPersons" = jsonb_set(
-         jsonb_set(
-           "submittedPersons",
-           array[${personIndex}::text, 'status'],
-           '"rejected"'::jsonb
-         ),
-         array[${personIndex}::text, 'rejectedReason'],
-         $2::jsonb
-       ),
-       "updatedAt" = NOW()
-       WHERE id = $1
-       RETURNING *`,
-      [vendorPassId, JSON.stringify(rejectedReason)]
+    const personRes = await pool.query(
+      `SELECT id FROM "vendor_pass_persons" WHERE "vendorPassRequestId" = $1 ORDER BY id ASC`,
+      [vendorPassId]
     );
-    // Sync to vendor_pass_persons table
+    const person = personRes.rows[personIndex];
+    if (!person) return null;
+
     await pool.query(
-      `UPDATE "vendor_pass_persons" vpp
+      `UPDATE "vendor_pass_persons"
        SET "status" = 'rejected', "rejectedReason" = $2, "updatedAt" = NOW()
-       FROM "vendor_pass_requests" vpr
-       WHERE vpr.id = $1
-         AND vpp."vendorPassRequestId" = vpr.id
-         AND vpp."personPassNo" = (vpr."submittedPersons"->${personIndex}->>'personPassNo')`,
-      [vendorPassId, rejectedReason]
+       WHERE id = $1`,
+      [person.id, rejectedReason]
+    );
+
+    const result = await pool.query(
+      `SELECT * FROM "vendor_pass_requests" WHERE id = $1`,
+      [vendorPassId]
     );
     return result.rows[0] || null;
   },
 
   async approveVendorVehicle(vendorPassId, vehicleIndex) {
-    const result = await pool.query(
-      `UPDATE "vendor_pass_requests"
-       SET "submittedVehicles" = jsonb_set(
-         "submittedVehicles",
-         array[${vehicleIndex}::text, 'status'],
-         '"approved"'::jsonb
-       ),
-       "updatedAt" = NOW()
-       WHERE id = $1
-       RETURNING *`,
+    const vehicleRes = await pool.query(
+      `SELECT id FROM "vendor_pass_vehicles" WHERE "vendorPassRequestId" = $1 ORDER BY id ASC`,
       [vendorPassId]
     );
-    // Sync to vendor_pass_vehicles table
+    const vehicle = vehicleRes.rows[vehicleIndex];
+    if (!vehicle) return null;
+
     await pool.query(
-      `UPDATE "vendor_pass_vehicles" vpv
+      `UPDATE "vendor_pass_vehicles"
        SET "status" = 'approved', "updatedAt" = NOW()
-       FROM "vendor_pass_requests" vpr
-       WHERE vpr.id = $1
-         AND vpv."vendorPassRequestId" = vpr.id
-         AND vpv."vehiclePassNo" = (vpr."submittedVehicles"->${vehicleIndex}->>'vehiclePassNo')`,
+       WHERE id = $1`,
+      [vehicle.id]
+    );
+
+    const result = await pool.query(
+      `SELECT * FROM "vendor_pass_requests" WHERE id = $1`,
       [vendorPassId]
     );
     return result.rows[0] || null;
   },
 
   async revertVendorPerson(vendorPassId, personIndex, revertReason) {
-    const result = await pool.query(
-      `UPDATE "vendor_pass_requests"
-       SET "submittedPersons" = jsonb_set(
-         jsonb_set(
-           "submittedPersons",
-           array[${personIndex}::text, 'status'],
-           '"reverted"'::jsonb
-         ),
-         array[${personIndex}::text, 'revertReason'],
-         $2::jsonb
-       ),
-       "updatedAt" = NOW()
-       WHERE id = $1
-       RETURNING *`,
-      [vendorPassId, JSON.stringify(revertReason)]
+    const personRes = await pool.query(
+      `SELECT id FROM "vendor_pass_persons" WHERE "vendorPassRequestId" = $1 ORDER BY id ASC`,
+      [vendorPassId]
     );
-    // Sync to vendor_pass_persons table
+    const person = personRes.rows[personIndex];
+    if (!person) return null;
+
     await pool.query(
-      `UPDATE "vendor_pass_persons" vpp
+      `UPDATE "vendor_pass_persons"
        SET "status" = 'reverted', "revertReason" = $2, "updatedAt" = NOW()
-       FROM "vendor_pass_requests" vpr
-       WHERE vpr.id = $1
-         AND vpp."vendorPassRequestId" = vpr.id
-         AND vpp."personPassNo" = (vpr."submittedPersons"->${personIndex}->>'personPassNo')`,
-      [vendorPassId, revertReason]
+       WHERE id = $1`,
+      [person.id, revertReason]
+    );
+
+    const result = await pool.query(
+      `SELECT * FROM "vendor_pass_requests" WHERE id = $1`,
+      [vendorPassId]
     );
     return result.rows[0] || null;
   },
 
   async updateVendorPerson(vendorPassId, personIndex, updatedData) {
-    const client = await pool.connect();
-    try {
-      await client.query("BEGIN");
-      
-      const vprRes = await client.query(`SELECT "submittedPersons" FROM "vendor_pass_requests" WHERE id = $1`, [vendorPassId]);
-      if (vprRes.rows.length === 0) throw new Error("Vendor pass not found");
-      
-      const persons = vprRes.rows[0].submittedPersons || [];
-      if (!persons[personIndex]) throw new Error("Person not found");
-      
-      // Update fields in JSONB
-      const p = persons[personIndex];
-      Object.assign(p, updatedData);
-      p.status = 'updated';
-      
-      await client.query(
-        `UPDATE "vendor_pass_requests" SET "submittedPersons" = $2::jsonb, "updatedAt" = NOW() WHERE id = $1`,
-        [vendorPassId, JSON.stringify(persons)]
-      );
+    const personRes = await pool.query(
+      `SELECT id, "personPassNo" FROM "vendor_pass_persons" WHERE "vendorPassRequestId" = $1 ORDER BY id ASC`,
+      [vendorPassId]
+    );
+    const person = personRes.rows[personIndex];
+    if (!person) throw new Error("Person not found");
 
-      // Sync key display fields to relational table so vendor sees updated data after approval
-      await client.query(
-        `UPDATE "vendor_pass_persons"
-         SET
-           "name"                  = COALESCE($3, "name"),
-           "mobile"                = COALESCE($4, "mobile"),
-           "email"                 = COALESCE($5, "email"),
-           "aadharNo"              = COALESCE($6, "aadharNo"),
-           "dateFrom"              = COALESCE($7::timestamptz, "dateFrom"),
-           "dateTo"                = COALESCE($8::timestamptz, "dateTo"),
-           "passType"              = COALESCE($9, "passType"),
-           "passPeriod"            = COALESCE($10::int, "passPeriod"),
-           "amount"                = COALESCE($11::numeric, "amount"),
-           "photoFileName"         = COALESCE($12, "photoFileName"),
-           "photoFilePath"         = COALESCE($13, "photoFilePath"),
-           "aadharPDFFileName"     = COALESCE($14, "aadharPDFFileName"),
-           "aadharPDFFilePATH"     = COALESCE($15, "aadharPDFFilePATH"),
-           "idProofFileName"       = COALESCE($16, "idProofFileName"),
-           "driverLicenseName"     = COALESCE($17, "driverLicenseName"),
-           "policeVerificationName"= COALESCE($18, "policeVerificationName"),
-           "passportName"          = COALESCE($19, "passportName"),
-           "updatedAt"             = NOW()
-         WHERE "vendorPassRequestId" = $1
-           AND "personPassNo" = $2`,
-        [
-          vendorPassId,
-          p.personPassNo,
-          updatedData.name || null,
-          updatedData.mobile || null,
-          updatedData.email || null,
-          updatedData.aadharNo || null,
-          updatedData.dateFrom || null,
-          updatedData.dateTo || null,
-          updatedData.passType || null,
-          updatedData.passPeriod != null ? Number(updatedData.passPeriod) : null,
-          updatedData.amount != null ? updatedData.amount : null,
-          updatedData.photoFileName || null,
-          updatedData.photoFilePath || null,
-          updatedData.aadharPDFFileName || null,
-          updatedData.aadharPDFFilePATH || null,
-          updatedData.idProofFileName || null,
-          updatedData.driverLicenseName || null,
-          updatedData.policeVerificationName || null,
-          updatedData.passportName || null,
-        ]
-      );
-      
-      await client.query("COMMIT");
-      return true;
-    } catch (e) {
-      await client.query("ROLLBACK");
-      throw e;
-    } finally {
-      client.release();
+    const allowedFields = [
+      'name', 'mobile', 'email', 'aadharNo', 'nationality', 'dateFrom', 'dateTo',
+      'photoFilePath', 'photoFileName', 'idProofFilePath', 'idProofFileName',
+      'aadharPDFFilePATH', 'aadharPDFFileName', 'passportPath', 'passportName',
+      'requisitionLetterPath', 'requisitionLetterName', 'driverLicensePath', 'driverLicenseName',
+      'policeVerificationPath', 'policeVerificationName', 'employmentProofPath', 'employmentProofName',
+      'chaLicensePath', 'chaLicenseName', 'passType', 'passPeriod', 'amount',
+      'rateId', 'hepTypeId', 'designationId', 'designationOther', 'idProofType', 'idProofNumber',
+      'countryId', 'accessAreaId', 'cardNumber', 'visaNo', 'passportNo', 'cdcNumber',
+      'seafarerPassFor', 'seafarerIdType', 'withTwoWheeler', 'vehicleNo', 'cdcDocumentPath',
+      'cdcDocumentName', 'declarationFormPath', 'declarationFormName'
+    ];
+
+    const updates = ['status = \'pending\'', '"updatedAt" = NOW()'];
+    const values = [person.id];
+    let paramIndex = 2;
+
+    for (const field of allowedFields) {
+      if (updatedData[field] !== undefined) {
+        updates.push(`"${field}" = $${paramIndex}`);
+        if (field === 'withTwoWheeler') {
+          values.push(updatedData[field] === true || updatedData[field] === 'true');
+        } else if (['rateId', 'hepTypeId', 'designationId', 'countryId', 'passPeriod'].includes(field)) {
+          values.push(updatedData[field] != null ? Number(updatedData[field]) : null);
+        } else if (field === 'amount') {
+          values.push(updatedData[field] != null ? updatedData[field] : null);
+        } else {
+          values.push(updatedData[field]);
+        }
+        paramIndex++;
+      }
     }
+
+    const query = `UPDATE "vendor_pass_persons" SET ${updates.join(', ')} WHERE id = $1`;
+    await pool.query(query, values);
+    return true;
   },
 
   async updateVendorVehicle(vendorPassId, vehicleIndex, updatedData) {
-    const client = await pool.connect();
-    try {
-      await client.query("BEGIN");
-      
-      const vprRes = await client.query(`SELECT "submittedVehicles" FROM "vendor_pass_requests" WHERE id = $1`, [vendorPassId]);
-      if (vprRes.rows.length === 0) throw new Error("Vendor pass not found");
-      
-      const vehicles = vprRes.rows[0].submittedVehicles || [];
-      if (!vehicles[vehicleIndex]) throw new Error("Vehicle not found");
-      
-      const v = vehicles[vehicleIndex];
-      Object.assign(v, updatedData);
-      v.status = 'updated';
-      
-      await client.query(
-        `UPDATE "vendor_pass_requests" SET "submittedVehicles" = $2::jsonb, "updatedAt" = NOW() WHERE id = $1`,
-        [vendorPassId, JSON.stringify(vehicles)]
-      );
+    const vehicleRes = await pool.query(
+      `SELECT id, "vehiclePassNo" FROM "vendor_pass_vehicles" WHERE "vendorPassRequestId" = $1 ORDER BY id ASC`,
+      [vendorPassId]
+    );
+    const vehicle = vehicleRes.rows[vehicleIndex];
+    if (!vehicle) throw new Error("Vehicle not found");
 
-      // Sync key display fields to relational table
-      await client.query(
-        `UPDATE "vendor_pass_vehicles"
-         SET
-           "vehicleRegistrationNo" = COALESCE($3, "vehicleRegistrationNo"),
-           "dateFrom"              = COALESCE($4::timestamptz, "dateFrom"),
-           "dateTo"                = COALESCE($5::timestamptz, "dateTo"),
-           "passType"              = COALESCE($6, "passType"),
-           "passPeriod"            = COALESCE($7::int, "passPeriod"),
-           "amount"                = COALESCE($8::numeric, "amount"),
-           "scannedCopyFileName"   = COALESCE($9, "scannedCopyFileName"),
-           "insuranceFileName"     = COALESCE($10, "insuranceFileName"),
-           "permitFileName"        = COALESCE($11, "permitFileName"),
-           "fitnessFileName"       = COALESCE($12, "fitnessFileName"),
-           "updatedAt"             = NOW()
-         WHERE "vendorPassRequestId" = $1
-           AND "vehiclePassNo" = $2`,
-        [
-          vendorPassId,
-          v.vehiclePassNo,
-          updatedData.registrationNo || updatedData.vehicleRegistrationNo || null,
-          updatedData.dateFrom || null,
-          updatedData.dateTo || null,
-          updatedData.passType || null,
-          updatedData.passPeriod != null ? Number(updatedData.passPeriod) : null,
-          updatedData.amount != null ? updatedData.amount : null,
-          updatedData.scannedCopyFileName || null,
-          updatedData.insuranceFileName || null,
-          updatedData.permitFileName || null,
-          updatedData.fitnessFileName || null,
-        ]
-      );
-      
-      await client.query("COMMIT");
-      return true;
-    } catch (e) {
-      await client.query("ROLLBACK");
-      throw e;
-    } finally {
-      client.release();
+    const allowedFields = [
+      'vehicleRegistrationNo', 'vehicleType', 'dateFrom', 'dateTo',
+      'scannedCopyFilePath', 'scannedCopyFileName', 'insuranceFilePath', 'insuranceFileName',
+      'permitFilePath', 'permitFileName', 'fitnessFilePath', 'fitnessFileName',
+      'requestLetterPath', 'requestLetterName', 'taxFilePath', 'taxFileName',
+      'emissionFilePath', 'emissionFileName', 'passType', 'passPeriod', 'amount',
+      'rateId', 'vehicleTypeId', 'fuelType', 'insuranceExpiry', 'rcValidity', 'accessAreaId'
+    ];
+
+    // Handle mapping registrationNo -> vehicleRegistrationNo
+    if (updatedData.registrationNo !== undefined && updatedData.vehicleRegistrationNo === undefined) {
+      updatedData.vehicleRegistrationNo = updatedData.registrationNo;
     }
+
+    const updates = ['status = \'pending\'', '"updatedAt" = NOW()'];
+    const values = [vehicle.id];
+    let paramIndex = 2;
+
+    for (const field of allowedFields) {
+      if (updatedData[field] !== undefined) {
+        updates.push(`"${field}" = $${paramIndex}`);
+        if (['rateId', 'vehicleTypeId', 'passPeriod'].includes(field)) {
+          values.push(updatedData[field] != null ? Number(updatedData[field]) : null);
+        } else if (field === 'amount') {
+          values.push(updatedData[field] != null ? updatedData[field] : null);
+        } else {
+          values.push(updatedData[field]);
+        }
+        paramIndex++;
+      }
+    }
+
+    const query = `UPDATE "vendor_pass_vehicles" SET ${updates.join(', ')} WHERE id = $1`;
+    await pool.query(query, values);
+    return true;
   },
 
   async resubmitRevertedVendorPass(vendorPassId) {
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
-      
-      const vprRes = await client.query(`SELECT "submittedPersons", "submittedVehicles" FROM "vendor_pass_requests" WHERE id = $1`, [vendorPassId]);
-      if (vprRes.rows.length === 0) throw new Error("Vendor pass not found");
-      
-      const persons = vprRes.rows[0].submittedPersons || [];
-      const vehicles = vprRes.rows[0].submittedVehicles || [];
-      
-      // Change 'updated' back to 'pending'
-      persons.forEach(p => { if (p.status === 'updated') p.status = 'pending'; });
-      vehicles.forEach(v => { if (v.status === 'updated') v.status = 'pending'; });
-      
+
+      // Reset 'reverted' status to 'pending' in the relational tables
       await client.query(
-        `UPDATE "vendor_pass_requests" 
-         SET "submittedPersons" = $2::jsonb, "submittedVehicles" = $3::jsonb, status = 'VENDOR_SUBMITTED', "updatedAt" = NOW() 
-         WHERE id = $1`,
-        [vendorPassId, JSON.stringify(persons), JSON.stringify(vehicles)]
+        `UPDATE "vendor_pass_persons" 
+         SET status = 'pending', "updatedAt" = NOW()
+         WHERE "vendorPassRequestId" = $1 AND status = 'reverted'`,
+        [vendorPassId]
       );
 
-      // Sync relational tables: reset 'reverted' status to 'pending' for resubmission
       await client.query(
-        `UPDATE "vendor_pass_persons" SET status = 'pending', "updatedAt" = NOW()
+        `UPDATE "vendor_pass_vehicles" 
+         SET status = 'pending', "updatedAt" = NOW()
          WHERE "vendorPassRequestId" = $1 AND status = 'reverted'`,
         [vendorPassId]
       );
+
       await client.query(
-        `UPDATE "vendor_pass_vehicles" SET status = 'pending', "updatedAt" = NOW()
-         WHERE "vendorPassRequestId" = $1 AND status = 'reverted'`,
+        `UPDATE "vendor_pass_requests" 
+         SET status = 'VENDOR_SUBMITTED', "updatedAt" = NOW() 
+         WHERE id = $1`,
         [vendorPassId]
       );
-      
+
       await client.query("COMMIT");
+      client.release();
       return true;
     } catch (e) {
       await client.query("ROLLBACK");
-      throw e;
-    } finally {
       client.release();
+      throw e;
     }
   },
 
   async revertVendorVehicle(vendorPassId, vehicleIndex, revertReason) {
-    const result = await pool.query(
-      `UPDATE "vendor_pass_requests"
-       SET "submittedVehicles" = jsonb_set(
-         jsonb_set(
-           "submittedVehicles",
-           array[${vehicleIndex}::text, 'status'],
-           '"reverted"'::jsonb
-         ),
-         array[${vehicleIndex}::text, 'revertReason'],
-         $2::jsonb
-       ),
-       "updatedAt" = NOW()
-       WHERE id = $1
-       RETURNING *`,
-      [vendorPassId, JSON.stringify(revertReason)]
+    const vehicleRes = await pool.query(
+      `SELECT id FROM "vendor_pass_vehicles" WHERE "vendorPassRequestId" = $1 ORDER BY id ASC`,
+      [vendorPassId]
     );
-    // Sync to vendor_pass_vehicles table
+    const vehicle = vehicleRes.rows[vehicleIndex];
+    if (!vehicle) return null;
+
     await pool.query(
-      `UPDATE "vendor_pass_vehicles" vpv
+      `UPDATE "vendor_pass_vehicles"
        SET "status" = 'reverted', "revertReason" = $2, "updatedAt" = NOW()
-       FROM "vendor_pass_requests" vpr
-       WHERE vpr.id = $1
-         AND vpv."vendorPassRequestId" = vpr.id
-         AND vpv."vehiclePassNo" = (vpr."submittedVehicles"->${vehicleIndex}->>'vehiclePassNo')`,
-      [vendorPassId, revertReason]
+       WHERE id = $1`,
+      [vehicle.id, revertReason]
+    );
+
+    const result = await pool.query(
+      `SELECT * FROM "vendor_pass_requests" WHERE id = $1`,
+      [vendorPassId]
     );
     return result.rows[0] || null;
   },
 
   async rejectVendorVehicle(vendorPassId, vehicleIndex, rejectedReason) {
-    const result = await pool.query(
-      `UPDATE "vendor_pass_requests"
-       SET "submittedVehicles" = jsonb_set(
-         jsonb_set(
-           "submittedVehicles",
-           array[${vehicleIndex}::text, 'status'],
-           '"rejected"'::jsonb
-         ),
-         array[${vehicleIndex}::text, 'rejectedReason'],
-         $2::jsonb
-       ),
-       "updatedAt" = NOW()
-       WHERE id = $1
-       RETURNING *`,
-      [vendorPassId, JSON.stringify(rejectedReason)]
+    const vehicleRes = await pool.query(
+      `SELECT id FROM "vendor_pass_vehicles" WHERE "vendorPassRequestId" = $1 ORDER BY id ASC`,
+      [vendorPassId]
     );
-    // Sync to vendor_pass_vehicles table
+    const vehicle = vehicleRes.rows[vehicleIndex];
+    if (!vehicle) return null;
+
     await pool.query(
-      `UPDATE "vendor_pass_vehicles" vpv
+      `UPDATE "vendor_pass_vehicles"
        SET "status" = 'rejected', "rejectedReason" = $2, "updatedAt" = NOW()
-       FROM "vendor_pass_requests" vpr
-       WHERE vpr.id = $1
-         AND vpv."vendorPassRequestId" = vpr.id
-         AND vpv."vehiclePassNo" = (vpr."submittedVehicles"->${vehicleIndex}->>'vehiclePassNo')`,
-      [vendorPassId, rejectedReason]
+       WHERE id = $1`,
+      [vehicle.id, rejectedReason]
+    );
+
+    const result = await pool.query(
+      `SELECT * FROM "vendor_pass_requests" WHERE id = $1`,
+      [vendorPassId]
     );
     return result.rows[0] || null;
   },
@@ -680,10 +637,9 @@ const VendorPassRequest = {
     try {
       await client.query("BEGIN");
 
-      // Get current vendor pass with all details needed for email
+      // Get current vendor pass details
       const vendorRes = await client.query(
-        `SELECT "submittedPersons", "submittedVehicles", "vendorEmail",
-                "companyName", "referenceNo", "validUpto", "departmentName"
+        `SELECT "vendorEmail", "companyName", "referenceNo", "validUpto", "departmentName"
          FROM "vendor_pass_requests"
          WHERE id = $1`,
         [vendorPassId]
@@ -694,10 +650,19 @@ const VendorPassRequest = {
       }
 
       const row = vendorRes.rows[0];
-      const submittedPersons = row.submittedPersons;
-      const submittedVehicles = row.submittedVehicles;
-      const persons = Array.isArray(submittedPersons) ? submittedPersons : [];
-      const vehicles = Array.isArray(submittedVehicles) ? submittedVehicles : [];
+
+      // Query persons and vehicles statuses from relational tables
+      const personsRes = await client.query(
+        `SELECT status FROM "vendor_pass_persons" WHERE "vendorPassRequestId" = $1`,
+        [vendorPassId]
+      );
+      const vehiclesRes = await client.query(
+        `SELECT status FROM "vendor_pass_vehicles" WHERE "vendorPassRequestId" = $1`,
+        [vendorPassId]
+      );
+
+      const persons = personsRes.rows;
+      const vehicles = vehiclesRes.rows;
 
       // Check if all reviewed
       const allPersonsReviewed = persons.every(p => ['approved', 'rejected', 'reverted'].includes(p.status));
@@ -712,7 +677,7 @@ const VendorPassRequest = {
       const hasRevertedVehicle = vehicles.some(v => v.status === 'reverted');
       const isReverted = hasRevertedPerson || hasRevertedVehicle;
 
-      // Check if any approved (to determine final status)
+      // Check approved
       const approvedPersons = persons.filter(p => p.status === 'approved');
       const approvedVehicles = vehicles.filter(v => v.status === 'approved');
 
@@ -762,7 +727,6 @@ const VendorPassRequest = {
 
           console.log(`[VENDOR-PASS] ${finalStatus} email sent to ${row.vendorEmail} for ${row.referenceNo}`);
         } catch (emailError) {
-          // Log error but don't fail the approval
           console.error(`[VENDOR-PASS] Failed to send ${finalStatus} email:`, emailError.message);
         }
       }

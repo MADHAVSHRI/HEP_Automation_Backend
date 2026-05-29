@@ -224,12 +224,6 @@ exports.listIntakes = async (req, res) => {
     const rows = await VendorPassRequest.list(filters);
 
     const data = rows.map((r) => {
-      const submittedPersons = Array.isArray(r.submittedPersons)
-        ? r.submittedPersons
-        : [];
-      const submittedVehicles = Array.isArray(r.submittedVehicles)
-        ? r.submittedVehicles
-        : [];
       return {
         id: r.id,
         referenceNo: r.referenceNo,
@@ -250,12 +244,12 @@ exports.listIntakes = async (req, res) => {
         validUpto: r.validUpto,
         status: r.status,
         stats: {
-          personApplied: submittedPersons.length,
-          personApproved: 0,
-          personRejected: 0,
-          vehicleApplied: submittedVehicles.length,
-          vehicleApproved: 0,
-          vehicleRejected: 0,
+          personApplied: Number(r.personApplied || 0),
+          personApproved: Number(r.personApproved || 0),
+          personRejected: Number(r.personRejected || 0),
+          vehicleApplied: Number(r.vehicleApplied || 0),
+          vehicleApproved: Number(r.vehicleApproved || 0),
+          vehicleRejected: Number(r.vehicleRejected || 0),
         },
       };
     });

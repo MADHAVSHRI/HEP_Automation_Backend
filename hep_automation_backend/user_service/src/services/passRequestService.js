@@ -161,7 +161,7 @@ exports.getQrData = async (passRequestId, type ='null', entityId='null') => {
 exports.getVendorQrData = async (vendorPassId) => {
   // Verify vendor pass is approved
   const vprResult = await pool.query(
-    `SELECT "referenceNo", "companyName", "submittedPersons", "submittedVehicles", status,
+    `SELECT "referenceNo", "companyName", status,
             "workOrderFilePath", "workOrderFileName", "visitorTypeId", "purposeOfVisitId"
      FROM "vendor_pass_requests"
      WHERE id = $1 AND status IN ('APPROVED', 'COMPLETED', 'REVERTED', 'VENDOR_SUBMITTED', 'REJECTED')`,
@@ -172,12 +172,8 @@ exports.getVendorQrData = async (vendorPassId) => {
     throw new Error("No approved vendor pass found");
   }
 
-  const { referenceNo, companyName, submittedPersons, submittedVehicles, status,
+  const { referenceNo, companyName, status,
           workOrderFilePath, workOrderFileName, visitorTypeId, purposeOfVisitId } = vprResult.rows[0];
-
-  // Build lookup maps from JSONB so we can enrich relational rows with full form fields
-  const jsonbPersons = Array.isArray(submittedPersons) ? submittedPersons : [];
-  const jsonbVehicles = Array.isArray(submittedVehicles) ? submittedVehicles : [];
 
   const personsResult = await pool.query(
     `SELECT * FROM "vendor_pass_persons"
@@ -188,7 +184,7 @@ exports.getVendorQrData = async (vendorPassId) => {
 
   // Process persons with photo base64
   const persons = await Promise.all(
-    personsResult.rows.map(async (person, idx) => {
+    personsResult.rows.map(async (person) => {
       let photoBase64 = null;
       let photoMimeType = "image/jpeg";
 
@@ -213,53 +209,51 @@ exports.getVendorQrData = async (vendorPassId) => {
         }
       }
 
-      // Merge full form fields from JSONB for this person (matched by index or name)
-      const jsonbMatch = jsonbPersons[idx] || jsonbPersons.find(p => p.name === person.name) || {};
-
       return {
         id: person.id,
         personPassNo: person.personPassNo,
         name: person.name,
         mobile: person.mobile,
-        email: person.email || jsonbMatch.email || '',
+        email: person.email || '',
         aadharNo: person.aadharNo,
-        nationality: jsonbMatch.nationality || person.nationality || 'INDIAN',
+        nationality: person.nationality || 'INDIAN',
         dateFrom: person.dateFrom,
         dateTo: person.dateTo,
-        passType: person.passType || jsonbMatch.passType || '',
-        passPeriod: person.passPeriod || jsonbMatch.passPeriod || 1,
-        amount: person.amount || jsonbMatch.amount || '',
+        passType: person.passType || '',
+        passPeriod: person.passPeriod || 1,
+        amount: person.amount || '',
         status: person.status,
         rejectedReason: person.rejectedReason,
         revertReason: person.revertReason,
-        // Full form fields from JSONB
-        hepTypeId: jsonbMatch.hepTypeId || jsonbMatch.hepType || '',
-        designationId: jsonbMatch.designationId || jsonbMatch.designation || '',
-        idProofType: jsonbMatch.idProofType || '',
-        idProofNumber: jsonbMatch.idProofNumber || '',
-        countryId: jsonbMatch.countryId || jsonbMatch.country || '75',
-        accessAreaId: jsonbMatch.accessAreaId || jsonbMatch.accessArea || '',
-        cardNumber: jsonbMatch.cardNumber || '',
-        visaNo: jsonbMatch.visaNo || '',
-        passportNo: jsonbMatch.passportNo || '',
-        cdcNumber: jsonbMatch.cdcNumber || '',
-        seafarerPassFor: jsonbMatch.seafarerPassFor || 'Sign-On',
-        seafarerIdType: jsonbMatch.seafarerIdType || '',
-        withTwoWheeler: jsonbMatch.withTwoWheeler || false,
-        vehicleNo: jsonbMatch.vehicleNo || '',
+        // Full form fields
+        hepTypeId: person.hepTypeId || '',
+        designationId: person.designationId || '',
+        designationOther: person.designationOther || '',
+        idProofType: person.idProofType || '',
+        idProofNumber: person.idProofNumber || '',
+        countryId: person.countryId || '75',
+        accessAreaId: person.accessAreaId || '',
+        cardNumber: person.cardNumber || '',
+        visaNo: person.visaNo || '',
+        passportNo: person.passportNo || '',
+        cdcNumber: person.cdcNumber || '',
+        seafarerPassFor: person.seafarerPassFor || 'Sign-On',
+        seafarerIdType: person.seafarerIdType || '',
+        withTwoWheeler: person.withTwoWheeler || false,
+        vehicleNo: person.vehicleNo || '',
         // File names
-        photoFileName: person.photoFileName || jsonbMatch.photoFileName || '',
-        aadharPDFFileName: person.aadharPDFFileName || jsonbMatch.aadharPDFFileName || '',
-        passportName: person.passportName || jsonbMatch.passportName || '',
-        requisitionLetterName: person.requisitionLetterName || jsonbMatch.requisitionLetterName || '',
-        driverLicenseName: person.driverLicenseName || jsonbMatch.driverLicenseName || '',
-        policeVerificationName: person.policeVerificationName || jsonbMatch.policeVerificationName || '',
-        employmentProofName: person.employmentProofName || jsonbMatch.employmentProofName || '',
-        chaLicenseName: person.chaLicenseName || jsonbMatch.chaLicenseName || '',
-        idProofFileName: person.idProofFileName || jsonbMatch.idProofFileName || '',
-        cdcDocumentName: jsonbMatch.cdcDocumentName || '',
-        declarationFormName: jsonbMatch.declarationFormName || '',
-        // File paths (required for DocumentCard visibility in traffic approval)
+        photoFileName: person.photoFileName || '',
+        aadharPDFFileName: person.aadharPDFFileName || '',
+        passportName: person.passportName || '',
+        requisitionLetterName: person.requisitionLetterName || '',
+        driverLicenseName: person.driverLicenseName || '',
+        policeVerificationName: person.policeVerificationName || '',
+        employmentProofName: person.employmentProofName || '',
+        chaLicenseName: person.chaLicenseName || '',
+        idProofFileName: person.idProofFileName || '',
+        cdcDocumentName: person.cdcDocumentName || '',
+        declarationFormName: person.declarationFormName || '',
+        // File paths
         aadharPDFFilePATH: person.aadharPDFFilePATH || '',
         idProofFilePath: person.idProofFilePath || '',
         photoFilePath: person.photoFilePath || '',
@@ -269,6 +263,8 @@ exports.getVendorQrData = async (vendorPassId) => {
         policeVerificationPath: person.policeVerificationPath || '',
         employmentProofPath: person.employmentProofPath || '',
         chaLicensePath: person.chaLicensePath || '',
+        cdcDocumentPath: person.cdcDocumentPath || '',
+        declarationFormPath: person.declarationFormPath || '',
         // QR display fields
         validFrom: formatISTDateTime(person.dateFrom, false),
         validTo: formatISTDateTime(person.dateTo, false),
@@ -287,36 +283,35 @@ exports.getVendorQrData = async (vendorPassId) => {
     [vendorPassId]
   );
 
-  const vehicles = vehiclesResult.rows.map((vehicle, idx) => {
-    const jsonbMatch = jsonbVehicles[idx] || jsonbVehicles.find(v => v.vehicleRegistrationNo === vehicle.vehicleRegistrationNo || v.regNo === vehicle.vehicleRegistrationNo) || {};
+  const vehicles = vehiclesResult.rows.map((vehicle) => {
     return {
       id: vehicle.id,
       vehiclePassNo: vehicle.vehiclePassNo,
       registrationNo: vehicle.vehicleRegistrationNo,
       dateFrom: vehicle.dateFrom,
       dateTo: vehicle.dateTo,
-      passType: vehicle.passType || jsonbMatch.passType || '',
-      passPeriod: vehicle.passPeriod || jsonbMatch.passPeriod || 1,
-      amount: vehicle.amount || jsonbMatch.amount || '',
+      passType: vehicle.passType || '',
+      passPeriod: vehicle.passPeriod || 1,
+      amount: vehicle.amount || '',
       status: vehicle.status,
       rejectedReason: vehicle.rejectedReason,
       revertReason: vehicle.revertReason,
-      // Full form fields from JSONB
-      vehicleTypeId: jsonbMatch.vehicleTypeId || jsonbMatch.type || '',
-      vehicleType: vehicle.vehicleType || jsonbMatch.vehicleType || '',
-      fuelType: jsonbMatch.fuelType || '',
-      insuranceExpiry: jsonbMatch.insuranceExpiry || '',
-      rcValidity: jsonbMatch.rcValidity || '',
-      accessAreaId: jsonbMatch.accessAreaId || jsonbMatch.accessArea || '',
+      // Full form fields
+      vehicleTypeId: vehicle.vehicleTypeId || '',
+      vehicleType: vehicle.vehicleType || '',
+      fuelType: vehicle.fuelType || '',
+      insuranceExpiry: vehicle.insuranceExpiry || '',
+      rcValidity: vehicle.rcValidity || '',
+      accessAreaId: vehicle.accessAreaId || '',
       // File names
-      scannedCopyFileName: vehicle.scannedCopyFileName || jsonbMatch.scannedCopyFileName || '',
-      insuranceFileName: vehicle.insuranceFileName || jsonbMatch.insuranceFileName || '',
-      permitFileName: vehicle.permitFileName || jsonbMatch.permitFileName || '',
-      fitnessFileName: vehicle.fitnessFileName || jsonbMatch.fitnessFileName || '',
-      requestLetterName: vehicle.requestLetterName || jsonbMatch.requestLetterName || '',
-      taxDocName: vehicle.taxFileName || jsonbMatch.taxDocName || '',
-      emissionCertName: vehicle.emissionFileName || jsonbMatch.emissionCertName || '',
-      // File paths (required for DocumentCard visibility in traffic approval)
+      scannedCopyFileName: vehicle.scannedCopyFileName || '',
+      insuranceFileName: vehicle.insuranceFileName || '',
+      permitFileName: vehicle.permitFileName || '',
+      fitnessFileName: vehicle.fitnessFileName || '',
+      requestLetterName: vehicle.requestLetterName || '',
+      taxDocName: vehicle.taxFileName || '',
+      emissionCertName: vehicle.emissionFileName || '',
+      // File paths
       scannedCopyFilePath: vehicle.scannedCopyFilePath || '',
       insuranceFilePath: vehicle.insuranceFilePath || '',
       permitFilePath: vehicle.permitFilePath || '',
@@ -331,98 +326,8 @@ exports.getVendorQrData = async (vendorPassId) => {
     };
   });
 
-  // Fallback: for legacy passes submitted before new tables existed,
-  // read from JSONB if new tables are empty
-  if (persons.length === 0 && vehicles.length === 0) {
-    return await getVendorQrDataLegacy(vendorPassId);
-  }
-
   return { persons, vehicles, referenceNo, companyName, status,
            workOrderFilePath, workOrderFileName, visitorTypeId, purposeOfVisitId };
-};
-
-/**
- * Legacy JSONB fallback for vendor passes created before vendor_pass_persons/
- * vendor_pass_vehicles tables existed.
- */
-async function getVendorQrDataLegacy(vendorPassId) {
-  const query = `
-    SELECT
-      v."referenceNo",
-      v."companyName",
-      v."submittedPersons",
-      v."submittedVehicles",
-      v."validUpto"
-    FROM "vendor_pass_requests" v
-    WHERE v.id = $1
-    AND v.status IN ('APPROVED', 'COMPLETED', 'REVERTED', 'REJECTED')
-  `;
-
-  const result = await pool.query(query, [vendorPassId]);
-
-  if (result.rows.length === 0) {
-    throw new Error("No approved vendor pass found");
-  }
-
-  const row = result.rows[0];
-  const submittedPersons = Array.isArray(row.submittedPersons) ? row.submittedPersons : [];
-  const submittedVehicles = Array.isArray(row.submittedVehicles) ? row.submittedVehicles : [];
-
-  const persons = await Promise.all(
-    submittedPersons
-      .map(async (person) => {
-        let photoBase64 = null;
-        let photoMimeType = "image/jpeg";
-        if (person.photoFilePath) {
-          try {
-            const fullPath = path.isAbsolute(person.photoFilePath)
-              ? person.photoFilePath
-              : path.join(__dirname, "../../", person.photoFilePath);
-            if (fsSync.existsSync(fullPath)) {
-              const fileBuffer = await fs.readFile(fullPath);
-              photoBase64 = fileBuffer.toString("base64");
-              const ext = path.extname(fullPath).toLowerCase();
-              if (ext === ".png") photoMimeType = "image/png";
-              if (ext === ".webp") photoMimeType = "image/webp";
-            }
-          } catch (err) {
-            console.error(`Photo read error for vendor person ${person.personName}:`, err.message);
-          }
-        }
-        return {
-          id: person.personPassNo || person.id,
-          name: person.personName,
-          mobile: person.mobileNumber,
-          aadharNo: person.aadharNumber,
-          personPassNo: person.personPassNo,
-          validFrom: formatISTDateTime(person.dateFrom, false),
-          validTo: formatISTDateTime(person.dateTo, false) || formatISTDateTime(row.validUpto, false),
-          photoBase64,
-          photoMimeType,
-          company: row.companyName,
-          hepType: person.passType || "Personal",
-          status: person.status,
-          rejectedReason: person.rejectedReason,
-          revertReason: person.revertReason
-        };
-      })
-  );
-
-  const vehicles = submittedVehicles
-    .map((vehicle) => ({
-      id: vehicle.vehiclePassNo || vehicle.id,
-      registrationNo: vehicle.vehicleRegistrationNo,
-      vehiclePassNo: vehicle.vehiclePassNo,
-      validFrom: formatISTDateTime(vehicle.dateFrom, false),
-      validTo: formatISTDateTime(vehicle.dateTo, false) || formatISTDateTime(row.validUpto, false),
-      company: row.companyName,
-      vehicleType: vehicle.vehicleType,
-      status: vehicle.status,
-      rejectedReason: vehicle.rejectedReason,
-      revertReason: vehicle.revertReason
-    }));
-
-  return { persons, vehicles, referenceNo: row.referenceNo };
 };
 
 exports.saveQrPdfPath = async (

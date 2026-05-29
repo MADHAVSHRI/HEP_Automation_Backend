@@ -1586,9 +1586,23 @@ const getAgentPassRequestsDetails = {
           v."companyName"      AS "entityName",
           v."vendorEmail"      AS "email",
           v."vendorMobile"     AS "mobileNo",
-          v."submittedPersons",
-          v."submittedVehicles"
+          COALESCE(p.persons, '[]') AS persons,
+          COALESCE(veh.vehicles, '[]') AS vehicles
         FROM vendor_pass_requests v
+        LEFT JOIN (
+          SELECT
+            "vendorPassRequestId",
+            json_agg(to_jsonb(vpp) ORDER BY vpp.id ASC) AS persons
+          FROM vendor_pass_persons vpp
+          GROUP BY "vendorPassRequestId"
+        ) p ON p."vendorPassRequestId" = v.id
+        LEFT JOIN (
+          SELECT
+            "vendorPassRequestId",
+            json_agg(to_jsonb(vpv) ORDER BY vpv.id ASC) AS vehicles
+          FROM vendor_pass_vehicles vpv
+          GROUP BY "vendorPassRequestId"
+        ) veh ON veh."vendorPassRequestId" = v.id
         WHERE v.status IN ('VENDOR_SUBMITTED', 'APPROVED', 'REJECTED', 'REVERTED', 'COMPLETED')
         ORDER BY v."submittedAt" DESC
       `);
@@ -1604,11 +1618,11 @@ const getAgentPassRequestsDetails = {
         mobileNo: v.mobileNo,
         gstinNumber: null,
         panNumber: null,
-        persons: (Array.isArray(v.submittedPersons) ? v.submittedPersons : []).map(
-          (p, i) => ({ id: `vpr-${v.id}-p-${i}`, ...p })
+        persons: (Array.isArray(v.persons) ? v.persons : []).map(
+          (p, i) => ({ ...p, id: `vpr-${v.id}-p-${i}` })
         ),
-        vehicles: (Array.isArray(v.submittedVehicles) ? v.submittedVehicles : []).map(
-          (veh, i) => ({ id: `vpr-${v.id}-v-${i}`, ...veh })
+        vehicles: (Array.isArray(v.vehicles) ? v.vehicles : []).map(
+          (veh, i) => ({ ...veh, id: `vpr-${v.id}-v-${i}` })
         ),
         originType: "VENDOR",
       }));
@@ -1679,25 +1693,9 @@ const getAgentPassRequestsDetails = {
 
 const viewPassRequestsDocuments = {
   async getPassDocumentPath(passRequestId, documentType, entityIndex = 0, isVendorPass = false) {
-    // Vendor pass documents are stored in JSONB fields
+    // Vendor pass documents are stored in relational tables
     if (isVendorPass) {
-      const vendorQuery = `
-        SELECT "submittedPersons", "submittedVehicles"
-        FROM vendor_pass_requests
-        WHERE id = $1
-      `;
-      const vendorRes = await pool.query(vendorQuery, [passRequestId]);
-      if (vendorRes.rows.length === 0) {
-        return null;
-      }
-
-      const submittedPersons = vendorRes.rows[0].submittedPersons || [];
-      const submittedVehicles = vendorRes.rows[0].submittedVehicles || [];
-
-      let entity;
-      let pathKey;
-
-      // Map document types to JSONB keys for persons
+      // Map document types to keys for persons
       const personDocMap = {
         personPhoto: "photoFilePath",
         personAadhar: "aadharPDFFilePATH",
@@ -1707,10 +1705,10 @@ const viewPassRequestsDocuments = {
         policeVerification: "policeVerificationPath",
         employmentProof: "employmentProofPath",
         chaLicenseCopy: "chaLicensePath",
-        passportDoc: "passportDocPath",
+        passportDoc: "passportPath",
       };
 
-      // Map document types to JSONB keys for vehicles
+      // Map document types to keys for vehicles
       const vehicleDocMap = {
         vehicleRC: "scannedCopyFilePath",
         vehicleInsurance: "insuranceFilePath",
@@ -1722,14 +1720,30 @@ const viewPassRequestsDocuments = {
       };
 
       if (personDocMap[documentType]) {
-        pathKey = personDocMap[documentType];
-        if (submittedPersons[entityIndex] && submittedPersons[entityIndex][pathKey]) {
-          return { filePath: submittedPersons[entityIndex][pathKey] };
+        const pathKey = personDocMap[documentType];
+        const res = await pool.query(
+          `SELECT "${pathKey}" AS path 
+           FROM "vendor_pass_persons" 
+           WHERE "vendorPassRequestId" = $1 
+           ORDER BY id ASC`,
+          [passRequestId]
+        );
+        const row = res.rows[entityIndex];
+        if (row && row.path) {
+          return { filePath: row.path };
         }
       } else if (vehicleDocMap[documentType]) {
-        pathKey = vehicleDocMap[documentType];
-        if (submittedVehicles[entityIndex] && submittedVehicles[entityIndex][pathKey]) {
-          return { filePath: submittedVehicles[entityIndex][pathKey] };
+        const pathKey = vehicleDocMap[documentType];
+        const res = await pool.query(
+          `SELECT "${pathKey}" AS path 
+           FROM "vendor_pass_vehicles" 
+           WHERE "vendorPassRequestId" = $1 
+           ORDER BY id ASC`,
+          [passRequestId]
+        );
+        const row = res.rows[entityIndex];
+        if (row && row.path) {
+          return { filePath: row.path };
         }
       }
 
