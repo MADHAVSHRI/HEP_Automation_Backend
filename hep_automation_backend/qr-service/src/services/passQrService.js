@@ -5,6 +5,7 @@ const fs = require("fs");
 const puppeteer = require("puppeteer");
 const path = require("path");
 const jwt = require("jsonwebtoken");
+const redisClient =require("../../config/redisClient");
 const {
   getPdfPath,
   ensureDirectory,
@@ -428,6 +429,64 @@ async function generatePDF(data) {
   });
 }
 
+// exports.validateQr = async (
+//   qrToken
+// ) => {
+
+//   const secret =
+//     process.env.QR_SECRET;
+
+//   if (!secret) {
+//     throw new Error(
+//       "Environment variable QR_SECRET is required"
+//     );
+//   }
+
+//   const payload = jwt.verify(
+//     qrToken,
+//     secret,
+//     {
+//       issuer: "hep-qr-service",
+//     }
+//   );
+
+//   // TYPE GUARD
+//   if (
+//     typeof payload === "string"
+//   ) {
+//     throw new Error(
+//       "Invalid QR payload"
+//     );
+//   }
+
+//   const response =
+//     await axios.post(
+//       `${USER_SERVICE}/api/pass-request/validate-qr`,
+//       {
+//         entityId:
+//           payload.entityId,
+
+//         passRequestId:
+//           payload.passRequestId,
+
+//         qrUuid:
+//           payload.qrUuid,
+
+//         type:
+//           payload.type,
+//       },
+//       {
+//         headers: {
+//           "x-service-name":
+//             "QR Service",
+//         },
+//       }
+//     );
+
+//   return response.data;
+// };
+
+
 exports.validateQr = async (
   qrToken
 ) => {
@@ -458,6 +517,36 @@ exports.validateQr = async (
     );
   }
 
+  /*
+  ============================================
+  REDIS CACHE CHECK (NEW)
+  ============================================
+  */
+
+  const cacheKey =
+    `qr-validation:${payload.qrUuid}`;
+
+  const cachedData =
+    await redisClient.get(
+      cacheKey
+    );
+
+  if (cachedData) {
+    console.log(
+      "QR validation cache hit"
+    );
+
+    return JSON.parse(
+      cachedData
+    );
+  }
+
+  /*
+  ============================================
+  EXISTING LOGIC (UNCHANGED)
+  ============================================
+  */
+
   const response =
     await axios.post(
       `${USER_SERVICE}/api/pass-request/validate-qr`,
@@ -482,9 +571,50 @@ exports.validateQr = async (
       }
     );
 
+  /*
+  ============================================
+  STORE CACHE (NEW)
+  ============================================
+  */
+
+  if (
+    response.data?.valid &&
+    response.data?.dateTo
+  ) {
+
+    const expiryDate =
+      new Date(
+        response.data.dateTo
+      );
+
+    const ttlSeconds =
+      Math.max(
+        1,
+        Math.floor(
+          (
+            expiryDate.getTime() -
+            Date.now()
+          ) / 1000
+        )
+      );
+
+    await redisClient.set(
+      cacheKey,
+      JSON.stringify(
+        response.data
+      ),
+      {
+        EX: ttlSeconds,
+      }
+    );
+
+    console.log(
+      `QR validation cached (${ttlSeconds}s)`
+    );
+  }
+
   return response.data;
 };
-
 
 
 

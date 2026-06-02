@@ -27,12 +27,14 @@ exports.registerAgent = async (req, res) => {
 
   try {
 
-    const entityFile = req.files?.entityFile?.[0]?.path || null;
+    // const entityFile = req.files?.entityFile?.[0]?.path || null;
+    const workOrder = req.files?.workOrder?.[0]?.path || null;
+    const requisitionLetter = req.files?.requisitionLetter?.[0]?.path || null;
     const gstinDoc = req.files?.gstinDoc?.[0]?.path || null;
     const panDoc = req.files?.panDoc?.[0]?.path || null;
     const tanDoc = req.files?.tanDoc?.[0]?.path || null;
 
-    if (!entityFile || !gstinDoc || !panDoc) {
+    if (!workOrder || !requisitionLetter || !gstinDoc || !panDoc) {
       deleteFiles();
       return res.status(400).json({
         success: false,
@@ -46,6 +48,8 @@ exports.registerAgent = async (req, res) => {
       entityName,
       mobileNo,
       email,
+      licenseNumber,
+      licenseValidityDate,
       addressLine,
       city,
       state,
@@ -126,7 +130,10 @@ exports.registerAgent = async (req, res) => {
       entityName,
       mobileNo,
       email,
-      entityFile,
+      workOrder,
+      requisitionLetter,
+      licenseNumber,
+      licenseValidityDate,
       addressLine,
       city,
       state,

@@ -63,7 +63,10 @@ const Agent = {
         "entityName",
         "mobileNo",
         "email",
-        "entityFile",
+        "workOrder",
+        "licenseNumber",
+        "licenseValidityDate",
+        "requisitionLetter",
         "addressLine",
         "city",
         "state",
@@ -94,7 +97,7 @@ const Agent = {
         $15, $16,
         $17,
         $18, $19, $20, $21, $22,
-        $23, $24, $25, $26, $27  -- Update to include the new placeholder for updatedAt
+        $23, $24, $25, $26, $27, $28, $29, $30  -- Update to include the new placeholder for updatedAt
       )
       RETURNING *
     `;
@@ -105,7 +108,10 @@ const Agent = {
       agentData.entityName,
       agentData.mobileNo,
       agentData.email,
-      agentData.entityFile,
+      agentData.workOrder,
+      agentData.licenseNumber,
+      agentData.licenseValidityDate,
+      agentData.requisitionLetter,
       agentData.addressLine,
       agentData.city,
       agentData.state,

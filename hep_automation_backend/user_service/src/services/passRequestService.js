@@ -482,3 +482,38 @@ exports.validateQr = async ({
     },
   };
 };
+
+// exports.updateQrScanAudit =
+//   async (
+//     entityId,
+//     type
+//   ) => {
+
+//     const model =
+//       type === "person"
+//         ? PassPerson
+//         : PassVehicle;
+
+//     await model.increment(
+//       {
+//         scanCount: 1,
+//       },
+//       {
+//         where: {
+//           id: entityId,
+//         },
+//       }
+//     );
+
+//     await model.update(
+//       {
+//         lastScannedAt:
+//           new Date(),
+//       },
+//       {
+//         where: {
+//           id: entityId,
+//         },
+//       }
+//     );
+//   };

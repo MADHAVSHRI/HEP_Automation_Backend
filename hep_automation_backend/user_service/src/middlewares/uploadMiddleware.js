@@ -14,7 +14,9 @@ const vendorPassBaseDir = "uploads/vendorPassDocs";
 const PAN_DIR = path.join(baseDir, "pan");
 const GST_DIR = path.join(baseDir, "gst");
 const TAN_DIR = path.join(baseDir, "tan");
-const ENTITY_DIR = path.join(baseDir, "entity");
+const WORK_ORDER_DIR = path.join(baseDir, "workOrder");
+const AGENT_REQUISITION_DIR = path.join(baseDir,"requisitionLetter");
+// const ENTITY_DIR = path.join(baseDir, "entity");
 
 const AUTH_DIR = path.join(passRequestBaseDir, "authLetters");
 const PHOTO_DIR = path.join(passRequestBaseDir, "personPhotos");
@@ -43,7 +45,7 @@ if (!fs.existsSync(VENDOR_WORK_ORDER_DIR)) {
 
 /* ===== ORIGINAL LOGIC (unchanged) ===== */
 
-const folders = ["pan", "gst", "tan", "entity"];
+const folders = ["pan", "gst", "tan", "workOrder", "requisitionLetter"];
 const passRequestFolders = [
   "authLetters",
   "personPhotos",
@@ -118,8 +120,12 @@ const storage = multer.diskStorage({
         cb(null, TAN_DIR);
         break;
 
-      case "entityFile":
-        cb(null, ENTITY_DIR);
+      case "workOrder":
+        cb(null, WORK_ORDER_DIR);
+        break;
+
+      case "requisitionLetter":
+        cb(null, AGENT_REQUISITION_DIR);
         break;
 
       case "authLetter":
@@ -219,8 +225,12 @@ const storage = multer.diskStorage({
       fileName = `${company}TAN${timestamp}.pdf`;
     }
 
-    else if (file.fieldname === "entityFile") {
-      fileName = `${company}ENTITY${timestamp}.pdf`;
+    else if (file.fieldname === "workOrder") {
+      fileName = `${company}WORKORDER${timestamp}.pdf`;
+    }
+
+    else if (file.fieldname === "requisitionLetter") {
+      fileName = `${company}REQUISITIONLETTER${timestamp}.pdf`;
     }
 
     else if (file.fieldname === "authLetter") {

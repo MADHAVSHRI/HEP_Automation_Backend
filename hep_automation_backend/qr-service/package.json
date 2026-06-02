@@ -31,6 +31,7 @@
     "pg-hstore": "^2.3.4",
     "puppeteer": "24.42.0",
     "qrcode": "^1.5.4",
+    "redis": "^6.0.0",
     "sequelize": "^6.37.8",
     "uuid": "^14.0.0",
     "winston": "^3.19.0"

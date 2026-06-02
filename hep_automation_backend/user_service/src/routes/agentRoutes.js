@@ -5,10 +5,22 @@ const verifyToken = require("../middlewares/verifyToken");
 const upload = require("../middlewares/uploadMiddleware");
 const agentController = require("../controllers/agentController");
 
+// router.post(
+//   "/registerAgent",
+//   upload.fields([
+//     { name: "entityFile", maxCount: 1 },
+//     { name: "gstinDoc", maxCount: 1 },
+//     { name: "panDoc", maxCount: 1 },
+//     { name: "tanDoc", maxCount: 1 },
+//   ]),
+//   agentController.registerAgent
+// );
+
 router.post(
   "/registerAgent",
   upload.fields([
-    { name: "entityFile", maxCount: 1 },
+    { name: "workOrder", maxCount: 1 },
+    { name: "requisitionLetter", maxCount: 1 },
     { name: "gstinDoc", maxCount: 1 },
     { name: "panDoc", maxCount: 1 },
     { name: "tanDoc", maxCount: 1 },
