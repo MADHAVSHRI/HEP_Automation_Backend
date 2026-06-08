@@ -12,14 +12,14 @@ const buildReferenceNo = async (client) => {
 
 const buildToken = () =>
   crypto
-    .randomBytes(48)
+    .randomBytes(9)
     .toString("base64")
     .replace(/\+/g, "-")
     .replace(/\//g, "_")
     .replace(/=+$/, "");
 
 const FRONTEND_BASE =
-  process.env.FRONTEND_BASE_URL || "http://localhost:3000";
+  process.env.FRONTEND_BASE_URL;
 
 const buildVendorLink = (token) =>
   `${FRONTEND_BASE}/vendor_pass/${token}`;
@@ -644,7 +644,7 @@ exports.updateVendorPerson = async (req, res) => {
   try {
     const { id, personIndex } = req.params;
     let data = req.body;
-    
+
     // Attach files if any
     const files = req.files || {};
     const attachFile = (entry, fieldName, pathKey, nameKey) => {

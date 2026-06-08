@@ -2,8 +2,8 @@ const { pool } = require("../dbconfig/db");
 const ReferenceNumber = require("./referenceNumberSchema");
 const axios = require("axios");
 
-const EMAIL_SERVICE_URL = process.env.EMAIL_SERVICE_URL || "http://localhost:5002";
-const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:3000";
+const EMAIL_SERVICE_URL = process.env.EMAIL_SERVICE_URL;
+const FRONTEND_URL = process.env.FRONTEND_URL;
 
 /**
  * Raw-SQL data layer for vendor_pass_requests, mirroring the style used in

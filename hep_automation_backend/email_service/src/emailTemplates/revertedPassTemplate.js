@@ -55,7 +55,7 @@ module.exports = (name, referenceNumber, revertedEntities, revertReasons) => {
       </div>
       
       <p style="text-align: center;">
-        <a href="${process.env.FRONTEND_URL || 'http://localhost:3000'}/dashboard/pass_request" class="button">Go to Dashboard</a>
+        <a href="${process.env.FRONTEND_URL}/dashboard/pass_request" class="button">Go to Dashboard</a>
       </p>
       
       <p style="font-size: 13px; color: #6b7280; margin-top: 30px;">
