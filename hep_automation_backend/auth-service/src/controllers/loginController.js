@@ -459,19 +459,7 @@
 //     log.error(TAG, "Unhandled logout error", error);
 //     return res.status(500).json({ success: false, message: "Logout failed" });
 //   }
-// }; 
-
-
-
-
-
-
-
-
-
-
-
-
+// };
 
 const axios = require("axios");
 const bcrypt = require("bcrypt");
@@ -492,11 +480,23 @@ const {
 const log = {
   info: (ctx, msg, data) =>
     console.log(
-      JSON.stringify({ ts: new Date().toISOString(), level: "INFO", ctx, msg, ...(data && { data }) })
+      JSON.stringify({
+        ts: new Date().toISOString(),
+        level: "INFO",
+        ctx,
+        msg,
+        ...(data && { data }),
+      }),
     ),
   warn: (ctx, msg, data) =>
     console.warn(
-      JSON.stringify({ ts: new Date().toISOString(), level: "WARN", ctx, msg, ...(data && { data }) })
+      JSON.stringify({
+        ts: new Date().toISOString(),
+        level: "WARN",
+        ctx,
+        msg,
+        ...(data && { data }),
+      }),
     ),
   error: (ctx, msg, err, extra) => {
     const payload = {
@@ -545,7 +545,9 @@ async function runDiagnostics() {
 
   /* ── 2. Captcha service reachability ── */
   try {
-    await axios.get(`${process.env.USER_SERVICE_URL}/health`, { timeout: 3000 });
+    await axios.get(`${process.env.USER_SERVICE_URL}/health`, {
+      timeout: 3000,
+    });
     results.captchaService = { ok: true, url: process.env.USER_SERVICE_URL };
   } catch (err) {
     results.captchaService = {
@@ -557,16 +559,18 @@ async function runDiagnostics() {
         err?.code === "ECONNREFUSED"
           ? "USER_SERVICE is DOWN or USER_SERVICE_URL is wrong"
           : err?.code === "ETIMEDOUT"
-          ? "USER_SERVICE is unreachable — check network/firewall"
-          : err?.response?.status
-          ? `Service responded with HTTP ${err.response.status} — likely up but /health not defined (non-fatal)`
-          : err.message,
+            ? "USER_SERVICE is unreachable — check network/firewall"
+            : err?.response?.status
+              ? `Service responded with HTTP ${err.response.status} — likely up but /health not defined (non-fatal)`
+              : err.message,
     };
   }
 
   /* ── 3. Admin service reachability ── */
   try {
-    await axios.get(`${process.env.ADMIN_SERVICE_URL}/health`, { timeout: 3000 });
+    await axios.get(`${process.env.ADMIN_SERVICE_URL}/health`, {
+      timeout: 3000,
+    });
     results.adminService = { ok: true, url: process.env.ADMIN_SERVICE_URL };
   } catch (err) {
     results.adminService = {
@@ -578,10 +582,10 @@ async function runDiagnostics() {
         err?.code === "ECONNREFUSED"
           ? "ADMIN_SERVICE is DOWN or ADMIN_SERVICE_URL is wrong"
           : err?.code === "ETIMEDOUT"
-          ? "ADMIN_SERVICE is unreachable — check network/firewall"
-          : err?.response?.status
-          ? `Service responded with HTTP ${err.response.status} — likely up but /health not defined (non-fatal)`
-          : err.message,
+            ? "ADMIN_SERVICE is unreachable — check network/firewall"
+            : err?.response?.status
+              ? `Service responded with HTTP ${err.response.status} — likely up but /health not defined (non-fatal)`
+              : err.message,
     };
   }
 
@@ -639,7 +643,11 @@ exports.diagnose = async (req, res) => {
     if (allOk) {
       log.info("STARTUP:DIAG", "All dependency checks passed", results);
     } else {
-      log.warn("STARTUP:DIAG", "One or more dependency checks FAILED — see details", results);
+      log.warn(
+        "STARTUP:DIAG",
+        "One or more dependency checks FAILED — see details",
+        results,
+      );
     }
   } catch (err) {
     log.error("STARTUP:DIAG", "Diagnostic check threw unexpectedly", err);
@@ -663,16 +671,23 @@ async function runParallel(captchaPromise, userPromise) {
         err?.code === "ECONNREFUSED"
           ? "USER_SERVICE is DOWN — check USER_SERVICE_URL env var"
           : err?.code === "ETIMEDOUT"
-          ? "Captcha service timed out — check network/firewall"
-          : err?.response?.status === 400
-          ? "Captcha value was rejected by the service"
-          : "Unexpected axios error on captcha call",
+            ? "Captcha service timed out — check network/firewall"
+            : err?.response?.status === 400
+              ? "Captcha value was rejected by the service"
+              : "Unexpected axios error on captcha call",
     });
     const status = err?.response?.status;
     if (status === 400) {
-      return { captchaError: { status: 400, message: "Invalid or expired security code" } };
+      return {
+        captchaError: {
+          status: 400,
+          message: "Invalid or expired security code",
+        },
+      };
     }
-    return { captchaError: { status: 503, message: "Captcha service unavailable" } };
+    return {
+      captchaError: { status: 503, message: "Captcha service unavailable" },
+    };
   }
 
   if (userResult.status === "rejected") {
@@ -682,10 +697,10 @@ async function runParallel(captchaPromise, userPromise) {
         err?.code === "ECONNREFUSED"
           ? "Target service is DOWN or wrong URL in env — run GET /auth/diagnose"
           : err?.code === "ETIMEDOUT"
-          ? "Target service timed out — check network/firewall or raise axios timeout"
-          : err?.response?.status === 401 || err?.response?.status === 403
-          ? "SERVICE_AUTH_KEY may be wrong or missing"
-          : "Unexpected axios error — check axiosUrl and axiosStatus in this log",
+            ? "Target service timed out — check network/firewall or raise axios timeout"
+            : err?.response?.status === 401 || err?.response?.status === 403
+              ? "SERVICE_AUTH_KEY may be wrong or missing"
+              : "Unexpected axios error — check axiosUrl and axiosStatus in this log",
     });
     return { userError: { status: 503, message: "User service unavailable" } };
   }
@@ -725,8 +740,15 @@ exports.login = async (req, res) => {
     if (!process.env.ADMIN_SERVICE_URL) missingEnv.push("ADMIN_SERVICE_URL");
     if (!process.env.SERVICE_AUTH_KEY) missingEnv.push("SERVICE_AUTH_KEY");
     if (missingEnv.length) {
-      log.error(TAG, "Missing environment variables", new Error("Env var missing"), { missingEnv });
-      return res.status(500).json({ success: false, message: "Server misconfiguration" });
+      log.error(
+        TAG,
+        "Missing environment variables",
+        new Error("Env var missing"),
+        { missingEnv },
+      );
+      return res
+        .status(500)
+        .json({ success: false, message: "Server misconfiguration" });
     }
 
     log.info(TAG, "Login attempt", {
@@ -744,7 +766,7 @@ exports.login = async (req, res) => {
           "x-service-key": process.env.SERVICE_AUTH_KEY,
           "x-service-name": "AUTH-SERVICE",
         },
-      }
+      },
     );
 
     let source;
@@ -761,7 +783,7 @@ exports.login = async (req, res) => {
             "x-service-key": process.env.SERVICE_AUTH_KEY,
             "x-service-name": "AUTH-SERVICE",
           },
-        }
+        },
       );
     } else {
       source = "admin";
@@ -774,7 +796,7 @@ exports.login = async (req, res) => {
             "x-service-key": process.env.SERVICE_AUTH_KEY,
             "x-service-name": "AUTH-SERVICE",
           },
-        }
+        },
       );
     }
 
@@ -801,23 +823,37 @@ exports.login = async (req, res) => {
     if (!user) {
       log.warn(TAG, "User not found", { loginId });
       // Dummy bcrypt to prevent timing attack
-      await bcrypt.compare(password, "$2b$10$invalidhashpadding000000000000000000000000000000000000");
-      return res.status(404).json({ success: false, message: "User not found" });
+      await bcrypt.compare(
+        password,
+        "$2b$10$invalidhashpadding000000000000000000000000000000000000",
+      );
+      return res
+        .status(404)
+        .json({ success: false, message: "User not found" });
     }
 
-    log.info(TAG, "User record fetched", { userId: user.id, role: user.role, source });
+    log.info(TAG, "User record fetched", {
+      userId: user.id,
+      role: user.role,
+      source,
+    });
 
     /* ── 6. Password verification ── */
     const isValid = await bcrypt.compare(password, user.password);
     if (!isValid) {
       log.warn(TAG, "Password mismatch", { userId: user.id });
-      return res.status(401).json({ success: false, message: "Invalid credentials" });
+      return res
+        .status(401)
+        .json({ success: false, message: "Invalid credentials" });
     }
 
     /* ── 7. Account status check ── */
     if (source === "admin") {
       if (user.status !== "active" || user.isApprovedByAdmin !== true) {
-        log.warn(TAG, "Admin account not activated", { userId: user.id, status: user.status });
+        log.warn(TAG, "Admin account not activated", {
+          userId: user.id,
+          status: user.status,
+        });
         return res.status(403).json({
           success: false,
           message: "Your account is not activated by admin",
@@ -825,7 +861,10 @@ exports.login = async (req, res) => {
       }
     } else if (source === "agent") {
       if (user.status !== "approved") {
-        log.warn(TAG, "Agent account not approved", { userId: user.id, status: user.status });
+        log.warn(TAG, "Agent account not approved", {
+          userId: user.id,
+          status: user.status,
+        });
         return res.status(403).json({
           success: false,
           message: "Your account is not approved yet",
@@ -894,36 +933,59 @@ exports.login = async (req, res) => {
 
     /* ── 10. Persist session ── */
     try {
-      await RefreshToken.createSession({ userId: user.id, refreshToken, sessionId });
+      await RefreshToken.createSession({
+        userId: user.id,
+        refreshToken,
+        sessionId,
+      });
       log.info(TAG, "DB session created", { sessionId });
     } catch (dbErr) {
-      log.error(TAG, "DB createSession failed", dbErr, { userId: user.id, sessionId });
-      return res.status(500).json({ success: false, message: "Session creation failed" });
+      log.error(TAG, "DB createSession failed", dbErr, {
+        userId: user.id,
+        sessionId,
+      });
+      return res
+        .status(500)
+        .json({ success: false, message: "Session creation failed" });
     }
 
     try {
       await createUserSession(user.id, sessionId);
       log.info(TAG, "Redis session created", { userId: user.id, sessionId });
     } catch (redisErr) {
-      log.error(TAG, "Redis createUserSession failed — rolling back DB session", redisErr, {
-        userId: user.id,
-        sessionId,
-      });
+      log.error(
+        TAG,
+        "Redis createUserSession failed — rolling back DB session",
+        redisErr,
+        {
+          userId: user.id,
+          sessionId,
+        },
+      );
       try {
         await RefreshToken.deleteSessionBySessionId(sessionId);
       } catch (rollbackErr) {
-        log.error(TAG, "Rollback of DB session also failed", rollbackErr, { sessionId });
+        log.error(TAG, "Rollback of DB session also failed", rollbackErr, {
+          sessionId,
+        });
       }
-      return res.status(500).json({ success: false, message: "Session creation failed" });
+      return res
+        .status(500)
+        .json({ success: false, message: "Session creation failed" });
     }
 
-    log.info(TAG, "Login successful", { userId: user.id, role: user.role, sessionId });
+    log.info(TAG, "Login successful", {
+      userId: user.id,
+      role: user.role,
+      sessionId,
+    });
 
     return res.json({
       success: true,
       accessToken,
       refreshToken,
       role: user.role,
+      isPasswordChanged: user.isPasswordChanged,
       departmentName: user.departmentName || null,
       departmentId: user.departmentId || null,
     });
@@ -949,7 +1011,11 @@ exports.refreshToken = async (req, res) => {
   try {
     const secret = process.env.JWT_REFRESH_SECRET;
     if (!secret) {
-      log.error(TAG, "JWT_REFRESH_SECRET is not set", new Error("Missing env var"));
+      log.error(
+        TAG,
+        "JWT_REFRESH_SECRET is not set",
+        new Error("Missing env var"),
+      );
       return res.status(500).json({ message: "Server misconfiguration" });
     }
 
@@ -966,7 +1032,8 @@ exports.refreshToken = async (req, res) => {
       return res.status(401).json({ message: "Invalid refresh token" });
     }
 
-    const { userId, role, sessionId, departmentId, departmentName, source } = decoded;
+    const { userId, role, sessionId, departmentId, departmentName, source } =
+      decoded;
 
     log.info(TAG, "Token decoded", { userId, role, sessionId });
 
@@ -987,7 +1054,10 @@ exports.refreshToken = async (req, res) => {
     }
 
     if (new Date(session.expiresAt) < new Date()) {
-      log.warn(TAG, "Refresh token expired", { sessionId, expiresAt: session.expiresAt });
+      log.warn(TAG, "Refresh token expired", {
+        sessionId,
+        expiresAt: session.expiresAt,
+      });
       return res.status(401).json({ message: "Refresh token expired" });
     }
 
@@ -1024,18 +1094,26 @@ exports.heartbeat = async (req, res) => {
     const refreshed = await refreshUserSession(userId, sessionId);
 
     if (!refreshed) {
-      log.warn(TAG, "Heartbeat — session not found or mismatched, forcing re-login", {
-        userId,
-        sessionId,
-      });
-      return res.status(401).json({ success: false, message: "Session expired" });
+      log.warn(
+        TAG,
+        "Heartbeat — session not found or mismatched, forcing re-login",
+        {
+          userId,
+          sessionId,
+        },
+      );
+      return res
+        .status(401)
+        .json({ success: false, message: "Session expired" });
     }
 
     log.info(TAG, "Session TTL refreshed", { userId, sessionId });
     return res.json({ success: true });
   } catch (error) {
     log.error(TAG, "Heartbeat error", error);
-    return res.status(500).json({ success: false, message: "Heartbeat failed" });
+    return res
+      .status(500)
+      .json({ success: false, message: "Heartbeat failed" });
   }
 };
 
@@ -1059,13 +1137,17 @@ exports.beaconLogout = async (req, res) => {
 
     if (!accessToken) {
       log.warn(TAG, "No access token in beacon body");
-      return res.status(400).json({ success: false, message: "Token required" });
+      return res
+        .status(400)
+        .json({ success: false, message: "Token required" });
     }
 
     const jwtSecret = process.env.JWT_SECRET;
     if (!jwtSecret) {
       log.error(TAG, "JWT_SECRET not set", new Error("Missing env var"));
-      return res.status(500).json({ success: false, message: "Server misconfiguration" });
+      return res
+        .status(500)
+        .json({ success: false, message: "Server misconfiguration" });
     }
 
     let decoded;
@@ -1077,13 +1159,19 @@ exports.beaconLogout = async (req, res) => {
       decoded = jwt.decode(accessToken);
       if (!decoded) {
         log.warn(TAG, "Could not decode beacon token at all");
-        return res.status(400).json({ success: false, message: "Invalid token" });
+        return res
+          .status(400)
+          .json({ success: false, message: "Invalid token" });
       }
     }
 
     if (!decoded || !decoded.userId || !decoded.sessionId) {
-      log.warn(TAG, "Beacon token payload missing userId/sessionId", { decoded });
-      return res.status(400).json({ success: false, message: "Invalid token payload" });
+      log.warn(TAG, "Beacon token payload missing userId/sessionId", {
+        decoded,
+      });
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid token payload" });
     }
 
     const { userId, sessionId } = decoded;
@@ -1095,7 +1183,12 @@ exports.beaconLogout = async (req, res) => {
       await RefreshToken.deleteSessionBySessionId(sessionId);
       log.info(TAG, "DB session deleted via beacon", { sessionId });
     } catch (dbErr) {
-      log.error(TAG, "DB deleteSessionBySessionId failed in beacon logout", dbErr, { sessionId });
+      log.error(
+        TAG,
+        "DB deleteSessionBySessionId failed in beacon logout",
+        dbErr,
+        { sessionId },
+      );
       // Continue — still try to clear Redis
     }
 
@@ -1104,7 +1197,10 @@ exports.beaconLogout = async (req, res) => {
       const redisSession = await getUserSession(userId);
       if (redisSession === sessionId) {
         await deleteUserSession(userId);
-        log.info(TAG, "Redis session deleted via beacon", { userId, sessionId });
+        log.info(TAG, "Redis session deleted via beacon", {
+          userId,
+          sessionId,
+        });
       } else {
         log.warn(TAG, "Redis session mismatch in beacon logout — skip delete", {
           userId,
@@ -1113,13 +1209,20 @@ exports.beaconLogout = async (req, res) => {
         });
       }
     } catch (redisErr) {
-      log.error(TAG, "Redis deleteUserSession failed in beacon logout", redisErr, { userId });
+      log.error(
+        TAG,
+        "Redis deleteUserSession failed in beacon logout",
+        redisErr,
+        { userId },
+      );
     }
 
     return res.json({ success: true, message: "Session cleared" });
   } catch (error) {
     log.error(TAG, "Unhandled beacon logout error", error);
-    return res.status(500).json({ success: false, message: "Beacon logout failed" });
+    return res
+      .status(500)
+      .json({ success: false, message: "Beacon logout failed" });
   }
 };
 
@@ -1139,16 +1242,22 @@ exports.logout = async (req, res) => {
       activeSession = await getUserSession(userId);
       log.info(TAG, "Redis session fetched", { userId, activeSession });
     } catch (redisErr) {
-      log.error(TAG, "Redis getUserSession failed during logout", redisErr, { userId });
+      log.error(TAG, "Redis getUserSession failed during logout", redisErr, {
+        userId,
+      });
       // Non-fatal: proceed with DB cleanup anyway
     }
 
     if (activeSession && activeSession !== sessionId) {
-      log.warn(TAG, "Session mismatch on logout — token belongs to replaced session", {
-        userId,
-        tokenSessionId: sessionId,
-        activeSessionId: activeSession,
-      });
+      log.warn(
+        TAG,
+        "Session mismatch on logout — token belongs to replaced session",
+        {
+          userId,
+          tokenSessionId: sessionId,
+          activeSessionId: activeSession,
+        },
+      );
       return res.status(200).json({
         success: false,
         message: "Session already replaced. Logout ignored.",
@@ -1160,7 +1269,9 @@ exports.logout = async (req, res) => {
       await RefreshToken.deleteSessionBySessionId(sessionId);
       log.info(TAG, "DB session deleted", { sessionId });
     } catch (dbErr) {
-      log.error(TAG, "DB deleteSessionBySessionId failed", dbErr, { sessionId });
+      log.error(TAG, "DB deleteSessionBySessionId failed", dbErr, {
+        sessionId,
+      });
       return res.status(500).json({ success: false, message: "Logout failed" });
     }
 

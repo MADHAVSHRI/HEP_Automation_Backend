@@ -12,11 +12,6 @@ module.exports = {
       },
 
       {
-        name: "CHA",
-        document_instruction: "Upload Customs License",
-      },
-
-      {
         name: "Stevedore",
         document_instruction: "Upload Port approval letter",
       },
@@ -27,7 +22,7 @@ module.exports = {
       },
 
       {
-        name: "CFS",
+        name: "Container Freight Station",
         document_instruction: "Upload Customs License",
       },
 

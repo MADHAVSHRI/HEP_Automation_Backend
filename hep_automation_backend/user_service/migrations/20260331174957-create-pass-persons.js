@@ -51,7 +51,6 @@ module.exports = {
 
       aadharNo: {
         type: Sequelize.STRING(12),
-        unique: true,
         allowNull: false,
       },
 

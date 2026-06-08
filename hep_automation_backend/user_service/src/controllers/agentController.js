@@ -4,13 +4,13 @@ const axios = require("axios");
 const { successLogger, errorLogger } = require("../logger/logger");
 const Agent = require("../models/agentRegistrationSchema");
 const captchaService = require("../services/captchaService");
+const { changePasswordSchema } = require("../utils/changePasswordValidator");
 const sendEmailEvent = require("../utils/kafka/producer");
 const bcrypt = require("bcrypt");
 const generateLoginId = require("../utils/loginIdGenerator");
 const AGENT_STATUS = require("../constants/constants").AGENT_STATUS;
 
 exports.registerAgent = async (req, res) => {
-
   const deleteFiles = () => {
     const files = req.files || {};
 
@@ -26,7 +26,6 @@ exports.registerAgent = async (req, res) => {
   };
 
   try {
-
     // const entityFile = req.files?.entityFile?.[0]?.path || null;
     const workOrder = req.files?.workOrder?.[0]?.path || null;
     const requisitionLetter = req.files?.requisitionLetter?.[0]?.path || null;
@@ -66,7 +65,7 @@ exports.registerAgent = async (req, res) => {
       contactEmail,
       termsAccepted: rawTermsAccepted,
       captchaToken,
-      captchaValue
+      captchaValue,
     } = req.body;
 
     /* ===== PERFORMANCE CHANGE =====
@@ -77,23 +76,23 @@ exports.registerAgent = async (req, res) => {
       email,
       mobileNo,
       panNumber,
-      gstinNumber
+      gstinNumber,
     );
 
     const captchaPromise = captchaService.verifyCaptcha(
       captchaToken,
-      captchaValue
+      captchaValue,
     );
 
     const [existingAgent, validCaptcha] = await Promise.all([
       duplicatePromise,
-      captchaPromise
+      captchaPromise,
     ]);
 
     if (!validCaptcha) {
       return res.status(400).json({
         success: false,
-        message: "Invalid or expired captcha"
+        message: "Invalid or expired captcha",
       });
     }
 
@@ -171,9 +170,7 @@ exports.registerAgent = async (req, res) => {
       referenceNumber: savedAgent.referenceNumber,
       data: savedAgent,
     });
-
   } catch (error) {
-
     deleteFiles();
 
     console.error("Agent Registration Error:", error);
@@ -182,21 +179,17 @@ exports.registerAgent = async (req, res) => {
       success: false,
       message: "Internal server error",
     });
-
   }
-
 };
 
 exports.updateEmailStatus = async (req, res) => {
-
   try {
-
     const { referenceNumber } = req.body;
 
     if (!referenceNumber) {
       return res.status(400).json({
         success: false,
-        message: "referenceNumber required"
+        message: "referenceNumber required",
       });
     }
 
@@ -204,54 +197,42 @@ exports.updateEmailStatus = async (req, res) => {
 
     res.json({
       success: true,
-      message: "Email status updated"
+      message: "Email status updated",
     });
-
   } catch (error) {
-
     console.error("Update Email Status Error:", error);
 
     res.status(500).json({
       success: false,
-      message: "Internal server error"
+      message: "Internal server error",
     });
-
   }
-
 };
 
-exports.updateCredentialEmailStatus = async (req,res)=>{
-
-  try{
-
-    const {agentId} = req.body;
+exports.updateCredentialEmailStatus = async (req, res) => {
+  try {
+    const { agentId } = req.body;
 
     await Agent.updateCredentialEmailStatus(agentId);
 
     return res.json({
-      success:true,
-      message:"Email status updated"
+      success: true,
+      message: "Email status updated",
     });
-
-  }catch(error){
-
+  } catch (error) {
     console.error(error);
 
     return res.status(500).json({
-      success:false,
-      message:"Failed to update email status"
+      success: false,
+      message: "Failed to update email status",
     });
-
   }
-
 };
 
 exports.getAllRegisteredUsers = async (req, res) => {
-
   try {
-
     const { isApproved } = req.query;
-    const page  = Math.max(1, parseInt(req.query.page)  || 1);
+    const page = Math.max(1, parseInt(req.query.page) || 1);
     const limit = Math.min(200, parseInt(req.query.limit) || 50);
 
     const agents = await Agent.getAllRegisteredAgents(isApproved, page, limit);
@@ -261,26 +242,20 @@ exports.getAllRegisteredUsers = async (req, res) => {
       count: agents.length,
       page,
       limit,
-      data: agents
+      data: agents,
     });
-
   } catch (error) {
-
     console.error("Fetch agents error:", error);
 
     return res.status(500).json({
       success: false,
-      message: "Failed to fetch agents"
+      message: "Failed to fetch agents",
     });
-
   }
-
 };
 
 exports.getAgentProfile = async (req, res) => {
-
   try {
-
     const agentId = req.user.userId;
 
     const agent = await Agent.getAgentById(agentId);
@@ -288,43 +263,36 @@ exports.getAgentProfile = async (req, res) => {
     if (!agent) {
       return res.status(404).json({
         success: false,
-        message: "Agent not found or not approved"
+        message: "Agent not found or not approved",
       });
     }
 
     return res.status(200).json({
       success: true,
-      data: agent
+      data: agent,
     });
-
   } catch (error) {
-
     console.error("Fetch agent profile error:", error);
 
     return res.status(500).json({
       success: false,
-      message: "Internal server error"
+      message: "Internal server error",
     });
-
   }
-
 };
 
-
-exports.agentAction = async (req,res)=>{
-
-  try{
-
-    const {agentId, decision, rejectedReason} = req.body;
+exports.agentAction = async (req, res) => {
+  try {
+    const { agentId, decision, rejectedReason } = req.body;
 
     console.log("Service Header:", req.headers["x-service-name"]);
 
     const defaultPassword = process.env.DEFAULT_USER_PASSWORD || "APPROVAL";
 
-    if(!agentId || !decision){
+    if (!agentId || !decision) {
       return res.status(400).json({
-        success:false,
-        message:"Agent ID and decision required"
+        success: false,
+        message: "Agent ID and decision required",
       });
     }
 
@@ -334,22 +302,17 @@ exports.agentAction = async (req,res)=>{
     =====================================================
     */
 
-    if(decision === AGENT_STATUS.APPROVED){
-
+    if (decision === AGENT_STATUS.APPROVED) {
       const loginId = generateLoginId();
 
-      const hashedPassword = await bcrypt.hash(defaultPassword,8);
+      const hashedPassword = await bcrypt.hash(defaultPassword, 8);
 
-      const agent = await Agent.approveAgent(
-        agentId,
-        loginId,
-        hashedPassword
-      );
+      const agent = await Agent.approveAgent(agentId, loginId, hashedPassword);
 
-      if(!agent){
+      if (!agent) {
         return res.status(404).json({
-          success:false,
-          message:"Agent not found"
+          success: false,
+          message: "Agent not found",
         });
       }
 
@@ -365,14 +328,13 @@ exports.agentAction = async (req,res)=>{
         email: agent.email,
         name: agent.firstName,
         loginId,
-        password: defaultPassword
+        password: defaultPassword,
       });
 
       return res.json({
-        success:true,
-        message:"Agent approved successfully"
+        success: true,
+        message: "Agent approved successfully",
       });
-
     }
 
     /*
@@ -381,97 +343,86 @@ exports.agentAction = async (req,res)=>{
     =====================================================
     */
 
-    if(decision === AGENT_STATUS.REJECTED && rejectedReason){
-
+    if (decision === AGENT_STATUS.REJECTED && rejectedReason) {
       const agent = await Agent.rejectAgent(agentId, rejectedReason);
 
-      if(!agent){
+      if (!agent) {
         return res.status(404).json({
-          success:false,
-          message:"Agent not found"
+          success: false,
+          message: "Agent not found",
         });
       }
 
-      if(!agent.rejectedReason){
+      if (!agent.rejectedReason) {
         return res.status(500).json({
-          success:false,
-          message:"Rejection reason not stored"
+          success: false,
+          message: "Rejection reason not stored",
         });
       }
 
       await sendEmailEvent({
-        type:"REJECTION",
+        type: "REJECTION",
         agentId,
         email: agent.email,
         name: agent.firstName,
         referenceNumber: agent.referenceNumber,
-        reason: agent.rejectedReason
+        reason: agent.rejectedReason,
       });
 
       return res.status(201).json({
-        success:true,
-        message:"Agent rejected successfully"
+        success: true,
+        message: "Agent rejected successfully",
       });
-
     }
 
-        /*
+    /*
     =====================================================
     REVERT AGENT
     =====================================================
     */
 
-    if(decision === AGENT_STATUS.REVERTED && rejectedReason){
-
+    if (decision === AGENT_STATUS.REVERTED && rejectedReason) {
       const agent = await Agent.revertAgent(agentId, rejectedReason);
 
-      if(!agent){
+      if (!agent) {
         return res.status(404).json({
-          success:false,
-          message:"Agent not found"
+          success: false,
+          message: "Agent not found",
         });
       }
 
       await sendEmailEvent({
-        type:"REVERTED",
+        type: "REVERTED",
         agentId,
         email: agent.email,
         name: agent.firstName,
         referenceNumber: agent.referenceNumber,
-        reason: rejectedReason
+        reason: rejectedReason,
       });
 
       return res.status(200).json({
-        success:true,
-        message:"Agent reverted successfully"
+        success: true,
+        message: "Agent reverted successfully",
       });
-
     }
-
-  }catch(error){
-
+  } catch (error) {
     console.error(error);
 
     res.status(500).json({
-      success:false,
-      message:"Internal server error"
+      success: false,
+      message: "Internal server error",
     });
-
   }
-
 };
 
-
 exports.getLoginUser = async (req, res) => {
-
   try {
-
     const { loginId } = req.body;
 
     if (!loginId) {
       return res.status(400).json({
         success: false,
-        message: "loginId required"
+        message: "loginId required",
       });
     }
 
@@ -479,32 +430,26 @@ exports.getLoginUser = async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      data: user || null
+      data: user || null,
     });
-
   } catch (error) {
-
     console.error("Fetch login user error:", error);
 
     return res.status(500).json({
       success: false,
-      message: "Internal server error"
+      message: "Internal server error",
     });
-
   }
-
 };
 
 exports.trackRequest = async (req, res) => {
-
   try {
-
     const { referenceNumber } = req.query;
 
     if (!referenceNumber) {
       return res.status(400).json({
         success: false,
-        message: "Reference Number not found"
+        message: "Reference Number not found",
       });
     }
 
@@ -512,33 +457,26 @@ exports.trackRequest = async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      data: request || null
+      data: request || null,
     });
-
   } catch (error) {
-
     console.error("Track request error:", error);
 
     return res.status(500).json({
       success: false,
-      message: "Internal server error"
+      message: "Internal server error",
     });
-
   }
-
 };
 
-
 exports.viewAgentDocument = async (req, res) => {
-
   try {
-
     const { referenceNumber, documentType } = req.query;
 
     if (!referenceNumber || !documentType) {
       return res.status(400).json({
         success: false,
-        message: "referenceNumber and documentType required"
+        message: "referenceNumber and documentType required",
       });
     }
 
@@ -547,7 +485,7 @@ exports.viewAgentDocument = async (req, res) => {
     if (!fileData) {
       return res.status(404).json({
         success: false,
-        message: "Document not found"
+        message: "Document not found",
       });
     }
 
@@ -556,7 +494,7 @@ exports.viewAgentDocument = async (req, res) => {
     if (!filePath) {
       return res.status(404).json({
         success: false,
-        message: "File path not found"
+        message: "File path not found",
       });
     }
 
@@ -565,7 +503,7 @@ exports.viewAgentDocument = async (req, res) => {
     if (!fs.existsSync(absolutePath)) {
       return res.status(404).json({
         success: false,
-        message: "File missing on server"
+        message: "File missing on server",
       });
     }
 
@@ -584,22 +522,17 @@ exports.viewAgentDocument = async (req, res) => {
 
     // Pipe stream to response
     stream.pipe(res);
-
   } catch (error) {
-
     console.error("View document error:", error);
 
     res.status(500).json({
       success: false,
-      message: "Internal server error"
+      message: "Internal server error",
     });
-
   }
-
 };
 
 exports.updateAgentByReference = async (req, res) => {
-
   const deleteUploadedFiles = () => {
     const files = req.files || {};
 
@@ -613,87 +546,97 @@ exports.updateAgentByReference = async (req, res) => {
   };
 
   try {
-
     const { referenceNumber } = req.body;
 
     if (!referenceNumber) {
       deleteUploadedFiles();
       return res.status(400).json({
         success: false,
-        message: "referenceNumber is required"
+        message: "referenceNumber is required",
       });
     }
 
-
-    const entityFile = req.files?.entityFile?.[0]?.path || null;
+    const workOrder = req.files?.workOrder?.[0]?.path || null;
+    const requisitionLetter = req.files?.requisitionLetter?.[0]?.path || null;
     const gstinDoc = req.files?.gstinDoc?.[0]?.path || null;
     const panDoc = req.files?.panDoc?.[0]?.path || null;
     const tanDoc = req.files?.tanDoc?.[0]?.path || null;
 
     const updatePayload = {
       ...req.body,
-      entityFile,
+      workOrder,
+      requisitionLetter,
       gstinDoc,
       panDoc,
-      tanDoc
+      tanDoc,
     };
 
     const updated = await Agent.updateAgentByReference(
       referenceNumber,
-      updatePayload
+      updatePayload,
     );
 
     if (!updated.success) {
-
       deleteUploadedFiles();
 
       return res.status(400).json({
         success: false,
-        message: updated.message
+        message: updated.message,
       });
     }
 
     await sendEmailEvent({
-    type: "UPDATED_AFTER_REVERT",
-    email: updated.data.email,
-    name: updated.data.firstName,
-    referenceNumber: updated.data.referenceNumber
-  });
+      type: "UPDATED_AFTER_REVERT",
+      email: updated.data.email,
+      name: updated.data.firstName,
+      referenceNumber: updated.data.referenceNumber,
+    });
 
     res.status(200).json({
-    success: true,
-    message: "Agent updated successfully and sent for approval",
-    data: updated.data
-  });
-
+      success: true,
+      message: "Agent updated successfully and sent for approval",
+      data: updated.data,
+    });
   } catch (error) {
-
     deleteUploadedFiles();
 
     console.error("Agent Update Error:", error);
 
     res.status(500).json({
       success: false,
-      message: "Internal server error"
+      message: "Internal server error",
     });
   }
-
 };
 
+exports.changePassword = async (req, res) => {
+  try {
+    const validation = changePasswordSchema.safeParse(req.body);
 
+    if (!validation.success) {
+      return res.status(400).json({
+        success: false,
+        message:
+          validation.error.issues?.[0]?.message ||
+          "Validation failed",
+      });
+    }
 
+    const { loginId, newPassword } = validation.data;
 
+    const result = await Agent.changePassword(loginId, newPassword);
 
+    if (!result.success) {
+      return res.status(400).json(result);
+    }
 
+    return res.status(200).json(result);
+  } catch (error) {
+    console.error("Change Password Error:", error);
 
-
-
-
-
-
-
-
-
-
-
-    
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+};

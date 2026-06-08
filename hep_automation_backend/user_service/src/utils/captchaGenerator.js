@@ -25,9 +25,9 @@ const generateCaptcha = () => {
       break;
 
     case "*":
-      // keep both numbers within 1–15
-      num1 = random(1, 15);
-      num2 = random(1, 15);
+      // keep both numbers within 1–10
+      num1 = random(1, 10);
+      num2 = random(1, 10);
       answer = num1 * num2;
       break;
 

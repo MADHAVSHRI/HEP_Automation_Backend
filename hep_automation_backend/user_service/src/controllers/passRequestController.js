@@ -181,12 +181,6 @@ const createPassRequest = async (req, res) => {
 
     };
 
-    /* ===== CHANGE END ===== */
-
-
-    /* ===== CHANGE START =====
-       Normalize passType for persons
-    ===== */
 
     if (payload.persons && Array.isArray(payload.persons)) {
 
@@ -196,13 +190,6 @@ const createPassRequest = async (req, res) => {
       }));
 
     }
-
-    /* ===== CHANGE END ===== */
-
-
-    /* ===== CHANGE START =====
-       Normalize passType for vehicles
-    ===== */
 
     if (payload.vehicles && Array.isArray(payload.vehicles)) {
 

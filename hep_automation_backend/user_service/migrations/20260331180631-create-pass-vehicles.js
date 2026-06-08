@@ -45,7 +45,6 @@ module.exports = {
       registrationNo: {
         type: Sequelize.STRING(20),
         allowNull: false,
-        unique: true,
       },
 
       rfidCardNumber: {

@@ -1,4 +1,5 @@
 const { pool } = require("../dbconfig/db");
+const bcrypt = require("bcrypt");
 
 const Agent = {
   async findDuplicate(email, mobileNo, panNumber, gstinNumber) {
@@ -276,7 +277,8 @@ const Agent = {
         id,
         password,
         role,
-        status
+        status,
+        "isPasswordChanged"
       FROM "Agents"
       WHERE "loginId" = $1
     `;
@@ -286,11 +288,26 @@ const Agent = {
     return result.rows[0];
   },
 
+  // async trackRequest(referenceNumber) {
+  //   const query = `
+  //     SELECT *
+  //     FROM "Agents"
+  //     WHERE "referenceNumber" = $1
+  //   `;
+
+  //   const result = await pool.query(query, [referenceNumber]);
+
+  //   return result.rows[0];
+  // },
+
   async trackRequest(referenceNumber) {
     const query = `
-      SELECT *
-      FROM "Agents"
-      WHERE "referenceNumber" = $1
+      SELECT
+        a.*,
+        TO_CHAR(a."licenseValidityDate", 'YYYY-MM-DD')
+          AS "licenseValidityDate"
+      FROM "Agents" a
+      WHERE a."referenceNumber" = $1
     `;
 
     const result = await pool.query(query, [referenceNumber]);
@@ -301,8 +318,8 @@ const Agent = {
   async getDocumentPath(referenceNumber, documentType) {
     let columnName;
     switch (documentType) {
-      case "entity":
-        columnName = "entityFile";
+      case "workOrder":
+        columnName = "workOrder";
         break;
       case "pan":
         columnName = "panDoc";
@@ -312,6 +329,9 @@ const Agent = {
         break;
       case "tan":
         columnName = "tanDoc";
+        break;
+      case "requisitionLetter":
+        columnName = "requisitionLetter";
         break;
       default:
         throw new Error("Invalid document type");
@@ -419,7 +439,8 @@ const Agent = {
         return oldFile;
       };
 
-      const entityFile = replaceFile(agent.entityFile, payload.entityFile);
+      const workOrder = replaceFile(agent.workOrder, payload.workOrder);
+      const requisitionLetter = replaceFile(agent.requisitionLetter, payload.requisitionLetter);
       const gstinDoc = replaceFile(agent.gstinDoc, payload.gstinDoc);
       const panDoc = replaceFile(agent.panDoc, payload.panDoc);
       const tanDoc = replaceFile(agent.tanDoc, payload.tanDoc);
@@ -453,16 +474,17 @@ const Agent = {
         "contactMobile"=$16,
         "contactEmail"=$17,
 
-        "entityFile"=$18,
-        "gstinDoc"=$19,
-        "panDoc"=$20,
-        "tanDoc"=$21,
+        "workOrder"=$18,
+        "requisitionLetter"=$19,
+        "gstinDoc"=$20,
+        "panDoc"=$21,
+        "tanDoc"=$22,
 
         "status"='pending',
         "rejectedReason"=NULL,
         "updatedAt"=CURRENT_TIMESTAMP
 
-        WHERE "referenceNumber"=$22
+        WHERE "referenceNumber"=$23
         RETURNING *
       `;
 
@@ -488,7 +510,8 @@ const Agent = {
         payload.contactMobile || agent.contactMobile,
         payload.contactEmail || agent.contactEmail,
 
-        entityFile,
+        workOrder,
+        requisitionLetter,
         gstinDoc,
         panDoc,
         tanDoc,
@@ -527,6 +550,79 @@ const Agent = {
 
     return result.rows[0];
   },
+
+  async changePassword(
+    loginId,
+    newPassword
+  ) {
+
+    const query = `
+      SELECT
+        id,
+        password,
+        "isPasswordChanged"
+      FROM "Agents"
+      WHERE "loginId" = $1
+    `;
+
+    const result =
+      await pool.query(query, [loginId]);
+
+    if (!result.rows.length) {
+
+      return {
+        success: false,
+        message: "User not found"
+      };
+
+    }
+
+    const user = result.rows[0];
+
+    const samePassword =
+      await bcrypt.compare(
+        newPassword,
+        user.password
+      );
+
+    if (samePassword) {
+
+      return {
+        success: false,
+        message:
+          "New password cannot be same as existing password"
+      };
+
+    }
+
+    const hashedPassword =
+      await bcrypt.hash(
+        newPassword,
+        12
+      );
+
+    await pool.query(
+      `
+      UPDATE "Agents"
+      SET
+        password = $1,
+        "isPasswordChanged" = true,
+        "updatedAt" = CURRENT_TIMESTAMP
+      WHERE id = $2
+      `,
+      [
+        hashedPassword,
+        user.id
+      ]
+    );
+
+    return {
+      success: true,
+      message:
+        "Password changed successfully"
+    };
+
+  }
 };
 
 module.exports = Agent;
