@@ -148,6 +148,52 @@ const User = {
 
     return result.rows[0];
 
+  },
+
+  async findUserByEmail(email) {
+    const query = `
+      SELECT
+        u.id,
+        u."userName",
+        u.email,
+        u."isApprovedByAdmin",
+        u.status,
+        u."isPasswordChanged"
+      FROM "users" u
+      WHERE u.email = $1
+    `;
+    const result = await pool.query(query, [email]);
+    return result.rows[0];
+  },
+
+  async updateUserPassword(userId, hashedPassword) {
+    const query = `
+      UPDATE "users"
+      SET
+        "password" = $1,
+        "isPasswordChanged" = true,
+        "updatedAt" = NOW()
+      WHERE id = $2
+      RETURNING id, "userName", email, "isPasswordChanged"
+    `;
+    const result = await pool.query(query, [hashedPassword, userId]);
+    return result.rows[0];
+  },
+
+  async findUserById(id) {
+    const query = `
+      SELECT
+        u.id,
+        u."userName",
+        u.email,
+        u."isApprovedByAdmin",
+        u.status,
+        u."isPasswordChanged"
+      FROM "users" u
+      WHERE u.id = $1
+    `;
+    const result = await pool.query(query, [id]);
+    return result.rows[0];
   }
 
   };

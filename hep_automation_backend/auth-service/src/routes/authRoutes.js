@@ -17,4 +17,8 @@ router.post("/heartbeat", verifyToken, loginController.heartbeat);
 // Called by navigator.sendBeacon on tab/browser close — no Authorization header possible
 router.post("/beacon-logout", loginController.beaconLogout);
 
+router.post("/forgot-password", loginController.forgotPassword);
+router.post("/verify-otp", loginController.verifyOtp);
+router.post("/reset-password", loginController.resetPassword);
+
 module.exports = router;

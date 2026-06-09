@@ -5,10 +5,12 @@ const { successLogger, errorLogger } = require("../logger/logger");
 const Agent = require("../models/agentRegistrationSchema");
 const captchaService = require("../services/captchaService");
 const { changePasswordSchema } = require("../utils/changePasswordValidator");
-const sendEmailEvent = require("../utils/kafka/producer");
 const bcrypt = require("bcrypt");
 const generateLoginId = require("../utils/loginIdGenerator");
 const AGENT_STATUS = require("../constants/constants").AGENT_STATUS;
+const redisClient = require("../../config/redisClient");
+const { generateOtp, saveOtp, getOtp, deleteOtp, MAX_ATTEMPTS } = require("../services/forgotPasswordService");
+const forgotPasswordValidator = require("../utils/forgotPasswordValidator");
 
 exports.registerAgent = async (req, res) => {
   const deleteFiles = () => {
@@ -624,6 +626,15 @@ exports.changePassword = async (req, res) => {
 
     const { loginId, newPassword } = validation.data;
 
+    // Security check: ensure current user has rights to modify this account
+    const agent = await Agent.getAgentById(req.user.userId);
+    if (!agent || agent.loginId !== loginId) {
+      return res.status(403).json({
+        success: false,
+        message: "Unauthorized to change password for this account",
+      });
+    }
+
     const result = await Agent.changePassword(loginId, newPassword);
 
     if (!result.success) {
@@ -639,4 +650,282 @@ exports.changePassword = async (req, res) => {
       message: "Internal server error",
     });
   }
+};
+
+exports.sendForgotPasswordOtp = async (req, res) => {
+
+  try {
+
+    const { identifier } = req.body;
+
+    const user =
+      await Agent.findAgentByIdentifier(
+        identifier
+      );
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    if (!user.isApproved) {
+      return res.status(403).json({
+        success: false,
+        message: "User is not active. Please contact administrator.",
+      });
+    }
+
+    const otp = generateOtp();
+
+    await saveOtp(
+      user.loginId,
+      otp
+    );
+
+    sendEmail("/api/email/sendForgotPasswordOtp", {
+      email: user.email,
+      name: user.firstName,
+      otp,
+    });
+
+    return res.json({
+      success: true,
+      message:
+        "OTP sent successfully",
+      loginId: user.loginId,
+      userName: user.loginId
+    });
+
+  } catch (error) {
+
+    console.error(error);
+
+    return res.status(500).json({
+      success: false,
+      message:
+        "Internal server error",
+    });
+
+  }
+
+};
+
+exports.verifyForgotPasswordOtp = async (req, res) => {
+
+  try {
+    const {
+      identifier,
+      otp,
+    } = req.body;
+
+    const user =
+      await Agent.findAgentByIdentifier(
+        identifier
+      );
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    const data =
+      await getOtp(user.loginId);
+
+    if (!data) {
+
+      return res.status(400).json({
+        success: false,
+        message:
+          "OTP expired",
+      });
+
+    }
+
+    if (data.otp !== otp) {
+
+      data.attempts += 1;
+
+      if (
+        data.attempts >=
+        MAX_ATTEMPTS
+      ) {
+
+        await deleteOtp(
+          user.loginId
+        );
+
+      } else {
+
+        await saveOtp(
+          user.loginId,
+          data.otp,
+          data
+        );
+
+      }
+
+      return res.status(400).json({
+        success: false,
+        message:
+          "Invalid OTP",
+      });
+
+    }
+
+    /* ===== MY CHANGE START ===== */
+
+    data.verified = true;
+
+    await saveOtp(
+      user.loginId,
+      data.otp,
+      data
+    );
+
+    /* ===== MY CHANGE END ===== */
+
+    return res.json({
+      success: true,
+      message:
+        "OTP verified",
+    });
+
+  } catch (error) {
+
+    console.error(error);
+
+    return res.status(500).json({
+      success: false,
+      message:
+        "Internal server error",
+    });
+
+  }
+
+};
+
+exports.resetForgotPassword = async (req, res) => {
+
+  try {
+
+    const validation =
+      forgotPasswordValidator.safeParse(
+        req.body
+      );
+
+    if (!validation.success) {
+
+      return res.status(400).json({
+        success: false,
+        message: validation.error.issues[0].message || "Validation Failed",
+      });
+
+    }
+
+    const {
+      identifier,
+      otp,
+      newPassword,
+    } = validation.data;
+
+    const user =
+      await Agent.findAgentByIdentifier(
+        identifier
+      );
+
+    if (!user) {
+
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+
+    }
+
+    const data =
+      await getOtp(user.loginId);
+
+    if (!data) {
+
+      return res.status(400).json({
+        success: false,
+        message:
+          "OTP expired",
+      });
+
+    }
+
+    if (data.otp !== otp) {
+
+      return res.status(400).json({
+        success: false,
+        message:
+          "Invalid OTP",
+      });
+
+    }
+
+    /* ===== MY CHANGE START ===== */
+
+    if (!data.verified) {
+
+      return res.status(400).json({
+        success: false,
+        message:
+          "OTP verification required",
+      });
+
+    }
+
+    /* ===== MY CHANGE END ===== */
+
+
+    if (!user) {
+
+      return res.status(404).json({
+        success: false,
+        message:
+          "User not found",
+      });
+
+    }
+
+    const hash =
+      await bcrypt.hash(
+        newPassword,
+        12
+      );
+
+    await Agent
+      .updateForgotPassword(
+        user.loginId,
+        hash
+      );
+
+    await deleteOtp(
+      user.loginId
+    );
+
+    return res.json({
+      success: true,
+      message:
+        "Password reset successfully",
+    });
+
+  } catch (error) {
+
+    console.error(error);
+
+    return res.status(500).json({
+      success: false,
+      message:
+        "Internal server error",
+    });
+
+  }
+
 };

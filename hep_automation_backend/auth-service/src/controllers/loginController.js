@@ -1301,3 +1301,101 @@ exports.logout = async (req, res) => {
     return res.status(500).json({ success: false, message: "Logout failed" });
   }
 };
+
+exports.forgotPassword = async (req, res) => {
+  const TAG = "FORGOT_PASSWORD_PROXY";
+  const { loginId, userType } = req.body;
+
+  try {
+    const targetUrl = userType === "user"
+      ? `${process.env.ADMIN_SERVICE_URL}/api/user/forgot-password`
+      : `${process.env.USER_SERVICE_URL}/api/agents/forgot-password/send-otp`;
+
+    const payload = userType === "user" ? { loginId } : { identifier: loginId };
+
+    const userSvcRes = await axios.post(
+      targetUrl,
+      payload,
+      {
+        headers: {
+          "x-service-key": process.env.SERVICE_AUTH_KEY,
+          "x-service-name": "AUTH-SERVICE",
+        },
+      }
+    );
+
+    return res.status(userSvcRes.status).json(userSvcRes.data);
+  } catch (error) {
+    log.error(TAG, "Proxy forgot password error", error.response?.data || error.message);
+    if (error.response) {
+      return res.status(error.response.status).json(error.response.data);
+    }
+    return res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
+exports.verifyOtp = async (req, res) => {
+  const TAG = "VERIFY_OTP_PROXY";
+  const { loginId, otp, userType } = req.body;
+
+  try {
+    const targetUrl = userType === "user"
+      ? `${process.env.ADMIN_SERVICE_URL}/api/user/verify-otp`
+      : `${process.env.USER_SERVICE_URL}/api/agents/forgot-password/verify-otp`;
+
+    const payload = userType === "user" ? { loginId, otp } : { identifier: loginId, otp };
+
+    const userSvcRes = await axios.post(
+      targetUrl,
+      payload,
+      {
+        headers: {
+          "x-service-key": process.env.SERVICE_AUTH_KEY,
+          "x-service-name": "AUTH-SERVICE",
+        },
+      }
+    );
+
+    return res.status(userSvcRes.status).json(userSvcRes.data);
+  } catch (error) {
+    log.error(TAG, "Proxy verify OTP error", error.response?.data || error.message);
+    if (error.response) {
+      return res.status(error.response.status).json(error.response.data);
+    }
+    return res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
+exports.resetPassword = async (req, res) => {
+  const TAG = "RESET_PASSWORD_PROXY";
+  const { loginId, otp, newPassword, confirmPassword, userType } = req.body;
+
+  try {
+    const targetUrl = userType === "user"
+      ? `${process.env.ADMIN_SERVICE_URL}/api/user/reset-password`
+      : `${process.env.USER_SERVICE_URL}/api/agents/forgot-password/reset-password`;
+
+    const payload = userType === "user"
+      ? { loginId, otp, newPassword, confirmPassword }
+      : { identifier: loginId, otp, newPassword, confirmPassword };
+
+    const userSvcRes = await axios.post(
+      targetUrl,
+      payload,
+      {
+        headers: {
+          "x-service-key": process.env.SERVICE_AUTH_KEY,
+          "x-service-name": "AUTH-SERVICE",
+        },
+      }
+    );
+
+    return res.status(userSvcRes.status).json(userSvcRes.data);
+  } catch (error) {
+    log.error(TAG, "Proxy reset password error", error.response?.data || error.message);
+    if (error.response) {
+      return res.status(error.response.status).json(error.response.data);
+    }
+    return res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};

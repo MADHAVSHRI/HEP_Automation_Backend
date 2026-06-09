@@ -10,6 +10,8 @@ const revertedAgentRequestTemplate = require("../emailTemplates/revertedAgentReq
 const vendorPassLinkTemplate = require("../emailTemplates/vendorPassLinkTemplate");
 const revertedPassTemplate = require("../emailTemplates/revertedPassTemplate");
 const vendorPassApprovedTemplate = require("../emailTemplates/vendorPassApprovedTemplate");
+const forgotPasswordOTPTemplate = require("../emailTemplates/forgotPasswordOTPTemplate");
+const forgotPasswordOtpTemplate = require("../emailTemplates/forgotPasswordOtpTemplate");
 
 const sendReferenceEmail = async (email, name, referenceNumber) => {
 
@@ -217,7 +219,39 @@ const sendVendorPassApprovedEmail = async ({
   return result;
 };
 
+const sendForgotPasswordOTPEmail = async (email, name, otp) => {
+  const html = forgotPasswordOTPTemplate(name, otp);
+
+  const mailOptions = {
+    from: process.env.EMAIL_USER,
+    to: email,
+    subject: "Chennai Port Authority - Password Reset OTP",
+    html
+  };
+
+  return transporter.sendMail(mailOptions);
+};
+
+const sendForgotPasswordOtpEmail = async (email, name, otp) => {
+
+  const html =
+    forgotPasswordOtpTemplate(
+      name,
+      otp
+    );
+
+  await transporter.sendMail({
+    from: process.env.EMAIL_USER,
+    to: email,
+    subject:
+      "Password Reset OTP - Chennai Port Authority",
+    html
+  });
+
+};
+
 module.exports = { sendReferenceEmail, sendApprovalEmail, 
   sendRejectionEmail, sendDeptUserCreationEmail, sendDeptUserActivatedEmail, 
   sendDeptUserDisabledEmail, sendUpdatedAfterRevertEmail, sendRevertedAgentRequestEmail,
-  sendVendorPassLinkEmail, sendPassRevertedEmail, sendVendorPassApprovedEmail };
+  sendVendorPassLinkEmail, sendPassRevertedEmail, sendVendorPassApprovedEmail,
+  sendForgotPasswordOTPEmail, sendForgotPasswordOtpEmail };

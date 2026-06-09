@@ -288,6 +288,28 @@ const Agent = {
     return result.rows[0];
   },
 
+  async findByLoginOrEmail(loginOrEmail) {
+    const query = `
+      SELECT
+        id,
+        "loginId",
+        email,
+        "firstName",
+        "lastName",
+        password,
+        role,
+        status,
+        "isPasswordChanged"
+      FROM "Agents"
+      WHERE "loginId" = $1 OR "email" = $1
+      LIMIT 1
+    `;
+
+    const result = await pool.query(query, [loginOrEmail]);
+
+    return result.rows[0];
+  },
+
   // async trackRequest(referenceNumber) {
   //   const query = `
   //     SELECT *
@@ -622,7 +644,48 @@ const Agent = {
         "Password changed successfully"
     };
 
-  }
+  },
+
+  async findAgentByIdentifier(identifier) {
+
+    const query = `
+      SELECT
+        id,
+        "loginId",
+        email,
+        "firstName",
+        "isApproved"
+      FROM "Agents"
+      WHERE
+        "loginId" = $1
+        OR email = $1
+      LIMIT 1
+    `;
+
+    const result =
+      await pool.query(query, [identifier]);
+
+    return result.rows[0] || null;
+
+  },
+
+  async updateForgotPassword(loginId,hashedPassword) {
+
+    const query = `
+      UPDATE "Agents"
+      SET
+        password = $1,
+        "isPasswordChanged" = true,
+        "updatedAt" = CURRENT_TIMESTAMP
+      WHERE "loginId" = $2
+    `;
+
+    await pool.query(query, [
+      hashedPassword,
+      loginId,
+    ]);
+
+  },
 };
 
 module.exports = Agent;

@@ -3,6 +3,7 @@ const bcrypt = require("bcrypt");
 const User = require("../models/userCreationSchema");
 const sendEmailEvent = require("../utils/kafka/producer");
 const {DEPARTMENT_USER_ACCOUNT_STATUS} = require("../constants/constants");
+const redisClient = require("../../config/redisClient");
 
 exports.createUser = async (req, res) => {
 
@@ -387,4 +388,161 @@ exports.updateUserApproval = async (req, res) => {
 
   }
 
+};
+
+exports.forgotPassword = async (req, res) => {
+  const { loginId } = req.body;
+  try {
+    if (!loginId) {
+      return res.status(400).json({ success: false, message: "Email ID is required" });
+    }
+
+    const user = await User.findUserByEmail(loginId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: "Departmental user not found with this email" });
+    }
+
+    const otp = String(Math.floor(100000 + Math.random() * 900000));
+    await redisClient.set(`otp:user:${loginId}`, otp, { EX: 300 });
+
+    // Dispatch email asynchronously in background to prevent HTTP request block
+    axios.post(`${process.env.EMAIL_SERVICE_URL}/api/email/sendForgotPasswordOTP`, {
+      email: user.email,
+      name: user.userName,
+      otp
+    }, {
+      headers: { "x-service-name": "APPROVAL-ADMIN-SERVICE" }
+    })
+    .then(() => console.log(`[email] Sent forgot password OTP to ${user.email}`))
+    .catch((emailErr) => {
+      console.error("Email service error:", emailErr.response?.data || emailErr.message);
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "OTP sent successfully to your email ID",
+      loginId,
+      userName: user.userName
+    });
+  } catch (error) {
+    console.error("Forgot password error:", error);
+    return res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
+exports.verifyOtp = async (req, res) => {
+  const { loginId, otp } = req.body;
+  try {
+    if (!loginId || !otp) {
+      return res.status(400).json({ success: false, message: "Email ID and OTP are required" });
+    }
+
+    const storedOtp = await redisClient.get(`otp:user:${loginId}`);
+    if (!storedOtp || storedOtp !== String(otp).trim()) {
+      return res.status(400).json({ success: false, message: "Invalid or expired OTP" });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "OTP verified successfully"
+    });
+  } catch (error) {
+    console.error("Verify OTP error:", error);
+    return res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
+exports.resetPassword = async (req, res) => {
+  const { loginId, otp, newPassword, confirmPassword } = req.body;
+  try {
+    if (!loginId || !otp || !newPassword || !confirmPassword) {
+      return res.status(400).json({ success: false, message: "All fields are required" });
+    }
+
+    if (newPassword !== confirmPassword) {
+      return res.status(400).json({ success: false, message: "Passwords do not match" });
+    }
+
+    const passRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?]).{8,15}$/;
+    if (!passRegex.test(newPassword)) {
+      return res.status(400).json({
+        success: false,
+        message: "Password must be 8-15 characters long, contain uppercase, lowercase, a number, and a special character."
+      });
+    }
+
+    if (newPassword === "APPROVAL") {
+      return res.status(400).json({
+        success: false,
+        message: "New password cannot be APPROVAL"
+      });
+    }
+
+    const storedOtp = await redisClient.get(`otp:user:${loginId}`);
+    if (!storedOtp || storedOtp !== String(otp).trim()) {
+      return res.status(400).json({ success: false, message: "Invalid or expired OTP" });
+    }
+
+    const user = await User.findUserByEmail(loginId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    await User.updateUserPassword(user.id, hashedPassword);
+    await redisClient.del(`otp:user:${loginId}`);
+
+    return res.status(200).json({
+      success: true,
+      message: "Password reset successfully"
+    });
+  } catch (error) {
+    console.error("Reset password error:", error);
+    return res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
+exports.changePassword = async (req, res) => {
+  const { newPassword, confirmPassword } = req.body;
+  const userId = req.user.userId;
+  try {
+    if (!newPassword || !confirmPassword) {
+      return res.status(400).json({ success: false, message: "All fields are required" });
+    }
+
+    if (newPassword !== confirmPassword) {
+      return res.status(400).json({ success: false, message: "Passwords do not match" });
+    }
+
+    const passRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?]).{8,15}$/;
+    if (!passRegex.test(newPassword)) {
+      return res.status(400).json({
+        success: false,
+        message: "Password must be 8-15 characters long, contain uppercase, lowercase, a number, and a special character."
+      });
+    }
+
+    if (newPassword === "APPROVAL") {
+      return res.status(400).json({
+        success: false,
+        message: "New password cannot be APPROVAL"
+      });
+    }
+
+    const user = await User.findUserById(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    await User.updateUserPassword(user.id, hashedPassword);
+
+    return res.status(200).json({
+      success: true,
+      message: "Password updated successfully"
+    });
+  } catch (error) {
+    console.error("Change password error:", error);
+    return res.status(500).json({ success: false, message: "Internal server error" });
+  }
 };

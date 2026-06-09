@@ -1,7 +1,8 @@
 const { sendReferenceEmail, sendApprovalEmail, sendRejectionEmail, 
   sendDeptUserCreationEmail, sendDeptUserActivatedEmail, sendDeptUserDisabledEmail,
   sendRevertedAgentRequestEmail,sendUpdatedAfterRevertEmail,
-  sendVendorPassLinkEmail, sendPassRevertedEmail, sendVendorPassApprovedEmail } = require("../services/emailService");
+  sendVendorPassLinkEmail, sendPassRevertedEmail, sendVendorPassApprovedEmail,
+  sendForgotPasswordOTPEmail, sendForgotPasswordOtpEmail } = require("../services/emailService");
 
 exports.sendReference = async (req, res) => {
 
@@ -349,4 +350,62 @@ exports.sendVendorPassApproved = async (req, res) => {
       message: "Email sending failed"
     });
   }
+};
+
+exports.sendForgotPasswordOTP = async (req, res) => {
+  try {
+    const { email, name, otp } = req.body;
+    if (!email || !otp) {
+      return res.status(400).json({
+        success: false,
+        message: "email and otp are required"
+      });
+    }
+
+    await sendForgotPasswordOTPEmail(email, name || "User", otp);
+
+    return res.json({
+      success: true,
+      message: "Forgot password OTP email sent successfully"
+    });
+  } catch (error) {
+    console.error("[EMAIL-CTRL] sendForgotPasswordOTP error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Email sending failed"
+    });
+  }
+};
+
+exports.sendForgotPasswordOtp = async (req, res) => {
+
+  try {
+
+    const { email, name, otp } = req.body;
+
+    await sendForgotPasswordOtpEmail(
+      email,
+      name,
+      otp
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: "Forgot password OTP email sent"
+    });
+
+  } catch (error) {
+
+    console.error(
+      "Forgot Password OTP Email Error:",
+      error
+    );
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to send OTP email"
+    });
+
+  }
+
 };

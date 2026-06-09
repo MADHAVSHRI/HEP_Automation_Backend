@@ -80,4 +80,22 @@ router.post(
   agentController.changePassword
 );
 
+router.post(
+  "/forgot-password/send-otp",
+  verifyService,
+  agentController.sendForgotPasswordOtp
+);
+
+router.post(
+  "/forgot-password/verify-otp",
+  verifyService,
+  agentController.verifyForgotPasswordOtp
+);
+
+router.post(
+  "/forgot-password/reset-password",
+  verifyService,
+  agentController.resetForgotPassword
+);
+
 module.exports = router;

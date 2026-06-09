@@ -26,4 +26,9 @@ router.patch(
   adminController.updateUserApproval
 );
 
+router.post("/forgot-password", verifyService, adminController.forgotPassword);
+router.post("/verify-otp", verifyService, adminController.verifyOtp);
+router.post("/reset-password", verifyService, adminController.resetPassword);
+router.post("/change-password", verifyToken, adminController.changePassword);
+
 module.exports = router;
