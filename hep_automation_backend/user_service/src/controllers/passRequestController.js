@@ -203,6 +203,60 @@ const createPassRequest = async (req, res) => {
     /* ===== CHANGE END ===== */
 
 
+    // 1. Check Company blacklisting
+    if (payload.agentId) {
+      const userRes = await pool.query('SELECT "userName" FROM users WHERE id = $1', [payload.agentId]);
+      if (userRes.rows.length > 0) {
+        const companyName = userRes.rows[0].userName;
+        const blacklistRes = await pool.query(
+          "SELECT id, reason FROM blacklist_entries WHERE entity_type = 'COMPANY' AND identifier = $1 AND status != 'UNBLACKLISTED'",
+          [companyName]
+        );
+        if (blacklistRes.rows.length > 0) {
+          return res.status(403).json({
+            success: false,
+            message: `Pass application blocked. Your company (${companyName}) is blacklisted. Reason: ${blacklistRes.rows[0].reason}`
+          });
+        }
+      }
+    }
+
+    // 2. Check Persons & Drivers blacklisting
+    if (payload.persons && Array.isArray(payload.persons)) {
+      for (const person of payload.persons) {
+        if (person.aadharNo) {
+          const blacklistRes = await pool.query(
+            "SELECT id, reason, entity_type FROM blacklist_entries WHERE entity_type IN ('PERSON', 'DRIVER') AND identifier = $1 AND status != 'UNBLACKLISTED'",
+            [person.aadharNo.toUpperCase().trim()]
+          );
+          if (blacklistRes.rows.length > 0) {
+            return res.status(403).json({
+              success: false,
+              message: `Pass application blocked. Person/Driver with Aadhaar (${person.aadharNo}) is blacklisted as ${blacklistRes.rows[0].entity_type}. Reason: ${blacklistRes.rows[0].reason}`
+            });
+          }
+        }
+      }
+    }
+
+    // 3. Check Vehicles blacklisting
+    if (payload.vehicles && Array.isArray(payload.vehicles)) {
+      for (const vehicle of payload.vehicles) {
+        if (vehicle.registrationNo) {
+          const blacklistRes = await pool.query(
+            "SELECT id, reason FROM blacklist_entries WHERE entity_type = 'VEHICLE' AND identifier = $1 AND status != 'UNBLACKLISTED'",
+            [vehicle.registrationNo.toUpperCase().trim()]
+          );
+          if (blacklistRes.rows.length > 0) {
+            return res.status(403).json({
+              success: false,
+              message: `Pass application blocked. Vehicle (${vehicle.registrationNo}) is blacklisted. Reason: ${blacklistRes.rows[0].reason}`
+            });
+          }
+        }
+      }
+    }
+
     const passRequestId = await PassRequest.createPassRequest(
       payload,
       req.files
