@@ -209,7 +209,11 @@ exports.listIntakes = async (req, res) => {
   try {
     const { fromDate, toDate, companyName, scope } = req.query;
 
+    const { getPagination, buildPaginatedResponse } = require("../utils/pagination");
+    const pag = getPagination(req.query);
+
     const filters = {
+      ...pag,
       fromDate: fromDate || undefined,
       toDate: toDate || undefined,
       companyName: companyName || undefined,
@@ -221,9 +225,9 @@ exports.listIntakes = async (req, res) => {
       filters.createdByUserId = req.user.userId;
     }
 
-    const rows = await VendorPassRequest.list(filters);
+    const result = await VendorPassRequest.list(filters);
 
-    const data = rows.map((r) => {
+    const data = result.data.map((r) => {
       return {
         id: r.id,
         referenceNo: r.referenceNo,
@@ -254,7 +258,15 @@ exports.listIntakes = async (req, res) => {
       };
     });
 
-    return res.status(200).json({ success: true, data });
+    return res.status(200).json(
+      buildPaginatedResponse(
+        data,
+        result.counts,
+        result.counts.total,
+        pag.page,
+        pag.limit
+      )
+    );
   } catch (error) {
     console.error("listIntakes error:", error);
     return res

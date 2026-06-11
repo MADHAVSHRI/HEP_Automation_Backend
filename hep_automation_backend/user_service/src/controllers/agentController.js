@@ -233,19 +233,39 @@ exports.updateCredentialEmailStatus = async (req, res) => {
 
 exports.getAllRegisteredUsers = async (req, res) => {
   try {
-    const { isApproved } = req.query;
-    const page = Math.max(1, parseInt(req.query.page) || 1);
-    const limit = Math.min(200, parseInt(req.query.limit) || 50);
+    const { isApproved, search, status } = req.query;
 
-    const agents = await Agent.getAllRegisteredAgents(isApproved, page, limit);
+    const { getPagination, buildPaginatedResponse } = require("../utils/pagination");
+    const pag = getPagination(req.query);
 
-    return res.status(200).json({
-      success: true,
-      count: agents.length,
-      page,
-      limit,
-      data: agents,
-    });
+    const paginationParams = {
+      ...pag,
+      isApproved,
+      status,
+      search: search || undefined,
+    };
+
+    const result = await Agent.getAllRegisteredAgents(paginationParams);
+
+    // Compute the correct total records for the paginated tab
+    let totalRecordsForTab = result.counts.total;
+    if (status === "pending") {
+      totalRecordsForTab = result.counts.pending;
+    } else if (status === "processed") {
+      totalRecordsForTab = result.counts.total - result.counts.pending;
+    } else if (status === "approved" || status === "rejected") {
+      totalRecordsForTab = result.counts[status] || 0;
+    }
+
+    return res.status(200).json(
+      buildPaginatedResponse(
+        result.data,
+        result.counts,
+        totalRecordsForTab,
+        pag.page,
+        pag.limit
+      )
+    );
   } catch (error) {
     console.error("Fetch agents error:", error);
 

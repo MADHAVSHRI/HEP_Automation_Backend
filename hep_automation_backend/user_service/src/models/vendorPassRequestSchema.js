@@ -104,34 +104,93 @@ const VendorPassRequest = {
    * @returns rows with createdByUserName joined from users
    */
   async list(filters = {}) {
+    const {
+      page = 1,
+      limit = 20,
+      offset = 0,
+      fromDate,
+      toDate,
+      companyName,
+      createdByUserId,
+      departmentId,
+    } = filters;
+
     const where = [];
     const params = [];
     let i = 1;
 
-    if (filters.createdByUserId) {
+    if (createdByUserId) {
       where.push(`v."createdByUserId" = $${i++}`);
-      params.push(filters.createdByUserId);
+      params.push(createdByUserId);
     }
-    if (filters.departmentId) {
+    if (departmentId) {
       where.push(`v."departmentId" = $${i++}`);
-      params.push(filters.departmentId);
+      params.push(departmentId);
     }
-    if (filters.fromDate) {
+    if (fromDate) {
       where.push(`v."createdAt" >= $${i++}`);
-      params.push(filters.fromDate);
+      params.push(fromDate);
     }
-    if (filters.toDate) {
+    if (toDate) {
       where.push(`v."createdAt" <= $${i++}`);
-      params.push(`${filters.toDate} 23:59:59`);
+      params.push(`${toDate} 23:59:59`);
     }
-    if (filters.companyName) {
-      where.push(`v."companyName" ILIKE $${i++}`);
-      params.push(`%${filters.companyName}%`);
+    if (companyName) {
+      const searchParam = `%${companyName}%`;
+      where.push(`(
+        v."companyName" ILIKE $${i}
+        OR v."referenceNo" ILIKE $${i}
+        OR EXISTS (
+          SELECT 1 FROM vendor_pass_persons vpp
+          WHERE vpp."vendorPassRequestId" = v.id
+            AND (vpp.name ILIKE $${i} OR vpp."aadharNo" ILIKE $${i})
+        )
+        OR EXISTS (
+          SELECT 1 FROM vendor_pass_vehicles vpv
+          WHERE vpv."vendorPassRequestId" = v.id
+            AND vpv."vehicleRegistrationNo" ILIKE $${i}
+        )
+      )`);
+      params.push(searchParam);
+      i++;
     }
 
     const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
 
-    const query = `
+    // ─── Query 1: Total counts for pagination ───
+    const countQuery = `
+      SELECT COUNT(*) AS total
+      FROM "vendor_pass_requests" v
+      ${whereSql}
+    `;
+    const countRes = await pool.query(countQuery, params);
+    const total = parseInt(countRes.rows[0]?.total || 0);
+
+    const counts = { total };
+
+    if (total === 0) {
+      return { data: [], counts };
+    }
+
+    // ─── Query 2: Paginated IDs ───
+    const idParams = [...params, limit, offset];
+    const idQuery = `
+      SELECT v.id
+      FROM "vendor_pass_requests" v
+      ${whereSql}
+      ORDER BY v."createdAt" DESC
+      LIMIT $${i} OFFSET $${i + 1}
+    `;
+    const idRes = await pool.query(idQuery, idParams);
+    const passIds = idRes.rows.map((r) => r.id);
+
+    if (passIds.length === 0) {
+      return { data: [], counts };
+    }
+
+    // ─── Query 3: Detail Hydration ───
+    const placeholders = passIds.map((_, idx) => `$${idx + 1}`).join(",");
+    const detailQuery = `
       SELECT
         v.*,
         u."userName" AS "createdByUserName",
@@ -161,13 +220,12 @@ const VendorPassRequest = {
         FROM vendor_pass_vehicles
         GROUP BY "vendorPassRequestId"
       ) veh ON veh."vendorPassRequestId" = v.id
-      ${whereSql}
+      WHERE v.id IN (${placeholders})
       ORDER BY v."createdAt" DESC
-      LIMIT 500
     `;
+    const detailRes = await pool.query(detailQuery, passIds);
 
-    const result = await pool.query(query, params);
-    return result.rows;
+    return { data: detailRes.rows, counts };
   },
 
   async updateStatus(id, status) {

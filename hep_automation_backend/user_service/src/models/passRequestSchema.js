@@ -1037,8 +1037,106 @@ const PassRequest = {
 };
 
 const getPassRequest = {
-  async getAgentPassRequests(agentId) {
-    const query = `
+  /**
+   * Paginated version of agent's own pass requests.
+   * Uses the 3-query strategy.
+   *
+   * @param {number} agentId
+   * @param {Object} pagination - { page, limit, offset, search, status, sortOrder }
+   * @returns {{ data: Array, counts: Object }}
+   */
+  async getAgentPassRequests(agentId, pagination = {}) {
+    const {
+      page = 1,
+      limit = 20,
+      offset = 0,
+      search = "",
+      status = "",
+      sortOrder = "DESC",
+    } = pagination;
+
+    // ─── Search filter SQL builder ───
+    let searchFilter = "";
+    const params = [agentId];
+    let paramIdx = 2;
+
+    if (search) {
+      const searchParam = `%${search}%`;
+      params.push(searchParam);
+      searchFilter = `
+        AND (
+          pr."referenceNo" ILIKE $${paramIdx}
+          OR EXISTS (
+            SELECT 1 FROM pass_persons pp
+            WHERE pp."passRequestId" = pr.id
+              AND (pp.name ILIKE $${paramIdx} OR pp."aadharNo" ILIKE $${paramIdx})
+          )
+          OR EXISTS (
+            SELECT 1 FROM pass_vehicles pv
+            WHERE pv."passRequestId" = pr.id
+              AND pv."registrationNo" ILIKE $${paramIdx}
+          )
+        )`;
+      paramIdx++;
+    }
+
+    // ─── Status filter SQL builder ───
+    let statusFilter = "";
+    if (status === "reverted") {
+      statusFilter = `AND (pr.status::TEXT = 'REVERTED' OR pr."hasRevertedEntities" = true)`;
+    } else if (status && status !== "all") {
+      params.push(status.toUpperCase());
+      statusFilter = `AND pr.status::TEXT = $${paramIdx}`;
+      paramIdx++;
+    }
+
+    /* =============================================
+       QUERY 1 — Global Counts for Agent's Dashboard
+    ============================================= */
+    const countQuery = `
+      SELECT
+        COUNT(*) AS total,
+        COUNT(CASE WHEN pr.status::TEXT = 'REVERTED' OR pr."hasRevertedEntities" = true THEN 1 END) AS reverted
+      FROM pass_requests pr
+      WHERE pr."agentId" = $1 AND pr."isActive" = true
+    `;
+    const countRes = await pool.query(countQuery, [agentId]);
+    const cnt = countRes.rows[0];
+    const counts = {
+      total: parseInt(cnt.total || 0),
+      reverted: parseInt(cnt.reverted || 0),
+    };
+
+    /* =============================================
+       QUERY 2 — Paginated IDs
+       We pass limit and offset as parameters to prevent SQL injection.
+    ============================================= */
+    const limitIdx = paramIdx;
+    const offsetIdx = paramIdx + 1;
+    const pagParams = [...params, limit, offset];
+
+    const idQuery = `
+      SELECT id
+      FROM pass_requests pr
+      WHERE pr."agentId" = $1 AND pr."isActive" = true
+        ${searchFilter}
+        ${statusFilter}
+      ORDER BY pr."createdAt" ${sortOrder}
+      LIMIT $${limitIdx} OFFSET $${offsetIdx}
+    `;
+
+    const idRes = await pool.query(idQuery, pagParams);
+    const passIds = idRes.rows.map(r => r.id);
+
+    if (passIds.length === 0) {
+      return { data: [], counts };
+    }
+
+    /* =============================================
+       QUERY 3 — Full Detail Hydration
+    ============================================= */
+    const placeholders = passIds.map((_, i) => `$${i + 1}`).join(",");
+    const detailQuery = `
       SELECT
         pr.id,
         pr."referenceNo",
@@ -1049,6 +1147,7 @@ const getPassRequest = {
         pr."gstAmount",
         pr."netAmount",
         pr."createdAt",
+        pr."hasRevertedEntities",
 
         COALESCE(p.persons, '[]'::json) AS persons,
         COALESCE(v.vehicles, '[]'::json) AS vehicles
@@ -1148,20 +1247,28 @@ const getPassRequest = {
         GROUP BY pv."passRequestId"
       ) v ON v."passRequestId" = pr.id
 
-      WHERE pr."agentId" = $1
-      AND pr."isActive" = true
-
-      ORDER BY pr."createdAt" DESC
+      WHERE pr.id IN (${placeholders})
+      ORDER BY pr."createdAt" ${sortOrder}
     `;
 
-    const result = await pool.query(query, [agentId]);
-
-    return result.rows;
+    const detailRes = await pool.query(detailQuery, passIds);
+    return { data: detailRes.rows, counts };
   },
 };
 
 const Master = {
-  async getPersonsByAgent(agentId) {
+  async getPersonsByAgent(agentId, pagination = {}) {
+    const { limit = 20, offset = 0, search = "" } = pagination;
+    const params = [agentId];
+    let i = 2;
+    let searchFilter = "";
+
+    if (search) {
+      params.push(`%${search}%`);
+      searchFilter = `AND (pp.name ILIKE $${i} OR pp."aadharNo" ILIKE $${i} OR pp.mobile ILIKE $${i})`;
+      i++;
+    }
+
     const query = `
     SELECT 
     pp.id,
@@ -1224,15 +1331,28 @@ const Master = {
     
     WHERE pr."agentId" = $1
     AND pp."isActive" = true
+    ${searchFilter}
     
     ORDER BY pp."createdAt" DESC
+    LIMIT $${i} OFFSET $${i + 1}
     `;
 
-    const result = await pool.query(query, [agentId]);
+    const result = await pool.query(query, [...params, limit, offset]);
     return result.rows;
   },
 
-  async getVehiclesByAgent(agentId) {
+  async getVehiclesByAgent(agentId, pagination = {}) {
+    const { limit = 20, offset = 0, search = "" } = pagination;
+    const params = [agentId];
+    let i = 2;
+    let searchFilter = "";
+
+    if (search) {
+      params.push(`%${search}%`);
+      searchFilter = `AND (pv."registrationNo" ILIKE $${i} OR pv."rfidCardNumber" ILIKE $${i})`;
+      i++;
+    }
+
     const query = `
     SELECT 
     pv.id,
@@ -1280,15 +1400,25 @@ const Master = {
     
     WHERE pr."agentId" = $1
     AND pv."isActive" = true
+    ${searchFilter}
     
     ORDER BY pv."createdAt" DESC
+    LIMIT $${i} OFFSET $${i + 1}
     `;
 
-    const result = await pool.query(query, [agentId]);
+    const result = await pool.query(query, [...params, limit, offset]);
     return result.rows;
   },
 
-  async getPersonCount(agentId) {
+  async getPersonCount(agentId, search = "") {
+    const params = [agentId];
+    let searchFilter = "";
+
+    if (search) {
+      params.push(`%${search}%`);
+      searchFilter = `AND (pp.name ILIKE $2 OR pp."aadharNo" ILIKE $2 OR pp.mobile ILIKE $2)`;
+    }
+
     const query = `
     SELECT COUNT(*) AS "personCount"
     FROM pass_persons pp
@@ -1298,14 +1428,22 @@ const Master = {
 
     WHERE pr."agentId" = $1
     AND pp."isActive" = true
+    ${searchFilter}
     `;
 
-    const result = await pool.query(query, [agentId]);
-
-    return result.rows[0].personCount;
+    const result = await pool.query(query, params);
+    return parseInt(result.rows[0].personCount || 0);
   },
 
-  async getVehicleCount(agentId) {
+  async getVehicleCount(agentId, search = "") {
+    const params = [agentId];
+    let searchFilter = "";
+
+    if (search) {
+      params.push(`%${search}%`);
+      searchFilter = `AND (pv."registrationNo" ILIKE $2 OR pv."rfidCardNumber" ILIKE $2)`;
+    }
+
     const query = `
     SELECT COUNT(*) AS "vehicleCount"
     FROM pass_vehicles pv
@@ -1315,11 +1453,11 @@ const Master = {
 
     WHERE pr."agentId" = $1
     AND pv."isActive" = true
+    ${searchFilter}
     `;
 
-    const result = await pool.query(query, [agentId]);
-
-    return result.rows[0].vehicleCount;
+    const result = await pool.query(query, params);
+    return parseInt(result.rows[0].vehicleCount || 0);
   },
 };
 
@@ -1452,165 +1590,270 @@ const Master = {
 // };
 
 const getAgentPassRequestsDetails = {
-  async getAgentPassRequestsToApproverAdmin(role, departmentId) {
-    let query = `
-    SELECT
-      pr.id,
-      pr."referenceNo",
-      pr.status,
-      pr."submittedAt",
-      pr."createdAt",
 
-      a."entityName",
-      a."email",
-      a."mobileNo",
-      a."gstinNumber",
-      a."panNumber",
+  /**
+   * Paginated version — 3-query strategy:
+   *   Query 1: Global counts (total, pending, processed) across BOTH normal + vendor passes
+   *   Query 2: Paginated IDs via UNION ALL with search/status/sort
+   *   Query 3: Full detail hydration for only those page IDs
+   *
+   * @param {string} role
+   * @param {number} departmentId
+   * @param {Object} pagination - { page, limit, offset, search, status, sortOrder }
+   * @returns {{ data: Array, counts: Object }}
+   */
+  async getAgentPassRequestsToApproverAdmin(role, departmentId, pagination = {}) {
+    const {
+      page   = 1,
+      limit  = 20,
+      offset = 0,
+      search = "",
+      status = "",
+      sortOrder = "DESC",
+    } = pagination;
 
-      COALESCE(p.persons, '[]') AS persons,
-      COALESCE(v.vehicles, '[]') AS vehicles
+    const PENDING_STATUSES  = ["SUBMITTED", "PENDING", "IN_REVIEW"];
+    const PROCESSED_STATUSES = ["APPROVED", "REJECTED", "REVERTED", "PROCESSED", "COMPLETED"];
+    const VENDOR_PENDING    = ["VENDOR_SUBMITTED"];
+    const VENDOR_PROCESSED  = ["APPROVED", "REJECTED", "REVERTED", "COMPLETED"];
+    const ALL_VENDOR_STATUSES = [...VENDOR_PENDING, ...VENDOR_PROCESSED];
 
-    FROM pass_requests pr
+    const includeVendor = role === "Approval" && departmentId !== 7;
 
-    LEFT JOIN "Agents" a
-      ON a.id = pr."agentId"
-
-    /* =========================================
-       PERSONS AGGREGATION
-    ========================================= */
-
-    LEFT JOIN (
-      SELECT
-        pp."passRequestId",
-
-        json_agg(
-          to_jsonb(pp) ||
-          jsonb_build_object(
-            'country', c.name,
-            'hepType', ht.name
-          )
-        ) AS persons,
-
-        array_agg(ht.name) AS "hepTypes"
-
-      FROM pass_persons pp
-
-      LEFT JOIN countries c
-        ON c.id = pp."countryId"
-
-      LEFT JOIN hep_types ht
-        ON ht.id = pp."hepTypeId"
-
-      GROUP BY pp."passRequestId"
-    ) p
-      ON p."passRequestId" = pr.id
-
-    /* =========================================
-       VEHICLES AGGREGATION
-    ========================================= */
-
-    LEFT JOIN (
-      SELECT
-        pv."passRequestId",
-        json_agg(to_jsonb(pv)) AS vehicles
-
-      FROM pass_vehicles pv
-      GROUP BY pv."passRequestId"
-    ) v
-      ON v."passRequestId" = pr.id
-
-    WHERE pr."isActive" = true
-    `;
-
-    /* =========================================
-       APPROVAL DEPARTMENT FILTERING
-    ========================================= */
-
+    // ─── Department filter SQL for normal passes ───
+    let deptFilter = "";
     if (role === "Approval") {
       if (departmentId === 7) {
-        /* Marine Dept → Only Seafarers persons */
-
-        query += `
-        AND EXISTS (
-          SELECT 1
-          FROM pass_persons pp
-          JOIN hep_types ht
-            ON ht.id = pp."hepTypeId"
-          WHERE pp."passRequestId" = pr.id
-          AND ht.name = 'Seafarers'
-        )
-        `;
+        deptFilter = `
+          AND EXISTS (
+            SELECT 1 FROM pass_persons pp
+            JOIN hep_types ht ON ht.id = pp."hepTypeId"
+            WHERE pp."passRequestId" = pr.id AND ht.name = 'Seafarers'
+          )`;
       } else {
-        /* Traffic Dept → Drivers + Personnel + Vehicles */
-
-        query += `
-        AND (
-          EXISTS (
-            SELECT 1
-            FROM pass_persons pp
-            JOIN hep_types ht
-              ON ht.id = pp."hepTypeId"
-            WHERE pp."passRequestId" = pr.id
-            AND ht.name IN ('Drivers','Personnel')
-          )
-          OR EXISTS (
-            SELECT 1
-            FROM pass_vehicles pv
-            WHERE pv."passRequestId" = pr.id
-          )
-        )
-        `;
+        deptFilter = `
+          AND (
+            EXISTS (
+              SELECT 1 FROM pass_persons pp
+              JOIN hep_types ht ON ht.id = pp."hepTypeId"
+              WHERE pp."passRequestId" = pr.id AND ht.name IN ('Drivers','Personnel')
+            )
+            OR EXISTS (
+              SELECT 1 FROM pass_vehicles pv WHERE pv."passRequestId" = pr.id
+            )
+          )`;
       }
     }
 
-    query += `
-    ORDER BY pr."createdAt" DESC
+    // ─── Search filter SQL builders ───
+    let normalSearchFilter = "";
+    let vendorSearchFilter = "";
+    const searchParams = [];
+    let paramIdx = 1;
+
+    if (search) {
+      const searchParam = `%${search}%`;
+      searchParams.push(searchParam);
+      normalSearchFilter = `
+        AND (
+          pr."referenceNo" ILIKE $${paramIdx}
+          OR EXISTS (SELECT 1 FROM "Agents" a WHERE a.id = pr."agentId" AND a."entityName" ILIKE $${paramIdx})
+          OR EXISTS (SELECT 1 FROM pass_persons pp WHERE pp."passRequestId" = pr.id AND (pp.name ILIKE $${paramIdx} OR pp."aadharNo" ILIKE $${paramIdx}))
+          OR EXISTS (SELECT 1 FROM pass_vehicles pv WHERE pv."passRequestId" = pr.id AND pv."registrationNo" ILIKE $${paramIdx})
+        )`;
+      vendorSearchFilter = `
+        AND (
+          v."referenceNo" ILIKE $${paramIdx}
+          OR v."companyName" ILIKE $${paramIdx}
+          OR v."vendorEmail" ILIKE $${paramIdx}
+          OR EXISTS (SELECT 1 FROM vendor_pass_persons vpp WHERE vpp."vendorPassRequestId" = v.id AND (vpp.name ILIKE $${paramIdx} OR vpp."aadharNo" ILIKE $${paramIdx}))
+          OR EXISTS (SELECT 1 FROM vendor_pass_vehicles vpv WHERE vpv."vendorPassRequestId" = v.id AND vpv."vehicleRegistrationNo" ILIKE $${paramIdx})
+        )`;
+      paramIdx++;
+    }
+
+    // ─── Status filter ───
+    let normalStatusFilter = "";
+    let vendorStatusFilter = "";
+    if (status === "pending") {
+      normalStatusFilter = `AND pr.status::TEXT IN ('SUBMITTED','PENDING','IN_REVIEW','UNDER_REVIEW')`;
+      vendorStatusFilter = `AND v.status IN ('VENDOR_SUBMITTED')`;
+    } else if (status === "processed") {
+      normalStatusFilter = `AND pr.status::TEXT IN ('APPROVED','REJECTED','REVERTED','PROCESSED','COMPLETED')`;
+      vendorStatusFilter = `AND v.status IN ('APPROVED','REJECTED','REVERTED','COMPLETED')`;
+    }
+
+    /* =============================================
+       QUERY 1 — Global Counts (lightweight)
+    ============================================= */
+    const normalCountSQL = `
+      SELECT
+        COUNT(*) AS total,
+        COUNT(CASE WHEN pr.status::TEXT IN ('SUBMITTED','PENDING','IN_REVIEW','UNDER_REVIEW') THEN 1 END) AS pending,
+        COUNT(CASE WHEN pr.status::TEXT IN ('APPROVED','REJECTED','REVERTED','PROCESSED','COMPLETED') THEN 1 END) AS processed
+      FROM pass_requests pr
+      WHERE pr."isActive" = true ${deptFilter}
     `;
 
-    const result = await pool.query(query);
-    let rows = result.rows;
+    let vendorCountPromise = null;
+    if (includeVendor) {
+      const vendorCountSQL = `
+        SELECT
+          COUNT(*) AS total,
+          COUNT(CASE WHEN status = 'VENDOR_SUBMITTED' THEN 1 END) AS pending,
+          COUNT(CASE WHEN status IN ('APPROVED','REJECTED','REVERTED','COMPLETED') THEN 1 END) AS processed
+        FROM vendor_pass_requests
+        WHERE status IN ('VENDOR_SUBMITTED','APPROVED','REJECTED','REVERTED','COMPLETED')
+      `;
+      vendorCountPromise = pool.query(vendorCountSQL);
+    }
 
-    /* =========================================
-       Append Vendor Pass submissions
-       (Traffic-side approvers only — Marine = 7 excluded)
-       Include VENDOR_SUBMITTED, APPROVED, and REJECTED statuses
-    ========================================= */
-    if (role === "Approval" && departmentId !== 7) {
-      const vendorRes = await pool.query(`
+    const [normalCountRes, vendorCountRes] = await Promise.all([
+      pool.query(normalCountSQL),
+      vendorCountPromise || Promise.resolve(null),
+    ]);
+
+    const nc = normalCountRes.rows[0];
+    const vc = vendorCountRes ? vendorCountRes.rows[0] : { total: "0", pending: "0", processed: "0" };
+
+    const counts = {
+      total:     parseInt(nc.total) + parseInt(vc.total),
+      pending:   parseInt(nc.pending) + parseInt(vc.pending),
+      processed: parseInt(nc.processed) + parseInt(vc.processed),
+    };
+
+    /* =============================================
+       QUERY 2 — Paginated IDs via UNION ALL
+    ============================================= */
+    const limitParam = paramIdx;
+    const offsetParam = paramIdx + 1;
+    const paginationParams = [...searchParams, limit, offset];
+
+    let idQuery = `
+      SELECT id, 'NORMAL' AS origin, "createdAt"
+      FROM pass_requests pr
+      WHERE pr."isActive" = true ${deptFilter} ${normalSearchFilter} ${normalStatusFilter}
+    `;
+
+    if (includeVendor) {
+      idQuery += `
+      UNION ALL
+      SELECT id, 'VENDOR' AS origin, "createdAt"
+      FROM vendor_pass_requests v
+      WHERE v.status IN ('VENDOR_SUBMITTED','APPROVED','REJECTED','REVERTED','COMPLETED')
+        ${vendorSearchFilter} ${vendorStatusFilter}
+      `;
+    }
+
+    idQuery += `
+      ORDER BY "createdAt" ${sortOrder}
+      LIMIT $${limitParam} OFFSET $${offsetParam}
+    `;
+
+    const idResult = await pool.query(idQuery, paginationParams);
+    const pageIds = idResult.rows;
+
+    if (pageIds.length === 0) {
+      return { data: [], counts };
+    }
+
+    // Split IDs by origin
+    const normalIds = pageIds.filter(r => r.origin === "NORMAL").map(r => r.id);
+    const vendorIds = pageIds.filter(r => r.origin === "VENDOR").map(r => r.id);
+
+    /* =============================================
+       QUERY 3 — Full Detail Hydration
+    ============================================= */
+    let normalRows = [];
+    let vendorRows = [];
+
+    // 3a — Normal pass detail (only for the IDs on this page)
+    if (normalIds.length > 0) {
+      const placeholders = normalIds.map((_, i) => `$${i + 1}`).join(",");
+      const detailQuery = `
+        SELECT
+          pr.id,
+          pr."referenceNo",
+          pr.status,
+          pr."submittedAt",
+          pr."createdAt",
+
+          a."entityName",
+          a."email",
+          a."mobileNo",
+          a."gstinNumber",
+          a."panNumber",
+
+          COALESCE(p.persons, '[]') AS persons,
+          COALESCE(v.vehicles, '[]') AS vehicles
+
+        FROM pass_requests pr
+
+        LEFT JOIN "Agents" a ON a.id = pr."agentId"
+
+        LEFT JOIN (
+          SELECT
+            pp."passRequestId",
+            json_agg(
+              to_jsonb(pp) ||
+              jsonb_build_object('country', c.name, 'hepType', ht.name)
+            ) AS persons,
+            array_agg(ht.name) AS "hepTypes"
+          FROM pass_persons pp
+          LEFT JOIN countries c ON c.id = pp."countryId"
+          LEFT JOIN hep_types ht ON ht.id = pp."hepTypeId"
+          GROUP BY pp."passRequestId"
+        ) p ON p."passRequestId" = pr.id
+
+        LEFT JOIN (
+          SELECT pv."passRequestId", json_agg(to_jsonb(pv)) AS vehicles
+          FROM pass_vehicles pv
+          GROUP BY pv."passRequestId"
+        ) v ON v."passRequestId" = pr.id
+
+        WHERE pr.id IN (${placeholders})
+        ORDER BY pr."createdAt" ${sortOrder}
+      `;
+      const normalRes = await pool.query(detailQuery, normalIds);
+      normalRows = normalRes.rows;
+    }
+
+    // 3b — Vendor pass detail (only for the IDs on this page)
+    if (vendorIds.length > 0) {
+      const placeholders = vendorIds.map((_, i) => `$${i + 1}`).join(",");
+      const vendorDetailQuery = `
         SELECT
           v.id,
           v."referenceNo",
           v.status,
           v."submittedAt",
           v."createdAt",
-          v."companyName"      AS "entityName",
-          v."vendorEmail"      AS "email",
-          v."vendorMobile"     AS "mobileNo",
+          v."companyName"  AS "entityName",
+          v."vendorEmail"  AS "email",
+          v."vendorMobile" AS "mobileNo",
           COALESCE(p.persons, '[]') AS persons,
           COALESCE(veh.vehicles, '[]') AS vehicles
         FROM vendor_pass_requests v
         LEFT JOIN (
-          SELECT
-            "vendorPassRequestId",
+          SELECT "vendorPassRequestId",
             json_agg(to_jsonb(vpp) ORDER BY vpp.id ASC) AS persons
           FROM vendor_pass_persons vpp
           GROUP BY "vendorPassRequestId"
         ) p ON p."vendorPassRequestId" = v.id
         LEFT JOIN (
-          SELECT
-            "vendorPassRequestId",
+          SELECT "vendorPassRequestId",
             json_agg(to_jsonb(vpv) ORDER BY vpv.id ASC) AS vehicles
           FROM vendor_pass_vehicles vpv
           GROUP BY "vendorPassRequestId"
         ) veh ON veh."vendorPassRequestId" = v.id
-        WHERE v.status IN ('VENDOR_SUBMITTED', 'APPROVED', 'REJECTED', 'REVERTED', 'COMPLETED')
-        ORDER BY v."submittedAt" DESC
-      `);
-
-      const vendorRows = vendorRes.rows.map((v) => ({
+        WHERE v.id IN (${placeholders})
+        ORDER BY v."createdAt" ${sortOrder}
+      `;
+      const vendorRes = await pool.query(vendorDetailQuery, vendorIds);
+      vendorRows = vendorRes.rows.map((v) => ({
         id: v.id,
         referenceNo: v.referenceNo,
-        status: v.status === 'VENDOR_SUBMITTED' ? 'SUBMITTED' : v.status,
+        status: v.status === "VENDOR_SUBMITTED" ? "SUBMITTED" : v.status,
         submittedAt: v.submittedAt,
         createdAt: v.createdAt,
         entityName: v.entityName,
@@ -1626,11 +1869,17 @@ const getAgentPassRequestsDetails = {
         ),
         originType: "VENDOR",
       }));
-
-      rows = [...vendorRows, ...rows];
     }
 
-    return rows;
+    // Merge and re-sort to match the UNION ALL order
+    const allRows = [...normalRows, ...vendorRows];
+    allRows.sort((a, b) => {
+      const da = new Date(a.createdAt).getTime();
+      const db = new Date(b.createdAt).getTime();
+      return sortOrder === "DESC" ? db - da : da - db;
+    });
+
+    return { data: allRows, counts };
   },
 
   async getPassById(passRequestId) {

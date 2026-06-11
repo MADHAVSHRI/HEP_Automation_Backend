@@ -146,10 +146,97 @@ const Agent = {
     }
   },
 
-  async getAllRegisteredAgents(isApproved, page = 1, limit = 50) {
-    const offset = (page - 1) * limit;
+  async getAllRegisteredAgents(pagination = {}) {
+    const {
+      page = 1,
+      limit = 20,
+      offset = 0,
+      search = "",
+      isApproved,
+      status,
+    } = pagination;
 
-    let query = `
+    const searchWhere = [];
+    const searchParams = [];
+    let i = 1;
+
+    if (search) {
+      const searchParam = `%${search}%`;
+      searchWhere.push(`(
+        "entityName" ILIKE $${i}
+        OR "mobileNo" ILIKE $${i}
+        OR "email" ILIKE $${i}
+        OR "referenceNumber" ILIKE $${i}
+        OR "panNumber" ILIKE $${i}
+        OR "loginId" ILIKE $${i}
+      )`);
+      searchParams.push(searchParam);
+      i++;
+    }
+
+    const searchWhereSql = searchWhere.length ? `WHERE ${searchWhere.join(" AND ")}` : "";
+
+    // ─── Query 1: Total and status counts (filtered by search query only) ───
+    const countQuery = `
+      SELECT
+        COUNT(*) AS total,
+        COUNT(CASE WHEN "isApproved" = true OR status = 'approved' THEN 1 END) AS approved,
+        COUNT(CASE WHEN status = 'rejected' THEN 1 END) AS rejected,
+        COUNT(CASE WHEN status = 'pending' OR status IS NULL OR (status != 'approved' AND status != 'rejected' AND "isApproved" = false) THEN 1 END) AS pending
+      FROM "Agents"
+      ${searchWhereSql}
+    `;
+    const countRes = await pool.query(countQuery, searchParams);
+    const counts = {
+      total: parseInt(countRes.rows[0]?.total || 0),
+      approved: parseInt(countRes.rows[0]?.approved || 0),
+      rejected: parseInt(countRes.rows[0]?.rejected || 0),
+      pending: parseInt(countRes.rows[0]?.pending || 0),
+    };
+
+    if (counts.total === 0) {
+      return { data: [], counts };
+    }
+
+    // ─── Query 2: Paginated IDs with list-specific filters ───
+    const listWhere = [...searchWhere];
+    const listParams = [...searchParams];
+    let j = i;
+
+    if (isApproved !== undefined && isApproved !== null && isApproved !== "") {
+      listWhere.push(`"isApproved" = $${j++}`);
+      listParams.push(isApproved === "true");
+    }
+
+    if (status === "pending") {
+      listWhere.push(`("status" = 'pending' OR "status" IS NULL OR ("status" != 'approved' AND "status" != 'rejected' AND "isApproved" = false))`);
+    } else if (status === "processed") {
+      listWhere.push(`("status" IN ('approved', 'rejected', 'reverted') OR "isApproved" = true)`);
+    } else if (status) {
+      listWhere.push(`"status" = $${j++}`);
+      listParams.push(status);
+    }
+
+    const listWhereSql = listWhere.length ? `WHERE ${listWhere.join(" AND ")}` : "";
+
+    const idParams = [...listParams, limit, offset];
+    const idQuery = `
+      SELECT id
+      FROM "Agents"
+      ${listWhereSql}
+      ORDER BY "createdAt" DESC
+      LIMIT $${j} OFFSET $${j + 1}
+    `;
+    const idRes = await pool.query(idQuery, idParams);
+    const agentIds = idRes.rows.map((r) => r.id);
+
+    if (agentIds.length === 0) {
+      return { data: [], counts };
+    }
+
+    // ─── Query 3: Detail Hydration ───
+    const placeholders = agentIds.map((_, idx) => `$${idx + 1}`).join(",");
+    const detailQuery = `
       SELECT
         id,
         "userTypeName",
@@ -170,22 +257,12 @@ const Agent = {
         "createdAt",
         "updatedAt"
       FROM "Agents"
+      WHERE id IN (${placeholders})
+      ORDER BY "createdAt" DESC
     `;
+    const detailRes = await pool.query(detailQuery, agentIds);
 
-    let values = [];
-
-    if (isApproved !== undefined) {
-      query += ` WHERE "isApproved" = $1`;
-      values.push(isApproved === "true");
-      query += ` ORDER BY "createdAt" DESC LIMIT $2 OFFSET $3`;
-      values.push(limit, offset);
-    } else {
-      query += ` ORDER BY "createdAt" DESC LIMIT $1 OFFSET $2`;
-      values.push(limit, offset);
-    }
-
-    const result = await pool.query(query, values);
-    return result.rows;
+    return { data: detailRes.rows, counts };
   },
 
   async updateEmailStatusByReference(referenceNumber) {

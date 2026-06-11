@@ -130,7 +130,6 @@ exports.getDepartments = async (req, res) => {
 exports.getAgentRequests = async (req, res) => {
   try {
 
-    const { isApproved } = req.query;
     const userServiceUrl = process.env.USER_SERVICE_URL;
 
     // axios config
@@ -140,10 +139,15 @@ exports.getAgentRequests = async (req, res) => {
       }
     };
 
-    // only attach query param if provided
-    if (isApproved !== undefined) {
-      config.params = { isApproved };
-    }
+    // Forward query parameters
+    const { isApproved, page, limit, search, status } = req.query;
+    config.params = {
+      isApproved,
+      page,
+      limit,
+      search,
+      status,
+    };
 
     const response = await axios.get(
       `${userServiceUrl}/api/agents/getAllRegisteredUsers`,

@@ -289,12 +289,26 @@ const getAgentPassRequests = async (req, res) => {
 
     const agentId = req.user.userId; // from JWT
 
-    const passes = await getPassRequest.getAgentPassRequests(agentId);
+    const { getPagination, buildPaginatedResponse } = require("../utils/pagination");
+    const pag = getPagination(req.query);
 
-    return res.status(200).json({
-      success: true,
-      data: passes
-    });
+    const result = await getPassRequest.getAgentPassRequests(agentId, pag);
+
+    // Compute the correct total records for the active tab (reverted vs view/all)
+    let totalRecordsForTab = result.counts.total;
+    if (pag.status === "reverted") {
+      totalRecordsForTab = result.counts.reverted;
+    }
+
+    return res.json(
+      buildPaginatedResponse(
+        result.data,
+        result.counts,
+        totalRecordsForTab,
+        pag.page,
+        pag.limit
+      )
+    );
 
   } catch (error) {
 
@@ -319,28 +333,63 @@ const getMasterDirectory = async (req, res) => {
     }
 
     const agentId = req.user.userId;
+    const { getPagination, buildPaginatedResponse } = require("../utils/pagination");
 
-    const [
-      persons,
-      vehicles,
-      personCount,
-      vehicleCount
-    ] = await Promise.all([
-      Master.getPersonsByAgent(agentId),
-      Master.getVehiclesByAgent(agentId),
-      Master.getPersonCount(agentId),
-      Master.getVehicleCount(agentId)
-    ]);
+    const isPaginated = req.query.page || req.query.limit || req.query.search;
 
-    return res.status(200).json({
-      success: true,
-      data: {
+    if (isPaginated) {
+      const pag = getPagination(req.query);
+      const search = req.query.search || "";
+      const type = req.query.type || "personnel";
+
+      const [personCount, vehicleCount] = await Promise.all([
+        Master.getPersonCount(agentId, search),
+        Master.getVehicleCount(agentId, search)
+      ]);
+
+      let data = [];
+      let totalRecords = 0;
+
+      if (type === "personnel") {
+        data = await Master.getPersonsByAgent(agentId, { ...pag, search });
+        totalRecords = personCount;
+      } else {
+        data = await Master.getVehiclesByAgent(agentId, { ...pag, search });
+        totalRecords = vehicleCount;
+      }
+
+      return res.status(200).json(
+        buildPaginatedResponse(
+          data,
+          { personCount, vehicleCount },
+          totalRecords,
+          pag.page,
+          pag.limit
+        )
+      );
+    } else {
+      const [
         persons,
         vehicles,
         personCount,
         vehicleCount
-      }
-    });
+      ] = await Promise.all([
+        Master.getPersonsByAgent(agentId, { limit: 100000, offset: 0 }),
+        Master.getVehiclesByAgent(agentId, { limit: 100000, offset: 0 }),
+        Master.getPersonCount(agentId),
+        Master.getVehicleCount(agentId)
+      ]);
+
+      return res.status(200).json({
+        success: true,
+        data: {
+          persons,
+          vehicles,
+          personCount,
+          vehicleCount
+        }
+      });
+    }
 
   } catch (error) {
 
@@ -361,12 +410,31 @@ const getAgentPassRequestsToApproverAdmin = async (req, res) => {
     const role = req.user.role;
     const departmentId = req.user.departmentId;
 
-    const passes = await getAgentPassRequestsDetails.getAgentPassRequestsToApproverAdmin(role, departmentId);
+    // Parse pagination + search params from query string
+    const { getPagination, buildPaginatedResponse } = require("../utils/pagination");
+    const pag = getPagination(req.query);
 
-    return res.status(200).json({
-      success: true,
-      data: passes
-    });
+    const result = await getAgentPassRequestsDetails.getAgentPassRequestsToApproverAdmin(
+      role, departmentId, pag
+    );
+
+    // Compute the correct total records for the active tab (pending vs processed)
+    let totalRecordsForTab = result.counts.total;
+    if (pag.status === "pending") {
+      totalRecordsForTab = result.counts.pending;
+    } else if (pag.status === "processed") {
+      totalRecordsForTab = result.counts.processed;
+    }
+
+    return res.json(
+      buildPaginatedResponse(
+        result.data,
+        result.counts,
+        totalRecordsForTab,
+        pag.page,
+        pag.limit
+      )
+    );
 
   } catch (error) {
 
