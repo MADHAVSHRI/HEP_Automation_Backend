@@ -52,14 +52,41 @@ const User = {
 
   },
 
-  async getDeptAdminUsers() {
+  async getDeptAdminUsers({ page = 1, limit = 20, search = "" } = {}) {
+    const conditions = ["r.\"roleName\" != 'Admin'"];
+    const params = [];
+    let paramIndex = 1;
 
-    const query = `
+    if (search) {
+      conditions.push(
+        `(u."userName" ILIKE $${paramIndex} OR u.email ILIKE $${paramIndex} OR d."departmentName" ILIKE $${paramIndex} OR r."roleName" ILIKE $${paramIndex})`
+      );
+      params.push(`%${search}%`);
+      paramIndex++;
+    }
+
+    const whereClause = `WHERE ${conditions.join(" AND ")}`;
+    const offset = (page - 1) * limit;
+
+    const countQuery = `
+      SELECT COUNT(*) 
+      FROM "users" u
+      JOIN "port_department_roles" r ON u."roleId" = r.id
+      JOIN "port_departments" d ON u."departmentId" = d.id
+      ${whereClause}
+    `;
+    const countResult = await pool.query(countQuery, params);
+    const totalRecords = parseInt(countResult.rows[0].count, 10);
+
+    const dataQuery = `
       SELECT 
         u.id,
         u."userName",
         u.email,
         u."phoneNumber",
+        u.status,
+        u."isApprovedByAdmin",
+        u."createdAt",
         r."roleName",
         d."departmentName"
       FROM "users" u
@@ -67,12 +94,40 @@ const User = {
         ON u."roleId" = r.id
       JOIN "port_departments" d 
         ON u."departmentId" = d.id
-      WHERE r."roleName" != 'Admin'
+      ${whereClause}
+      ORDER BY u."createdAt" DESC
+      LIMIT $${paramIndex++} OFFSET $${paramIndex}
     `;
 
-    const result = await pool.query(query);
+    const statsQuery = `
+      SELECT 
+        COUNT(*) FILTER (WHERE u.status = 'active') AS active_count,
+        COUNT(*) FILTER (WHERE u.status != 'active') AS inactive_count
+      FROM "users" u
+      JOIN "port_department_roles" r ON u."roleId" = r.id
+      WHERE r."roleName" != 'Admin'
+    `;
+    const statsResult = await pool.query(statsQuery);
+    const activeCount = parseInt(statsResult.rows[0].active_count, 10);
+    const inactiveCount = parseInt(statsResult.rows[0].inactive_count, 10);
 
-    return result.rows;
+    params.push(limit, offset);
+    const result = await pool.query(dataQuery, params);
+
+    return {
+      data: result.rows,
+      pagination: {
+        totalRecords,
+        currentPage: page,
+        totalPages: Math.ceil(totalRecords / limit),
+        pageSize: limit
+      },
+      stats: {
+        activeCount,
+        inactiveCount,
+        totalCount: totalRecords
+      }
+    };
   },
 
   async getAdminUsers() {

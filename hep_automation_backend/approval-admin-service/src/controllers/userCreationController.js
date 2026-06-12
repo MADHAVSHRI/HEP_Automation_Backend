@@ -171,12 +171,17 @@ exports.getAgentRequests = async (req, res) => {
 exports.getDeptAdminUsers = async (req, res) => {
 
   try {
+    const page = parseInt(req.query.page, 10) || 1;
+    const limit = parseInt(req.query.limit, 10) || 20;
+    const search = req.query.search || "";
 
-    const users = await User.getDeptAdminUsers();
+    const result = await User.getDeptAdminUsers({ page, limit, search });
 
     res.status(200).json({
       success: true,
-      data: users
+      data: result.data,
+      pagination: result.pagination,
+      stats: result.stats
     });
 
   } catch (error) {
