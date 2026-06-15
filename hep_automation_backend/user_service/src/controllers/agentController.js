@@ -233,7 +233,7 @@ exports.updateCredentialEmailStatus = async (req, res) => {
 
 exports.getAllRegisteredUsers = async (req, res) => {
   try {
-    const { isApproved, search, status } = req.query;
+    const { isApproved, search, status, processedByMe, userId } = req.query;
 
     const { getPagination, buildPaginatedResponse } = require("../utils/pagination");
     const pag = getPagination(req.query);
@@ -243,6 +243,8 @@ exports.getAllRegisteredUsers = async (req, res) => {
       isApproved,
       status,
       search: search || undefined,
+      processedByMe: processedByMe === "true" || processedByMe === true,
+      userId: userId || null,
     };
 
     const result = await Agent.getAllRegisteredAgents(paginationParams);

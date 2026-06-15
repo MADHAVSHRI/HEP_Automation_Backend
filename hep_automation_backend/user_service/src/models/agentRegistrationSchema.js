@@ -154,7 +154,21 @@ const Agent = {
       search = "",
       isApproved,
       status,
+      processedByMe = false,
+      userId = null,
     } = pagination;
+
+    let approvedByUserName = null;
+    if (processedByMe && userId) {
+      try {
+        const userRes = await pool.query('SELECT "userName" FROM "users" WHERE id = $1', [userId]);
+        if (userRes.rows.length > 0) {
+          approvedByUserName = userRes.rows[0].userName;
+        }
+      } catch (err) {
+        console.error("Error looking up user for agent processedByMe filter:", err);
+      }
+    }
 
     const searchWhere = [];
     const searchParams = [];
@@ -180,13 +194,17 @@ const Agent = {
     const countQuery = `
       SELECT
         COUNT(*) AS total,
-        COUNT(CASE WHEN "isApproved" = true OR status = 'approved' THEN 1 END) AS approved,
-        COUNT(CASE WHEN status = 'rejected' THEN 1 END) AS rejected,
+        COUNT(CASE WHEN ("isApproved" = true OR status = 'approved') ${processedByMe && approvedByUserName ? `AND "approvedBy" = $${searchParams.length + 1}` : ""} THEN 1 END) AS approved,
+        COUNT(CASE WHEN status = 'rejected' ${processedByMe && approvedByUserName ? `AND "approvedBy" = $${searchParams.length + 1}` : ""} THEN 1 END) AS rejected,
         COUNT(CASE WHEN status = 'pending' OR status IS NULL OR (status != 'approved' AND status != 'rejected' AND "isApproved" = false) THEN 1 END) AS pending
       FROM "Agents"
       ${searchWhereSql}
     `;
-    const countRes = await pool.query(countQuery, searchParams);
+    const countParamsForQuery = [...searchParams];
+    if (processedByMe && approvedByUserName) {
+      countParamsForQuery.push(approvedByUserName);
+    }
+    const countRes = await pool.query(countQuery, countParamsForQuery);
     const counts = {
       total: parseInt(countRes.rows[0]?.total || 0),
       approved: parseInt(countRes.rows[0]?.approved || 0),
@@ -212,9 +230,17 @@ const Agent = {
       listWhere.push(`("status" = 'pending' OR "status" IS NULL OR ("status" != 'approved' AND "status" != 'rejected' AND "isApproved" = false))`);
     } else if (status === "processed") {
       listWhere.push(`("status" IN ('approved', 'rejected', 'reverted') OR "isApproved" = true)`);
+      if (processedByMe && approvedByUserName) {
+        listWhere.push(`"approvedBy" = $${j++}`);
+        listParams.push(approvedByUserName);
+      }
     } else if (status) {
       listWhere.push(`"status" = $${j++}`);
       listParams.push(status);
+      if (processedByMe && approvedByUserName && (status === "approved" || status === "rejected" || status === "reverted")) {
+        listWhere.push(`"approvedBy" = $${j++}`);
+        listParams.push(approvedByUserName);
+      }
     }
 
     const listWhereSql = listWhere.length ? `WHERE ${listWhere.join(" AND ")}` : "";

@@ -409,13 +409,18 @@ const getAgentPassRequestsToApproverAdmin = async (req, res) => {
 
     const role = req.user.role;
     const departmentId = req.user.departmentId;
+    const userId = req.user.userId;
 
     // Parse pagination + search params from query string
     const { getPagination, buildPaginatedResponse } = require("../utils/pagination");
     const pag = getPagination(req.query);
 
     const result = await getAgentPassRequestsDetails.getAgentPassRequestsToApproverAdmin(
-      role, departmentId, pag
+      role, departmentId, {
+        ...pag,
+        processedByMe: req.query.processedByMe === "true" || req.query.processedByMe === true,
+        userId
+      }
     );
 
     // Compute the correct total records for the active tab (pending vs processed)

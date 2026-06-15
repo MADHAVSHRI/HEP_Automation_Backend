@@ -17,7 +17,7 @@ router.get("/dept-admin-users", adminController.getDeptAdminUsers);
 
 router.get("/admin-users", adminController.getAdminUsers);
 
-router.get("/agent-users", adminController.getAgentRequests);
+router.get("/agent-users", verifyToken, adminController.getAgentRequests);
 
 router.put("/agent-request", adminController.agentRequestAction);
 

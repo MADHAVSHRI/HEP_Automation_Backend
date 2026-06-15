@@ -140,13 +140,15 @@ exports.getAgentRequests = async (req, res) => {
     };
 
     // Forward query parameters
-    const { isApproved, page, limit, search, status } = req.query;
+    const { isApproved, page, limit, search, status, processedByMe } = req.query;
     config.params = {
       isApproved,
       page,
       limit,
       search,
       status,
+      processedByMe,
+      userId: req.user ? req.user.userId : null,
     };
 
     const response = await axios.get(

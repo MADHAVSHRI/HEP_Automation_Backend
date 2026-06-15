@@ -1623,7 +1623,21 @@ const getAgentPassRequestsDetails = {
       search = "",
       status = "",
       sortOrder = "DESC",
+      processedByMe = false,
+      userId = null,
     } = pagination;
+
+    let approvedByUserName = null;
+    if (processedByMe && userId) {
+      try {
+        const userRes = await pool.query('SELECT "userName" FROM "users" WHERE id = $1', [userId]);
+        if (userRes.rows.length > 0) {
+          approvedByUserName = userRes.rows[0].userName;
+        }
+      } catch (err) {
+        console.error("Error looking up user for processedByMe filter:", err);
+      }
+    }
 
     const PENDING_STATUSES  = ["SUBMITTED", "PENDING", "IN_REVIEW"];
     const PROCESSED_STATUSES = ["APPROVED", "REJECTED", "REVERTED", "PROCESSED", "COMPLETED"];
@@ -1694,35 +1708,50 @@ const getAgentPassRequestsDetails = {
     } else if (status === "processed") {
       normalStatusFilter = `AND pr.status::TEXT IN ('APPROVED','REJECTED','REVERTED','PROCESSED','COMPLETED')`;
       vendorStatusFilter = `AND v.status IN ('APPROVED','REJECTED','REVERTED','COMPLETED')`;
+      
+      if (processedByMe && approvedByUserName) {
+        normalStatusFilter += ` AND pr."approvedBy" = $${paramIdx} `;
+        vendorStatusFilter += ` AND v."approvedBy" = $${paramIdx} `;
+        searchParams.push(approvedByUserName);
+        paramIdx++;
+      }
     }
 
     /* =============================================
        QUERY 1 — Global Counts (lightweight)
     ============================================= */
-    const normalCountSQL = `
+    let normalCountParams = [];
+    let normalCountSQL = `
       SELECT
         COUNT(*) AS total,
         COUNT(CASE WHEN pr.status::TEXT IN ('SUBMITTED','PENDING','IN_REVIEW','UNDER_REVIEW') THEN 1 END) AS pending,
-        COUNT(CASE WHEN pr.status::TEXT IN ('APPROVED','REJECTED','REVERTED','PROCESSED','COMPLETED') THEN 1 END) AS processed
+        COUNT(CASE WHEN pr.status::TEXT IN ('APPROVED','REJECTED','REVERTED','PROCESSED','COMPLETED') ${processedByMe && approvedByUserName ? `AND pr."approvedBy" = $1` : ""} THEN 1 END) AS processed
       FROM pass_requests pr
       WHERE pr."isActive" = true ${deptFilter}
     `;
+    if (processedByMe && approvedByUserName) {
+      normalCountParams.push(approvedByUserName);
+    }
 
     let vendorCountPromise = null;
     if (includeVendor) {
-      const vendorCountSQL = `
+      let vendorCountParams = [];
+      let vendorCountSQL = `
         SELECT
           COUNT(*) AS total,
           COUNT(CASE WHEN status = 'VENDOR_SUBMITTED' THEN 1 END) AS pending,
-          COUNT(CASE WHEN status IN ('APPROVED','REJECTED','REVERTED','COMPLETED') THEN 1 END) AS processed
+          COUNT(CASE WHEN status IN ('APPROVED','REJECTED','REVERTED','COMPLETED') ${processedByMe && approvedByUserName ? `AND "approvedBy" = $1` : ""} THEN 1 END) AS processed
         FROM vendor_pass_requests
         WHERE status IN ('VENDOR_SUBMITTED','APPROVED','REJECTED','REVERTED','COMPLETED')
       `;
-      vendorCountPromise = pool.query(vendorCountSQL);
+      if (processedByMe && approvedByUserName) {
+        vendorCountParams.push(approvedByUserName);
+      }
+      vendorCountPromise = pool.query(vendorCountSQL, vendorCountParams);
     }
 
     const [normalCountRes, vendorCountRes] = await Promise.all([
-      pool.query(normalCountSQL),
+      pool.query(normalCountSQL, normalCountParams),
       vendorCountPromise || Promise.resolve(null),
     ]);
 
@@ -1730,10 +1759,10 @@ const getAgentPassRequestsDetails = {
     const vc = vendorCountRes ? vendorCountRes.rows[0] : { total: "0", pending: "0", processed: "0" };
 
     const counts = {
-      total:     parseInt(nc.total) + parseInt(vc.total),
       pending:   parseInt(nc.pending) + parseInt(vc.pending),
       processed: parseInt(nc.processed) + parseInt(vc.processed),
     };
+    counts.total = counts.pending + counts.processed;
 
     /* =============================================
        QUERY 2 — Paginated IDs via UNION ALL
