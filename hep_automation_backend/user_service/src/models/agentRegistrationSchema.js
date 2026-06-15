@@ -252,6 +252,7 @@ const Agent = {
         "role",
         "status",
         "isApproved",
+        "approvedBy",
         "isRefNoSentByEmail",
         "isCredentialSentByEmail",
         "createdAt",
@@ -275,34 +276,58 @@ const Agent = {
     await pool.query(query, [referenceNumber]);
   },
 
-  async approveAgent(agentId, loginId, password) {
+  async approveAgent(agentId, loginId, password, approvedByUserId) {
+    let approvedBy = null;
+    if (approvedByUserId) {
+      try {
+        const userRes = await pool.query('SELECT "userName" FROM "users" WHERE id = $1', [approvedByUserId]);
+        if (userRes.rows.length > 0) {
+          approvedBy = userRes.rows[0].userName;
+        }
+      } catch (err) {
+        console.error("Error fetching agent approver username:", err);
+      }
+    }
     const query = `
       UPDATE "Agents"
       SET
         "isApproved" = true,
         "status" = 'approved',
         "loginId" = $2,
-        "password" = $3
+        "password" = $3,
+        "approvedBy" = $4
       WHERE id = $1
       RETURNING *
     `;
 
-    const result = await pool.query(query, [agentId, loginId, password]);
+    const result = await pool.query(query, [agentId, loginId, password, approvedBy]);
 
     return result.rows[0];
   },
 
-  async rejectAgent(agentId, reason) {
+  async rejectAgent(agentId, reason, approvedByUserId) {
+    let approvedBy = null;
+    if (approvedByUserId) {
+      try {
+        const userRes = await pool.query('SELECT "userName" FROM "users" WHERE id = $1', [approvedByUserId]);
+        if (userRes.rows.length > 0) {
+          approvedBy = userRes.rows[0].userName;
+        }
+      } catch (err) {
+        console.error("Error fetching agent rejector username:", err);
+      }
+    }
     const query = `
       UPDATE "Agents"
       SET
         "status"='rejected',
-        "rejectedReason"=$2
+        "rejectedReason"=$2,
+        "approvedBy"=$3
       WHERE id=$1
       RETURNING *
     `;
 
-    const result = await pool.query(query, [agentId, reason]);
+    const result = await pool.query(query, [agentId, reason, approvedBy]);
 
     return result.rows[0];
   },
@@ -634,18 +659,30 @@ const Agent = {
     }
   },
 
-  async revertAgent(agentId, reason) {
+  async revertAgent(agentId, reason, approvedByUserId) {
+    let approvedBy = null;
+    if (approvedByUserId) {
+      try {
+        const userRes = await pool.query('SELECT "userName" FROM "users" WHERE id = $1', [approvedByUserId]);
+        if (userRes.rows.length > 0) {
+          approvedBy = userRes.rows[0].userName;
+        }
+      } catch (err) {
+        console.error("Error fetching agent revertor username:", err);
+      }
+    }
     const query = `
       UPDATE "Agents"
       SET
         "status" = 'reverted',
         "rejectedReason" = $2,
-        "isApproved" = false
+        "isApproved" = false,
+        "approvedBy" = $3
       WHERE id = $1
       RETURNING *
     `;
 
-    const result = await pool.query(query, [agentId, reason]);
+    const result = await pool.query(query, [agentId, reason, approvedBy]);
 
     return result.rows[0];
   },

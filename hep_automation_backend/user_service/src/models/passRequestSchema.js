@@ -743,7 +743,7 @@ const PassRequest = {
     return result.rows[0];
   },
 
-  async completePassReview(passRequestId) {
+  async completePassReview(passRequestId, approvedByUserId) {
     const pendingCheck = `
         SELECT
         (SELECT COUNT(*) FROM pass_persons
@@ -767,6 +767,18 @@ const PassRequest = {
       throw new Error("All entities must be reviewed before completing");
     }
 
+    let approvedBy = null;
+    if (approvedByUserId) {
+      try {
+        const userRes = await pool.query('SELECT "userName" FROM "users" WHERE id = $1', [approvedByUserId]);
+        if (userRes.rows.length > 0) {
+          approvedBy = userRes.rows[0].userName;
+        }
+      } catch (userErr) {
+        console.error("Error looking up approver user details:", userErr);
+      }
+    }
+
     // Check if any entities were reverted
     const hasReverted = (revertedpersons > 0 || revertedvehicles > 0);
     
@@ -780,11 +792,12 @@ const PassRequest = {
           status = 'REVERTED',
           "hasRevertedEntities" = true,
           "revertCount" = "revertCount" + 1,
-          "lastRevertedAt" = NOW()
+          "lastRevertedAt" = NOW(),
+          "approvedBy" = $2
         WHERE id=$1
         RETURNING *
       `;
-      const result = await pool.query(query, [passRequestId]);
+      const result = await pool.query(query, [passRequestId, approvedBy]);
       
       return {
         ...result.rows[0],
@@ -800,12 +813,12 @@ const PassRequest = {
     // No reverted entities - mark as COMPLETED
     const query = `
         UPDATE pass_requests
-        SET status='COMPLETED'
+        SET status='COMPLETED', "approvedBy" = $2
         WHERE id=$1
         RETURNING *
       `;
 
-    const result = await pool.query(query, [passRequestId]);
+    const result = await pool.query(query, [passRequestId, approvedBy]);
 
     return {
       ...result.rows[0],
@@ -1777,6 +1790,7 @@ const getAgentPassRequestsDetails = {
           pr.status,
           pr."submittedAt",
           pr."createdAt",
+          pr."approvedBy",
 
           a."entityName",
           a."email",
@@ -1828,6 +1842,7 @@ const getAgentPassRequestsDetails = {
           v.status,
           v."submittedAt",
           v."createdAt",
+          v."approvedBy",
           v."companyName"  AS "entityName",
           v."vendorEmail"  AS "email",
           v."vendorMobile" AS "mobileNo",
@@ -1856,6 +1871,7 @@ const getAgentPassRequestsDetails = {
         status: v.status === "VENDOR_SUBMITTED" ? "SUBMITTED" : v.status,
         submittedAt: v.submittedAt,
         createdAt: v.createdAt,
+        approvedBy: v.approvedBy,
         entityName: v.entityName,
         email: v.email,
         mobileNo: v.mobileNo,

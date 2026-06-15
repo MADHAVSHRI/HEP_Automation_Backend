@@ -699,8 +699,9 @@ const completeReview = async(req,res)=>{
   try{
 
     const {passRequestId} = req.body;
+    const userId = req.user ? req.user.userId : null;
 
-    const result = await PassRequest.completePassReview(passRequestId);
+    const result = await PassRequest.completePassReview(passRequestId, userId);
 
     return res.json({
       success:true,

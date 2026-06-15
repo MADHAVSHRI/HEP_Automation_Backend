@@ -306,6 +306,7 @@ exports.getAgentProfile = async (req, res) => {
 exports.agentAction = async (req, res) => {
   try {
     const { agentId, decision, rejectedReason } = req.body;
+    const userId = req.user ? req.user.userId : null;
 
     console.log("Service Header:", req.headers["x-service-name"]);
 
@@ -329,7 +330,7 @@ exports.agentAction = async (req, res) => {
 
       const hashedPassword = await bcrypt.hash(defaultPassword, 8);
 
-      const agent = await Agent.approveAgent(agentId, loginId, hashedPassword);
+      const agent = await Agent.approveAgent(agentId, loginId, hashedPassword, userId);
 
       if (!agent) {
         return res.status(404).json({
@@ -366,7 +367,7 @@ exports.agentAction = async (req, res) => {
     */
 
     if (decision === AGENT_STATUS.REJECTED && rejectedReason) {
-      const agent = await Agent.rejectAgent(agentId, rejectedReason);
+      const agent = await Agent.rejectAgent(agentId, rejectedReason, userId);
 
       if (!agent) {
         return res.status(404).json({
@@ -404,7 +405,7 @@ exports.agentAction = async (req, res) => {
     */
 
     if (decision === AGENT_STATUS.REVERTED && rejectedReason) {
-      const agent = await Agent.revertAgent(agentId, rejectedReason);
+      const agent = await Agent.revertAgent(agentId, rejectedReason, userId);
 
       if (!agent) {
         return res.status(404).json({

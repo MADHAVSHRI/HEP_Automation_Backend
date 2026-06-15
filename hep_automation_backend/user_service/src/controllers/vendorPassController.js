@@ -247,6 +247,7 @@ exports.listIntakes = async (req, res) => {
         allowAuctionPassOnly: r.allowAuctionPassOnly,
         validUpto: r.validUpto,
         status: r.status,
+        approvedBy: r.approvedBy,
         stats: {
           personApplied: Number(r.personApplied || 0),
           personApproved: Number(r.personApproved || 0),
@@ -819,7 +820,8 @@ exports.revertVendorVehicle = async (req, res) => {
 exports.completeVendorReview = async (req, res) => {
   try {
     const { id } = req.params;
-    const result = await VendorPassRequest.completeVendorPassReview(Number(id));
+    const userId = req.user ? req.user.userId : null;
+    const result = await VendorPassRequest.completeVendorPassReview(Number(id), userId);
     return res.json({ success: true, data: result });
   } catch (error) {
     console.error("completeVendorReview error:", error);

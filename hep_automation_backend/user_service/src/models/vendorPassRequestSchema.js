@@ -690,7 +690,7 @@ const VendorPassRequest = {
     return result.rows[0] || null;
   },
 
-  async completeVendorPassReview(vendorPassId) {
+  async completeVendorPassReview(vendorPassId, approvedByUserId) {
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
@@ -741,13 +741,26 @@ const VendorPassRequest = {
 
       const finalStatus = isReverted ? 'REVERTED' : 'COMPLETED';
 
+      let approvedBy = null;
+      if (approvedByUserId) {
+        try {
+          const userRes = await client.query('SELECT "userName" FROM "users" WHERE id = $1', [approvedByUserId]);
+          if (userRes.rows.length > 0) {
+            approvedBy = userRes.rows[0].userName;
+          }
+        } catch (userErr) {
+          console.error("Error looking up vendor pass approver user details:", userErr);
+        }
+      }
+
       const result = await client.query(
         `UPDATE "vendor_pass_requests"
          SET "status" = $1,
+             "approvedBy" = $2,
              "updatedAt" = NOW()
-         WHERE id = $2
+         WHERE id = $3
          RETURNING *`,
-        [finalStatus, vendorPassId]
+        [finalStatus, approvedBy, vendorPassId]
       );
 
       await client.query("COMMIT");

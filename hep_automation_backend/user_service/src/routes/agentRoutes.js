@@ -59,6 +59,7 @@ router.get("/viewAgentDocument", agentController.viewAgentDocument);
 
 router.put(
   "/action",
+  verifyToken,
   agentController.agentAction
 );
 
