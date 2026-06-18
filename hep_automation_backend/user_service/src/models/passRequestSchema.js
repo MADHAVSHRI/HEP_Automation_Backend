@@ -851,15 +851,43 @@ const PassRequest = {
       const allowedFields = [
         'name', 'mobile', 'aadharNo', 'hepTypeId', 'passType',
         'passPeriod', 'dateFrom', 'dateTo', 'amount', 'countryId',
-        'idProofType', 'photoFilePath'
+        'idProofType', 'photoFilePath', 'photoFileName',
+        'aadharPDFFilePATH', 'aadharPDFFileName',
+        'idProofFilePath', 'idProofFileName',
+        'driverLicensePath', 'driverLicenseName',
+        'policeVerificationPath', 'policeVerificationName',
+        'employmentProofPath', 'employmentProofName',
+        'chaLicensePath', 'chaLicenseName',
+        'passportPath', 'passportName',
+        'requisitionLetterPath', 'requisitionLetterName',
+        'cdcDocumentPath', 'cdcDocumentName',
+        'declarationFormPath', 'declarationFormName'
       ];
 
       const updates = [];
       const values = [];
       let paramIndex = 1;
 
+      // File-related fields should only be updated if they have a real value
+      // (skip empty strings to avoid overwriting existing file paths)
+      const fileFields = new Set([
+        'photoFilePath', 'photoFileName',
+        'aadharPDFFilePATH', 'aadharPDFFileName',
+        'idProofFilePath', 'idProofFileName',
+        'driverLicensePath', 'driverLicenseName',
+        'policeVerificationPath', 'policeVerificationName',
+        'employmentProofPath', 'employmentProofName',
+        'chaLicensePath', 'chaLicenseName',
+        'passportPath', 'passportName',
+        'requisitionLetterPath', 'requisitionLetterName',
+        'cdcDocumentPath', 'cdcDocumentName',
+        'declarationFormPath', 'declarationFormName'
+      ]);
+
       for (const field of allowedFields) {
         if (updateData[field] !== undefined) {
+          // Skip empty strings for file fields to avoid wiping existing paths
+          if (fileFields.has(field) && updateData[field] === '') continue;
           // Use exact column names from DB schema (camelCase)
           updates.push(`"${field}" = $${paramIndex}`);
           values.push(updateData[field]);
@@ -922,7 +950,14 @@ const PassRequest = {
       // Only include fields that exist in pass_vehicles table
       const allowedFields = [
         'registrationNo', 'vehicleTypeId', 'insuranceExpiry',
-        'rcValidity', 'passType', 'passPeriod', 'dateFrom', 'dateTo', 'amount'
+        'rcValidity', 'passType', 'passPeriod', 'dateFrom', 'dateTo', 'amount',
+        'scannedCopyFilePath', 'scannedCopyFileName',
+        'insuranceFilePath', 'insuranceFileName',
+        'permitFilePath', 'permitFileName',
+        'fitnessFilePath', 'fitnessFileName',
+        'requestLetterPath', 'requestLetterName',
+        'taxDocPath', 'taxDocName',
+        'emissionCertPath', 'emissionCertName'
       ];
 
       const updates = [];
@@ -931,6 +966,18 @@ const PassRequest = {
 
       // Use registrationNo if regNo is also provided (they map to same column)
       const regNo = updateData.registrationNo || updateData.regNo;
+
+      // File-related fields should only be updated if they have a real value
+      // (skip empty strings to avoid overwriting existing file paths)
+      const fileFields = new Set([
+        'scannedCopyFilePath', 'scannedCopyFileName',
+        'insuranceFilePath', 'insuranceFileName',
+        'permitFilePath', 'permitFileName',
+        'fitnessFilePath', 'fitnessFileName',
+        'requestLetterPath', 'requestLetterName',
+        'taxDocPath', 'taxDocName',
+        'emissionCertPath', 'emissionCertName'
+      ]);
 
       for (const field of allowedFields) {
         let fieldValue = updateData[field];
@@ -941,6 +988,8 @@ const PassRequest = {
         }
 
         if (fieldValue !== undefined) {
+          // Skip empty strings for file fields to avoid wiping existing paths
+          if (fileFields.has(field) && fieldValue === '') continue;
           // Use exact column names from DB schema (camelCase)
           updates.push(`"${field}" = $${paramIndex}`);
           values.push(fieldValue);
@@ -1025,6 +1074,7 @@ const PassRequest = {
       const updateQuery = `
         UPDATE pass_requests
         SET status = 'SUBMITTED',
+            "hasRevertedEntities" = false,
             "updatedAt" = NOW()
         WHERE id = $1
         RETURNING *
@@ -1214,7 +1264,7 @@ const getPassRequest = {
               'chaLicenseName', pp."chaLicenseName",
               'passportPath', pp."passportPath",
               'passportName', pp."passportName"
-            )
+            ) ORDER BY pp.id ASC
           ) AS persons
         FROM pass_persons pp
         GROUP BY pp."passRequestId"
@@ -1254,7 +1304,7 @@ const getPassRequest = {
               'taxDocName',       pv."taxDocName",
               'emissionCertPath', pv."emissionCertPath",
               'emissionCertName', pv."emissionCertName"
-            )
+            ) ORDER BY pv.id ASC
           ) AS vehicles
         FROM pass_vehicles pv
         GROUP BY pv."passRequestId"
@@ -1840,6 +1890,7 @@ const getAgentPassRequestsDetails = {
             json_agg(
               to_jsonb(pp) ||
               jsonb_build_object('country', c.name, 'hepType', ht.name)
+              ORDER BY pp.id ASC
             ) AS persons,
             array_agg(ht.name) AS "hepTypes"
           FROM pass_persons pp
@@ -1849,7 +1900,7 @@ const getAgentPassRequestsDetails = {
         ) p ON p."passRequestId" = pr.id
 
         LEFT JOIN (
-          SELECT pv."passRequestId", json_agg(to_jsonb(pv)) AS vehicles
+          SELECT pv."passRequestId", json_agg(to_jsonb(pv) ORDER BY pv.id ASC) AS vehicles
           FROM pass_vehicles pv
           GROUP BY pv."passRequestId"
         ) v ON v."passRequestId" = pr.id
@@ -1910,7 +1961,12 @@ const getAgentPassRequestsDetails = {
           (p, i) => ({ ...p, id: `vpr-${v.id}-p-${i}` })
         ),
         vehicles: (Array.isArray(v.vehicles) ? v.vehicles : []).map(
-          (veh, i) => ({ ...veh, id: `vpr-${v.id}-v-${i}` })
+          (veh, i) => ({
+            ...veh,
+            registrationNo: veh.vehicleRegistrationNo || veh.registrationNo || veh.regNo,
+            regNo: veh.vehicleRegistrationNo || veh.registrationNo || veh.regNo,
+            id: `vpr-${v.id}-v-${i}`
+          })
         ),
         originType: "VENDOR",
       }));
@@ -1962,6 +2018,7 @@ const getAgentPassRequestsDetails = {
             'country', c.name,
             'hepType', ht.name
           )
+          ORDER BY pp.id ASC
         ) AS persons
       FROM pass_persons pp
       LEFT JOIN countries c ON c.id = pp."countryId"
@@ -1972,7 +2029,7 @@ const getAgentPassRequestsDetails = {
     LEFT JOIN (
       SELECT
         pv."passRequestId",
-        json_agg(to_jsonb(pv)) AS vehicles
+        json_agg(to_jsonb(pv) ORDER BY pv.id ASC) AS vehicles
       FROM pass_vehicles pv
       GROUP BY pv."passRequestId"
     ) v ON v."passRequestId" = pr.id
@@ -1989,6 +2046,23 @@ const viewPassRequestsDocuments = {
   async getPassDocumentPath(passRequestId, documentType, entityIndex = 0, isVendorPass = false) {
     // Vendor pass documents are stored in relational tables
     if (isVendorPass) {
+      let resolvedId = passRequestId;
+      if (passRequestId && !/^\d+$/.test(String(passRequestId))) {
+        const { decryptToken } = require("../utils/cryptoUtils");
+        const decrypted = decryptToken(passRequestId);
+        const finalTokenOrId = decrypted || passRequestId;
+
+        if (/^\d+$/.test(String(finalTokenOrId))) {
+          resolvedId = Number(finalTokenOrId);
+        } else {
+          const tokenRes = await pool.query(
+            `SELECT id FROM "vendor_pass_requests" WHERE "token" = $1`,
+            [finalTokenOrId]
+          );
+          resolvedId = tokenRes.rows[0]?.id || null;
+        }
+      }
+
       // Map document types to keys for persons
       const personDocMap = {
         personPhoto: "photoFilePath",
@@ -2020,7 +2094,7 @@ const viewPassRequestsDocuments = {
            FROM "vendor_pass_persons" 
            WHERE "vendorPassRequestId" = $1 
            ORDER BY id ASC`,
-          [passRequestId]
+          [resolvedId]
         );
         const row = res.rows[entityIndex];
         if (row && row.path) {
@@ -2033,7 +2107,7 @@ const viewPassRequestsDocuments = {
            FROM "vendor_pass_vehicles" 
            WHERE "vendorPassRequestId" = $1 
            ORDER BY id ASC`,
-          [passRequestId]
+          [resolvedId]
         );
         const row = res.rows[entityIndex];
         if (row && row.path) {
@@ -2136,16 +2210,18 @@ const viewPassRequestsDocuments = {
     }
 
     const query = `
-      SELECT "${columnName}"
+      SELECT "${columnName}" AS path
       FROM "${tableName}"
       WHERE "passRequestId" = $1
-      AND "${columnName}" IS NOT NULL
-      LIMIT 1
+      ORDER BY id ASC
     `;
 
     const result = await pool.query(query, [passRequestId]);
-
-    return result.rows[0];
+    const row = result.rows[entityIndex];
+    if (row && row.path) {
+      return { [columnName]: row.path };
+    }
+    return null;
   },
 };
 

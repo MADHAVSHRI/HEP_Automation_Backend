@@ -196,7 +196,7 @@ const Agent = {
         COUNT(*) AS total,
         COUNT(CASE WHEN ("isApproved" = true OR status = 'approved') ${processedByMe && approvedByUserName ? `AND "approvedBy" = $${searchParams.length + 1}` : ""} THEN 1 END) AS approved,
         COUNT(CASE WHEN status = 'rejected' ${processedByMe && approvedByUserName ? `AND "approvedBy" = $${searchParams.length + 1}` : ""} THEN 1 END) AS rejected,
-        COUNT(CASE WHEN status = 'pending' OR status IS NULL OR (status != 'approved' AND status != 'rejected' AND "isApproved" = false) THEN 1 END) AS pending
+        COUNT(CASE WHEN status = 'pending' OR status IS NULL OR (status != 'approved' AND status != 'rejected' AND status != 'reverted' AND "isApproved" = false) THEN 1 END) AS pending
       FROM "Agents"
       ${searchWhereSql}
     `;
@@ -227,7 +227,7 @@ const Agent = {
     }
 
     if (status === "pending") {
-      listWhere.push(`("status" = 'pending' OR "status" IS NULL OR ("status" != 'approved' AND "status" != 'rejected' AND "isApproved" = false))`);
+      listWhere.push(`("status" = 'pending' OR "status" IS NULL OR ("status" != 'approved' AND "status" != 'rejected' AND "status" != 'reverted' AND "isApproved" = false))`);
     } else if (status === "processed") {
       listWhere.push(`("status" IN ('approved', 'rejected', 'reverted') OR "isApproved" = true)`);
       if (processedByMe && approvedByUserName) {

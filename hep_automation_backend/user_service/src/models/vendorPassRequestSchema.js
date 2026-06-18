@@ -695,30 +695,29 @@ const VendorPassRequest = {
     try {
       await client.query("BEGIN");
 
-      // Get current vendor pass details
-      const vendorRes = await client.query(
-        `SELECT "vendorEmail", "companyName", "referenceNo", "validUpto", "departmentName"
-         FROM "vendor_pass_requests"
-         WHERE id = $1`,
-        [vendorPassId]
-      );
+      // Run independent queries in parallel for better performance
+      const [vendorRes, personsRes, vehiclesRes] = await Promise.all([
+        client.query(
+          `SELECT "vendorEmail", "companyName", "referenceNo", "validUpto", "departmentName", "token"
+           FROM "vendor_pass_requests"
+           WHERE id = $1`,
+          [vendorPassId]
+        ),
+        client.query(
+          `SELECT status FROM "vendor_pass_persons" WHERE "vendorPassRequestId" = $1`,
+          [vendorPassId]
+        ),
+        client.query(
+          `SELECT status FROM "vendor_pass_vehicles" WHERE "vendorPassRequestId" = $1`,
+          [vendorPassId]
+        ),
+      ]);
 
       if (vendorRes.rows.length === 0) {
         throw new Error("Vendor pass request not found");
       }
 
       const row = vendorRes.rows[0];
-
-      // Query persons and vehicles statuses from relational tables
-      const personsRes = await client.query(
-        `SELECT status FROM "vendor_pass_persons" WHERE "vendorPassRequestId" = $1`,
-        [vendorPassId]
-      );
-      const vehiclesRes = await client.query(
-        `SELECT status FROM "vendor_pass_vehicles" WHERE "vendorPassRequestId" = $1`,
-        [vendorPassId]
-      );
-
       const persons = personsRes.rows;
       const vehicles = vehiclesRes.rows;
 
@@ -769,7 +768,9 @@ const VendorPassRequest = {
       // Send email if COMPLETED, APPROVED, or REVERTED
       if (['APPROVED', 'COMPLETED', 'REVERTED'].includes(finalStatus) && row.vendorEmail) {
         try {
-          const qrLink = `${FRONTEND_URL}/vendor_pass_approved/${vendorPassId}`;
+          const { encryptToken } = require("../utils/cryptoUtils");
+          const encryptedToken = encryptToken(row.token);
+          const qrLink = `${FRONTEND_URL}/vendor_pass_approved/${encryptedToken}`;
 
           const formatValidUpto = (raw) => {
             if (!raw) return null;
@@ -784,7 +785,7 @@ const VendorPassRequest = {
             } catch { return String(raw); }
           };
 
-          await axios.post(`${EMAIL_SERVICE_URL}/api/email/sendVendorPassApproved`, {
+          axios.post(`${EMAIL_SERVICE_URL}/api/email/sendVendorPassApproved`, {
             email: row.vendorEmail,
             companyName: row.companyName,
             referenceNo: row.referenceNo,
@@ -794,11 +795,13 @@ const VendorPassRequest = {
             validUpto: formatValidUpto(row.validUpto),
             departmentName: row.departmentName,
             finalStatus: finalStatus
+          }).then(() => {
+            console.log(`[VENDOR-PASS] ${finalStatus} email sent to ${row.vendorEmail} for ${row.referenceNo}`);
+          }).catch((emailError) => {
+            console.error(`[VENDOR-PASS] Failed to send ${finalStatus} email:`, emailError.message);
           });
-
-          console.log(`[VENDOR-PASS] ${finalStatus} email sent to ${row.vendorEmail} for ${row.referenceNo}`);
-        } catch (emailError) {
-          console.error(`[VENDOR-PASS] Failed to send ${finalStatus} email:`, emailError.message);
+        } catch (emailErr) {
+          console.error(`[VENDOR-PASS] Failed to trigger email:`, emailErr.message);
         }
       }
 

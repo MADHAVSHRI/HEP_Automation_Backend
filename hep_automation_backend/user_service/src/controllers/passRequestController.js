@@ -498,12 +498,36 @@ const viewPassRequestsDocument = async (req, res) => {
         message: "File missing on server"
       });
     }
-    const pathExt = path.extname(absolutePath).toLowerCase();
     let contentType = "application/octet-stream";
+    try {
+      const fd = fs.openSync(absolutePath, "r");
+      const buffer = Buffer.alloc(4);
+      fs.readSync(fd, buffer, 0, 4, 0);
+      fs.closeSync(fd);
 
-    if (pathExt === ".pdf") contentType = "application/pdf";
-    if (pathExt === ".jpg" || pathExt === ".jpeg") contentType = "image/jpeg";
-    if (pathExt === ".png") contentType = "image/png";
+      // Check magic bytes:
+      // PDF: %PDF (0x25 0x50 0x44 0x46)
+      // PNG: 0x89 0x50 0x4E 0x47
+      // JPEG: 0xFF 0xD8 0xFF
+      if (buffer[0] === 0x25 && buffer[1] === 0x50 && buffer[2] === 0x44 && buffer[3] === 0x46) {
+        contentType = "application/pdf";
+      } else if (buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4E && buffer[3] === 0x47) {
+        contentType = "image/png";
+      } else if (buffer[0] === 0xFF && buffer[1] === 0xD8 && buffer[2] === 0xFF) {
+        contentType = "image/jpeg";
+      } else {
+        const pathExt = path.extname(absolutePath).toLowerCase();
+        if (pathExt === ".pdf") contentType = "application/pdf";
+        if (pathExt === ".jpg" || pathExt === ".jpeg") contentType = "image/jpeg";
+        if (pathExt === ".png") contentType = "image/png";
+      }
+    } catch (err) {
+      console.error("Error reading file magic bytes, falling back to extension:", err);
+      const pathExt = path.extname(absolutePath).toLowerCase();
+      if (pathExt === ".pdf") contentType = "application/pdf";
+      if (pathExt === ".jpg" || pathExt === ".jpeg") contentType = "image/jpeg";
+      if (pathExt === ".png") contentType = "image/png";
+    }
 
     res.setHeader("Content-Type", contentType);
     res.setHeader("Content-Disposition", "inline");
@@ -839,6 +863,26 @@ const updatePassPerson = async (req, res) => {
     const { personId } = req.params;
     const updateData = req.body;
 
+    // Attach files if any
+    const files = req.files || {};
+    const attachFile = (entry, fieldName, pathKey, nameKey) => {
+      const f = files[fieldName]?.[0];
+      if (f) {
+        entry[pathKey] = f.path;
+        entry[nameKey] = f.originalname;
+      }
+    };
+
+    attachFile(updateData, "personPhoto", "photoFilePath", "photoFileName");
+    attachFile(updateData, "personAadhar", "aadharPDFFilePATH", "aadharPDFFileName");
+    attachFile(updateData, "personIdProof", "idProofFilePath", "idProofFileName");
+    attachFile(updateData, "driverLicense", "driverLicensePath", "driverLicenseName");
+    attachFile(updateData, "requisitionLetter", "requisitionLetterPath", "requisitionLetterName");
+    attachFile(updateData, "policeVerification", "policeVerificationPath", "policeVerificationName");
+    attachFile(updateData, "employmentProof", "employmentProofPath", "employmentProofName");
+    attachFile(updateData, "chaLicenseCopy", "chaLicensePath", "chaLicenseName");
+    attachFile(updateData, "passportDoc", "passportPath", "passportName");
+
     const { PassRequest } = require("../models/passRequestSchema");
 
     const result = await PassRequest.updateRevertedPerson(personId, updateData);
@@ -872,6 +916,24 @@ const updatePassVehicle = async (req, res) => {
 
     console.log('UPDATE VEHICLE - vehicleId:', vehicleId);
     console.log('UPDATE VEHICLE - updateData:', updateData);
+
+    // Attach files if any
+    const files = req.files || {};
+    const attachFile = (entry, fieldName, pathKey, nameKey) => {
+      const f = files[fieldName]?.[0];
+      if (f) {
+        entry[pathKey] = f.path;
+        entry[nameKey] = f.originalname;
+      }
+    };
+
+    attachFile(updateData, "vehicleRC", "scannedCopyFilePath", "scannedCopyFileName");
+    attachFile(updateData, "vehicleInsurance", "insuranceFilePath", "insuranceFileName");
+    attachFile(updateData, "vehiclePermit", "permitFilePath", "permitFileName");
+    attachFile(updateData, "vehicleFitness", "fitnessFilePath", "fitnessFileName");
+    attachFile(updateData, "vehicleRequestLetter", "requestLetterPath", "requestLetterName");
+    attachFile(updateData, "vehicleTax", "taxDocPath", "taxDocName");
+    attachFile(updateData, "vehicleEmission", "emissionCertPath", "emissionCertName");
 
     const { PassRequest } = require("../models/passRequestSchema");
 

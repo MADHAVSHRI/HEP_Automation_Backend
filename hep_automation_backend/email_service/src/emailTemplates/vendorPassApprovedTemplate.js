@@ -13,7 +13,7 @@ const vendorPassApprovedTemplate = ({
   let bgColor = "#dcfce7";
   let title = "Vendor Pass Approved";
   let greetingMessage = "<strong>Great news!</strong> Your vendor pass application has been <strong>APPROVED</strong>. You can now view and download your QR codes for entry/exit at Chennai Port.";
-  
+
   if (finalStatus === 'COMPLETED') {
     themeColor = "#2563eb"; // Blue
     themeGradient = "linear-gradient(90deg,#2563eb,#3b82f6)";
@@ -51,13 +51,6 @@ const vendorPassApprovedTemplate = ({
                   display:inline-block; font-size:15px;">
           ${finalStatus === 'REVERTED' ? 'Review & Resubmit Passes' : 'View Your Pass QR Codes'}
         </a>
-      </p>
-
-      <p style="font-size:13px; color:#475569;">
-        If the button doesn't work, copy and paste this URL into your browser:
-      </p>
-      <p style="word-break:break-all; font-size:13px; background:#f1f5f9; padding:10px; border-radius:4px;">
-        <a href="${qrLink}" style="color:#2563eb;">${qrLink}</a>
       </p>
 
       <table style="width:100%; margin-top:24px; font-size:14px; border-collapse:collapse; background:#f8fafc; border-radius:6px;">

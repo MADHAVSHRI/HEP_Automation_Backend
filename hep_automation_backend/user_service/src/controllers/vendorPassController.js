@@ -21,8 +21,30 @@ const buildToken = () =>
 const FRONTEND_BASE =
   process.env.FRONTEND_BASE_URL;
 
+const { encryptToken, decryptToken } = require("../utils/cryptoUtils");
+
 const buildVendorLink = (token) =>
-  `${FRONTEND_BASE}/vendor_pass/${token}`;
+  `${FRONTEND_BASE}/vendor_pass/${encryptToken(token)}`;
+
+const getResolvedToken = (tokenOrHash) => {
+  if (!tokenOrHash) return "";
+  const decrypted = decryptToken(tokenOrHash);
+  return decrypted || tokenOrHash;
+};
+
+const getResolvedId = async (idOrToken) => {
+  if (!idOrToken) return null;
+  const decrypted = decryptToken(idOrToken);
+  const resolved = decrypted || idOrToken;
+  if (/^\d+$/.test(String(resolved))) {
+    return Number(resolved);
+  }
+  const result = await pool.query(
+    `SELECT id FROM "vendor_pass_requests" WHERE "token" = $1`,
+    [resolved]
+  );
+  return result.rows[0]?.id || null;
+};
 
 const sendVendorLinkEmail = async (intake) => {
   const url = process.env.EMAIL_SERVICE_URL;
@@ -357,7 +379,8 @@ exports.revokeIntake = async (req, res) => {
 
 exports.getPublicByToken = async (req, res) => {
   try {
-    const intake = await VendorPassRequest.getByToken(req.params.token);
+    const resolvedToken = getResolvedToken(req.params.token);
+    const intake = await VendorPassRequest.getByToken(resolvedToken);
     if (!intake) {
       return res
         .status(404)
@@ -435,7 +458,8 @@ exports.getWorkOrderFile = async (req, res) => {
   try {
     const fs = require("fs");
     const path = require("path");
-    const intake = await VendorPassRequest.getById(Number(req.params.id));
+    const resolvedId = await getResolvedId(req.params.id);
+    const intake = await VendorPassRequest.getById(resolvedId);
     if (!intake || !intake.workOrderFilePath) {
       return res.status(404).json({ success: false, message: "Work order file not found" });
     }
@@ -457,7 +481,7 @@ exports.getWorkOrderFile = async (req, res) => {
 
 exports.submitPublicVendorForm = async (req, res) => {
   try {
-    const token = req.params.token;
+    const token = getResolvedToken(req.params.token);
     const intake = await VendorPassRequest.getByToken(token);
 
     if (!intake) {
@@ -658,6 +682,11 @@ exports.updateVendorPerson = async (req, res) => {
     const { id, personIndex } = req.params;
     let data = req.body;
 
+    const resolvedId = await getResolvedId(id);
+    if (!resolvedId) {
+      return res.status(404).json({ success: false, message: "Vendor pass not found" });
+    }
+
     // Attach files if any
     const files = req.files || {};
     const attachFile = (entry, fieldName, pathKey, nameKey) => {
@@ -681,7 +710,7 @@ exports.updateVendorPerson = async (req, res) => {
     attachFile(data, "declarationForm", "declarationFormPath", "declarationFormName");
 
     const result = await VendorPassRequest.updateVendorPerson(
-      Number(id),
+      resolvedId,
       Number(personIndex),
       data
     );
@@ -696,6 +725,11 @@ exports.updateVendorVehicle = async (req, res) => {
   try {
     const { id, vehicleIndex } = req.params;
     let data = req.body;
+
+    const resolvedId = await getResolvedId(id);
+    if (!resolvedId) {
+      return res.status(404).json({ success: false, message: "Vendor pass not found" });
+    }
 
     const files = req.files || {};
     const attachFile = (entry, fieldName, pathKey, nameKey) => {
@@ -715,7 +749,7 @@ exports.updateVendorVehicle = async (req, res) => {
     attachFile(data, "vehicleEmission", "emissionFilePath", "emissionFileName");
 
     const result = await VendorPassRequest.updateVendorVehicle(
-      Number(id),
+      resolvedId,
       Number(vehicleIndex),
       data
     );
@@ -729,7 +763,11 @@ exports.updateVendorVehicle = async (req, res) => {
 exports.resubmitVendorPass = async (req, res) => {
   try {
     const { id } = req.params;
-    const result = await VendorPassRequest.resubmitRevertedVendorPass(Number(id));
+    const resolvedId = await getResolvedId(id);
+    if (!resolvedId) {
+      return res.status(404).json({ success: false, message: "Vendor pass not found" });
+    }
+    const result = await VendorPassRequest.resubmitRevertedVendorPass(resolvedId);
     return res.json({ success: true, data: result });
   } catch (error) {
     console.error("resubmitVendorPass error:", error);

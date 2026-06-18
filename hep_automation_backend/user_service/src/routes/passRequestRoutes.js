@@ -72,8 +72,37 @@ router.put("/complete-review",verifyToken,passRequestController.completeReview);
 router.get("/getPassDetails/:passRequestId", verifyToken, passRequestController.getPassDetails);
 
 // Phase 2: Edit and resubmit reverted passes
-router.put("/update-pass-person/:personId", verifyToken, passRequestController.updatePassPerson);
-router.put("/update-pass-vehicle/:vehicleId", verifyToken, passRequestController.updatePassVehicle);
+router.put(
+  "/update-pass-person/:personId",
+  verifyToken,
+  upload.fields([
+    { name: "personPhoto", maxCount: 1 },
+    { name: "personAadhar", maxCount: 1 },
+    { name: "personIdProof", maxCount: 1 },
+    { name: "driverLicense", maxCount: 1 },
+    { name: "requisitionLetter", maxCount: 1 },
+    { name: "policeVerification", maxCount: 1 },
+    { name: "employmentProof", maxCount: 1 },
+    { name: "chaLicenseCopy", maxCount: 1 },
+    { name: "passportDoc", maxCount: 1 },
+  ]),
+  passRequestController.updatePassPerson
+);
+
+router.put(
+  "/update-pass-vehicle/:vehicleId",
+  verifyToken,
+  upload.fields([
+    { name: "vehicleRC", maxCount: 1 },
+    { name: "vehicleInsurance", maxCount: 1 },
+    { name: "vehiclePermit", maxCount: 1 },
+    { name: "vehicleFitness", maxCount: 1 },
+    { name: "vehicleRequestLetter", maxCount: 1 },
+    { name: "vehicleTax", maxCount: 1 },
+    { name: "vehicleEmission", maxCount: 1 },
+  ]),
+  passRequestController.updatePassVehicle
+);
 router.put("/resubmit-reverted-pass/:passRequestId", verifyToken, passRequestController.resubmitRevertedPass);
 
 // Public QR validation endpoint — called by gate scanner when a QR is scanned

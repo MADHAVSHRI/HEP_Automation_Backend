@@ -159,13 +159,31 @@ exports.getQrData = async (passRequestId, type ='null', entityId='null') => {
  * so each person/vehicle retains its own dateFrom/dateTo.
  */
 exports.getVendorQrData = async (vendorPassId) => {
+  // Resolve id from token if it is a token
+  let resolvedId = vendorPassId;
+  if (vendorPassId && !/^\d+$/.test(String(vendorPassId))) {
+    const { decryptToken } = require("../utils/cryptoUtils");
+    const decrypted = decryptToken(vendorPassId);
+    const finalTokenOrId = decrypted || vendorPassId;
+
+    if (/^\d+$/.test(String(finalTokenOrId))) {
+      resolvedId = Number(finalTokenOrId);
+    } else {
+      const tokenRes = await pool.query(
+        `SELECT id FROM "vendor_pass_requests" WHERE "token" = $1`,
+        [finalTokenOrId]
+      );
+      resolvedId = tokenRes.rows[0]?.id || null;
+    }
+  }
+
   // Verify vendor pass is approved
   const vprResult = await pool.query(
     `SELECT "referenceNo", "companyName", status,
             "workOrderFilePath", "workOrderFileName", "visitorTypeId", "purposeOfVisitId"
      FROM "vendor_pass_requests"
      WHERE id = $1 AND status IN ('APPROVED', 'COMPLETED', 'REVERTED', 'VENDOR_SUBMITTED', 'REJECTED')`,
-    [vendorPassId]
+    [resolvedId]
   );
 
   if (vprResult.rows.length === 0) {
@@ -179,7 +197,7 @@ exports.getVendorQrData = async (vendorPassId) => {
     `SELECT * FROM "vendor_pass_persons"
      WHERE "vendorPassRequestId" = $1
      ORDER BY id ASC`,
-    [vendorPassId]
+    [resolvedId]
   );
 
   // Process persons with photo base64
@@ -280,7 +298,7 @@ exports.getVendorQrData = async (vendorPassId) => {
     `SELECT * FROM "vendor_pass_vehicles"
      WHERE "vendorPassRequestId" = $1
      ORDER BY id ASC`,
-    [vendorPassId]
+    [resolvedId]
   );
 
   const vehicles = vehiclesResult.rows.map((vehicle) => {
