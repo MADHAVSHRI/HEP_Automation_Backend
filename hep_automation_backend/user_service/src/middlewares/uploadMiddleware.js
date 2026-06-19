@@ -22,7 +22,7 @@ const AUTH_DIR = path.join(passRequestBaseDir, "authLetters");
 const PHOTO_DIR = path.join(passRequestBaseDir, "personPhotos");
 const AADHAR_DIR = path.join(passRequestBaseDir, "personAadhar");
 const IDPROOF_DIR = path.join(passRequestBaseDir, "personIdProof");
-const REQLETTER_DIR = path.join(passRequestBaseDir, "requisitionLetter");
+const REQLETTER_DIR = path.join(passRequestBaseDir, "passRequisitionLetter");
 const RC_DIR = path.join(passRequestBaseDir, "vehicleRC");
 
 const DL_DIR = path.join(passRequestBaseDir,"driverLicense");
@@ -51,7 +51,7 @@ const passRequestFolders = [
   "personPhotos",
   "personAadhar",
   "personIdProof",
-  "requisitionLetter",
+  "passRequisitionLetter",
   "vehicleRC",
   "driverLicense",
   "policeVerification",
@@ -144,7 +144,7 @@ const storage = multer.diskStorage({
         cb(null, IDPROOF_DIR);
         break;
 
-      case "requisitionLetter":
+      case "passRequisitionLetter":
         cb(null, REQLETTER_DIR);
         break;
 
@@ -249,8 +249,8 @@ const storage = multer.diskStorage({
       fileName = `PERSONIDPROOF${timestamp}.pdf`;
     }
 
-    else if (file.fieldname === "requisitionLetter") {
-      fileName = `REQUISITIONLETTER${timestamp}.pdf`;
+    else if (file.fieldname === "passRequisitionLetter") {
+      fileName = `PASSREQUISITIONLETTER${timestamp}.pdf`;
     }
 
     else if (file.fieldname === "vehicleRC") {

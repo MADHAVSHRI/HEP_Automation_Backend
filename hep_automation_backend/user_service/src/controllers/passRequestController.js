@@ -403,6 +403,45 @@ const getMasterDirectory = async (req, res) => {
   }
 };
 
+const viewMasterDocument = async (req, res) => {
+  try {
+
+    const {
+      masterId,
+      entityType,
+      documentType
+    } = req.query;
+
+    const result =
+      await viewPassRequestsDocuments.getMasterDocumentPath(
+        masterId,
+        entityType,
+        documentType
+      );
+
+    if (!result) {
+      return res.status(404).json({
+        success: false,
+        message: "Document not found"
+      });
+    }
+
+    return res.sendFile(
+      path.resolve(result.filePath)
+    );
+
+  } catch (err) {
+
+    console.error(err);
+
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error"
+    });
+
+  }
+};
+
 const getAgentPassRequestsToApproverAdmin = async (req, res) => {
 
   try {
@@ -1327,5 +1366,6 @@ module.exports = {
   updatePassVehicle,
   resubmitRevertedPass,
   saveQrPdfPath,
-  validateSecureQr
+  validateSecureQr,
+  viewMasterDocument
 };

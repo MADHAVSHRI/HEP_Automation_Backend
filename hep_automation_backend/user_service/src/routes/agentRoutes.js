@@ -4,6 +4,7 @@ const verifyService = require("../middlewares/verifyService");
 const verifyToken = require("../middlewares/verifyToken");
 const upload = require("../middlewares/uploadMiddleware");
 const agentController = require("../controllers/agentController");
+const forgotPasswordLimiter = require("../middlewares/forgotPasswordLimiter");
 
 // router.post(
 //   "/registerAgent",
@@ -82,7 +83,7 @@ router.post(
 );
 
 router.post(
-  "/forgot-password/send-otp",
+  "/forgot-password/send-otp",forgotPasswordLimiter,
   verifyService,
   agentController.sendForgotPasswordOtp
 );

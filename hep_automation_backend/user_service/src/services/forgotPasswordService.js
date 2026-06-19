@@ -53,10 +53,68 @@ const deleteOtp = async (identifier) => {
   await redisClient.del(key);
 };
 
+const RESEND_COOLDOWN = 60;
+
+const canSendOtp = async (identifier) => {
+
+  const key =
+    `FORGOT_PASSWORD_COOLDOWN:${identifier}`;
+
+  const exists =
+    await redisClient.exists(key);
+
+  return !exists;
+
+};
+
+const setCooldown = async (
+  identifier
+) => {
+
+  const key =
+    `FORGOT_PASSWORD_COOLDOWN:${identifier}`;
+
+  await redisClient.set(
+    key,
+    "1",
+    {
+      EX: RESEND_COOLDOWN
+    }
+  );
+
+};
+
+const MAX_OTP_PER_HOUR = 5;
+
+const incrementOtpCounter =
+  async (identifier) => {
+
+    const key =
+      `FORGOT_PASSWORD_COUNT:${identifier}`;
+
+    const count =
+      await redisClient.incr(key);
+
+    if (count === 1) {
+
+      await redisClient.expire(
+        key,
+        3600
+      );
+
+    }
+
+    return count;
+
+};
+
 module.exports = {
   generateOtp,
   saveOtp,
   getOtp,
   deleteOtp,
   MAX_ATTEMPTS,
+  canSendOtp,
+  setCooldown,
+  incrementOtpCounter,
 };

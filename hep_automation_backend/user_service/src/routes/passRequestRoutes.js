@@ -6,21 +6,20 @@ const authorizeToken = require("../middlewares/authorizeToken");
 const upload = require("../middlewares/uploadMiddleware");
 const verifyToken = require( "../middlewares/verifyToken" );
 
-router.post("/createPassRequest",verifyToken,
+router.post(
+  "/createPassRequest",
+  verifyToken,
   upload.fields([
     { name: "authLetter", maxCount: 1 },
-
     { name: "personPhoto", maxCount: 50 },
     { name: "personAadhar", maxCount: 50 },
     { name: "personIdProof", maxCount: 50 },
-
     { name: "driverLicense", maxCount: 50 },
-    { name: "requisitionLetter", maxCount: 50 },
+    { name: "passRequisitionLetter", maxCount: 50 },
     { name: "policeVerification", maxCount: 50 },
     { name: "employmentProof", maxCount: 50 },
     { name: "chaLicenseCopy", maxCount: 50 },
     { name: "passportDoc", maxCount: 50 },
-
     { name: "vehicleRC", maxCount: 50 },
     { name: "vehicleInsurance", maxCount: 50 },
     { name: "vehiclePermit", maxCount: 50 },
@@ -29,7 +28,7 @@ router.post("/createPassRequest",verifyToken,
     { name: "vehicleTax", maxCount: 50 },
     { name: "vehicleEmission", maxCount: 50 }
   ]),
-  passRequestController.createPassRequest,
+  passRequestController.createPassRequest
 );
 
 
@@ -116,6 +115,11 @@ router.post(
 router.post(
   "/validate-qr",
   passRequestController.validateSecureQr
+);
+
+router.get(
+  "/viewMasterDocument",
+  passRequestController.viewMasterDocument
 );
 
 module.exports = router;

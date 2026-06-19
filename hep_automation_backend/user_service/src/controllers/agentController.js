@@ -1,6 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 const axios = require("axios");
+const sendEmailEvent = require("../utils/kafka/producer");
 const { successLogger, errorLogger } = require("../logger/logger");
 const Agent = require("../models/agentRegistrationSchema");
 const captchaService = require("../services/captchaService");
@@ -9,7 +10,7 @@ const bcrypt = require("bcrypt");
 const generateLoginId = require("../utils/loginIdGenerator");
 const AGENT_STATUS = require("../constants/constants").AGENT_STATUS;
 const redisClient = require("../../config/redisClient");
-const { generateOtp, saveOtp, getOtp, deleteOtp, MAX_ATTEMPTS } = require("../services/forgotPasswordService");
+const { generateOtp, saveOtp, getOtp, deleteOtp, MAX_ATTEMPTS, canSendOtp, setCooldown, incrementOtpCounter } = require("../services/forgotPasswordService");
 const forgotPasswordValidator = require("../utils/forgotPasswordValidator");
 
 exports.registerAgent = async (req, res) => {
@@ -731,18 +732,48 @@ exports.sendForgotPasswordOtp = async (req, res) => {
       });
     }
 
-    const otp = generateOtp();
+    if (
+  !(await canSendOtp(
+    user.loginId
+  ))
+) {
+
+  return res.status(429).json({
+    success: false,
+    message:
+      "Please wait 60 seconds before requesting another OTP"
+  });
+
+}
+
+  if (
+  !(await canSendOtp(
+    user.loginId
+  ))
+) {
+
+  return res.status(429).json({
+    success: false,
+    message:
+      "Please wait 60 seconds before requesting another OTP"
+  });
+
+}
+
+  const otp = generateOtp();
 
     await saveOtp(
       user.loginId,
       otp
     );
 
-    sendEmail("/api/email/sendForgotPasswordOtp", {
+    await sendEmailEvent({
+      type: "FORGOT_PASSWORD_OTP",
       email: user.email,
       name: user.firstName,
       otp,
     });
+
 
     return res.json({
       success: true,
