@@ -111,6 +111,18 @@ exports.createIntake = async (req, res) => {
       });
     }
 
+    // Check if the company is blacklisted
+    const companyBlacklist = await pool.query(
+      "SELECT id, reason FROM blacklist_entries WHERE entity_type = 'COMPANY' AND (UPPER(identifier) = UPPER($1) OR UPPER(entity_name) = UPPER($1)) AND status IN ('BLACKLISTED', 'UNBLACKLIST_REQUESTED')",
+      [companyName]
+    );
+    if (companyBlacklist.rows.length > 0) {
+      return res.status(403).json({
+        success: false,
+        message: `Cannot initiate pass request. Company (${companyName}) is blacklisted. Reason: ${companyBlacklist.rows[0].reason}`
+      });
+    }
+
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(vendorEmail)) {
       return res
         .status(400)
@@ -494,6 +506,18 @@ exports.submitPublicVendorForm = async (req, res) => {
       return res.status(410).json({
         success: false,
         message: "This link is no longer active",
+      });
+    }
+
+    // Check if the company is blacklisted
+    const companyBlacklist = await pool.query(
+      "SELECT id, reason FROM blacklist_entries WHERE entity_type = 'COMPANY' AND (UPPER(identifier) = UPPER($1) OR UPPER(entity_name) = UPPER($1)) AND status IN ('BLACKLISTED', 'UNBLACKLIST_REQUESTED')",
+      [intake.companyName]
+    );
+    if (companyBlacklist.rows.length > 0) {
+      return res.status(403).json({
+        success: false,
+        message: `Pass application blocked. Company (${intake.companyName}) is blacklisted. Reason: ${companyBlacklist.rows[0].reason}`
       });
     }
 

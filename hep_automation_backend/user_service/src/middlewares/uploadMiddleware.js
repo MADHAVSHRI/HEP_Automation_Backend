@@ -36,6 +36,8 @@ const PERMIT_DIR = path.join(passRequestBaseDir,"vehiclePermit");
 const FITNESS_DIR = path.join(passRequestBaseDir,"vehicleFitness");
 const TAX_DIR = path.join(passRequestBaseDir,"vehicleTax");
 const EMISSION_DIR = path.join(passRequestBaseDir,"vehicleEmission");
+const CDC_DIR = path.join(passRequestBaseDir,"cdcDocument");
+const DECLARATION_DIR = path.join(passRequestBaseDir,"declarationForm");
 
 const VENDOR_WORK_ORDER_DIR = path.join(vendorPassBaseDir, "workOrder");
 
@@ -63,7 +65,9 @@ const passRequestFolders = [
   "vehicleFitness",
   "vehicleRequestLetter",
   "vehicleTax",
-  "vehicleEmission"
+  "vehicleEmission",
+  "cdcDocument",
+  "declarationForm"
 ];
 
 folders.forEach((folder) => {
@@ -105,8 +109,8 @@ const storage = multer.diskStorage({
      Switch statement is faster than multiple if-else checks
   */
   destination: function (req, file, cb) {
-
-    switch (file.fieldname) {
+    const fieldPrefix = file.fieldname.replace(/_\d+$/, "");
+    switch (fieldPrefix) {
 
       case "panDoc":
         cb(null, PAN_DIR);
@@ -172,6 +176,14 @@ const storage = multer.diskStorage({
         cb(null, PASSPORT_DIR);
         break;
 
+      case "cdcDocument":
+        cb(null, CDC_DIR);
+        break;
+
+      case "declarationForm":
+        cb(null, DECLARATION_DIR);
+        break;
+
       case "vehicleInsurance":
         cb(null, INSURANCE_DIR);
         break;
@@ -212,98 +224,107 @@ const storage = multer.diskStorage({
     const timestamp = generateTimestamp();
 
     let fileName = "";
+    const fieldPrefix = file.fieldname.replace(/_\d+$/, "");
 
-    if (file.fieldname === "panDoc") {
+    if (fieldPrefix === "panDoc") {
       fileName = `${company}PAN${timestamp}.pdf`;
     }
 
-    else if (file.fieldname === "gstinDoc") {
+    else if (fieldPrefix === "gstinDoc") {
       fileName = `${company}GST${timestamp}.pdf`;
     }
 
-    else if (file.fieldname === "tanDoc") {
+    else if (fieldPrefix === "tanDoc") {
       fileName = `${company}TAN${timestamp}.pdf`;
     }
 
-    else if (file.fieldname === "workOrder") {
+    else if (fieldPrefix === "workOrder") {
       fileName = `${company}WORKORDER${timestamp}.pdf`;
     }
 
-    else if (file.fieldname === "requisitionLetter") {
+    else if (fieldPrefix === "requisitionLetter") {
       fileName = `${company}REQUISITIONLETTER${timestamp}.pdf`;
     }
 
-    else if (file.fieldname === "authLetter") {
+    else if (fieldPrefix === "authLetter") {
       fileName = `AUTHLETTER${timestamp}.pdf`;
     }
 
-    else if (file.fieldname === "personPhoto") {
+    else if (fieldPrefix === "personPhoto") {
       fileName = `PERSONPHOTO${timestamp}${path.extname(file.originalname)}`;
     }
 
-    else if (file.fieldname === "personAadhar") {
+    else if (fieldPrefix === "personAadhar") {
       fileName = `PERSONAADHAR${timestamp}.pdf`;
     }
 
-    else if (file.fieldname === "personIdProof") {
+    else if (fieldPrefix === "personIdProof") {
       fileName = `PERSONIDPROOF${timestamp}.pdf`;
     }
 
-    else if (file.fieldname === "passRequisitionLetter") {
+    else if (fieldPrefix === "passRequisitionLetter") {
       fileName = `PASSREQUISITIONLETTER${timestamp}.pdf`;
     }
 
-    else if (file.fieldname === "vehicleRC") {
+    else if (fieldPrefix === "vehicleRC") {
       fileName = `VEHICLERC${timestamp}.pdf`;
     }
 
 
-    else if (file.fieldname === "driverLicense") {
+    else if (fieldPrefix === "driverLicense") {
       fileName = `DRIVERLICENSE${timestamp}.pdf`;
     }
 
-    else if (file.fieldname === "policeVerification") {
+    else if (fieldPrefix === "policeVerification") {
       fileName = `POLICEVERIFY${timestamp}.pdf`;
     }
 
-    else if (file.fieldname === "employmentProof") {
+    else if (fieldPrefix === "employmentProof") {
       fileName = `EMPLOYMENTPROOF${timestamp}.pdf`;
     }
 
-    else if (file.fieldname === "chaLicenseCopy") {
+    else if (fieldPrefix === "chaLicenseCopy") {
       fileName = `CHALICENSE${timestamp}.pdf`;
     }
 
-    else if (file.fieldname === "passportDoc") {
+    else if (fieldPrefix === "passportDoc") {
       fileName = `PASSPORT${timestamp}.pdf`;
     }
 
-    else if (file.fieldname === "vehicleInsurance") {
+    else if (fieldPrefix === "vehicleInsurance") {
       fileName = `VEHICLEINSURANCE${timestamp}.pdf`;
     }
 
-    else if (file.fieldname === "vehiclePermit") {
+    else if (fieldPrefix === "vehiclePermit") {
       fileName = `VEHICLEPERMIT${timestamp}.pdf`;
     }
 
-    else if (file.fieldname === "vehicleFitness") {
+    else if (fieldPrefix === "vehicleFitness") {
       fileName = `VEHICLEFITNESS${timestamp}.pdf`;
     }
 
-    else if (file.fieldname === "vehicleRequestLetter") {
+    else if (fieldPrefix === "vehicleRequestLetter") {
       fileName = `VEHICLEREQUEST${timestamp}.pdf`;
     }
 
-    else if (file.fieldname === "vehicleTax") {
+    else if (fieldPrefix === "vehicleTax") {
       fileName = `VEHICLETAX${timestamp}.pdf`;
     }
 
-    else if (file.fieldname === "vehicleEmission") {
+    else if (fieldPrefix === "vehicleEmission") {
       fileName = `VEHICLEEMISSION${timestamp}.pdf`;
     }
 
-    else if (file.fieldname === "vendorWorkOrder") {
+    else if (fieldPrefix === "vendorWorkOrder") {
       fileName = `VENDORWORKORDER${timestamp}${path.extname(file.originalname)}`;
+    }
+
+    else if (fieldPrefix === "cdcDocument") {
+      fileName = `CDCDOCUMENT${timestamp}.pdf`;
+    }
+
+    else if (fieldPrefix === "declarationForm") {
+      fileName = `DECLARATIONFORM${timestamp}.pdf`;
     }
 
     else if (!fileName) {
@@ -348,8 +369,8 @@ const upload = multer({
   storage,
   fileFilter,
   limits: {
-    fileSize: 2 * 1024 * 1024,   // 2MB max per file
-    files: 150                    // realistic max: 10 persons × 9 docs + 8 vehicles × 7 docs
+    fileSize: 5 * 1024 * 1024,   // 5MB max per file (PDFs + photos can be large)
+    files: 200                    // realistic max: 10 persons × 11 docs + 10 vehicles × 7 docs
   },
   preservePath: true
 });

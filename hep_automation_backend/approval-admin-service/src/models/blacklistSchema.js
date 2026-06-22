@@ -17,7 +17,7 @@ const Blacklist = {
           supporting_document_path, geotag_latitude, geotag_longitude, geotag_accuracy,
           permit_one_gate_out
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'BLACKLISTED', $9, NOW(), $10, $11, $12, $13, $14, $15, $16)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), $11, $12, $13, $14, $15, $16, $17)
         RETURNING *
       `;
 
@@ -31,6 +31,7 @@ const Blacklist = {
         data.has_penalty || false,
         data.has_penalty ? data.penalty_amount : null,
         penaltyStatus,
+        data.status || 'BLACKLISTED',
         data.blacklisted_by,
         data.reason_code || null,
         data.authorizing_officer || null,
@@ -326,9 +327,9 @@ const Blacklist = {
    */
   async checkBlacklisted(entityType, identifier) {
     const result = await pool.query(
-      `SELECT id, entity_type, identifier, entity_name, reason, status, penalty_status
+      `SELECT id, entity_type, identifier, entity_name, reason, reason_code, status, penalty_status, penalty_amount
        FROM blacklist_entries
-       WHERE entity_type = $1 AND identifier = $2 AND status != 'UNBLACKLISTED'`,
+       WHERE entity_type = $1 AND identifier = $2 AND status IN ('BLACKLISTED', 'UNBLACKLIST_REQUESTED')`,
       [entityType, identifier.toUpperCase().trim()]
     );
 
@@ -343,7 +344,9 @@ const Blacklist = {
       SELECT
         COUNT(*) FILTER (WHERE status = 'BLACKLISTED')              AS active_blacklisted,
         COUNT(*) FILTER (WHERE status = 'UNBLACKLIST_REQUESTED')    AS pending_unblacklist,
+        COUNT(*) FILTER (WHERE status = 'PENDING_BLACKLIST')        AS pending_blacklist,
         COUNT(*) FILTER (WHERE penalty_status = 'PENDING')          AS pending_penalties,
+        COALESCE(SUM(penalty_amount) FILTER (WHERE penalty_status = 'PENDING'), 0) AS pending_penalties_sum,
         COUNT(*) FILTER (WHERE status = 'UNBLACKLISTED')            AS total_unblacklisted,
         COUNT(*)                                                     AS total
       FROM blacklist_entries

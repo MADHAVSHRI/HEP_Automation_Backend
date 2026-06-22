@@ -82,6 +82,26 @@ const PassRequest = {
   async createPassRequest(payload, files) {
     const client = await pool.connect();
 
+    const getFile = (fieldname, index = null) => {
+      if (!files) return null;
+      if (Array.isArray(files)) {
+        if (index !== null) {
+          const indexedFile = files.find(f => f.fieldname === `${fieldname}_${index}`);
+          if (indexedFile) return indexedFile;
+          const list = files.filter(f => f.fieldname === fieldname);
+          return list[index];
+        } else {
+          return files.find(f => f.fieldname === fieldname);
+        }
+      } else {
+        if (index !== null) {
+          return files[`${fieldname}_${index}`]?.[0] || files[fieldname]?.[index];
+        } else {
+          return files[fieldname]?.[0];
+        }
+      }
+    };
+
     try {
       await client.query("BEGIN");
 
@@ -97,8 +117,8 @@ const PassRequest = {
         vehicles,
       } = payload;
 
-      const authLetter = files.authLetter?.[0];
-      const passRequisitionLetter = files.passRequisitionLetter?.[0];
+      const authLetter = getFile("authLetter");
+      const passRequisitionLetter = getFile("passRequisitionLetter");
 
       /* ===== CHANGE START =====
           Generate Pass Request Reference Number
@@ -130,8 +150,8 @@ const PassRequest = {
               referenceNo,
               agentId,
               purposeOfVisitId,
-              authLetter.path,
-              authLetter.originalname,
+              authLetter?.path,
+              authLetter?.originalname,
               passRequisitionLetter?.path,
               passRequisitionLetter?.originalname,
               paymentMode,
@@ -170,19 +190,18 @@ const PassRequest = {
 
       for (let i = 0; i < persons.length; i++) {
         const person = persons[i];
-
         let masterPersonId = person.masterPersonId;
 
-        if (!masterPersonId) {
-          const aadharFile = files.personAadhar?.[i];
-          const photoFile = files.personPhoto?.[i];
-          const idProofFile = files.personIdProof?.[i];
-          const dlFile = files.driverLicense?.[i];
-          const policeFile = files.policeVerification?.[i];
-          const employFile = files.employmentProof?.[i];
-          const chaFile = files.chaLicenseCopy?.[i];
-          const passportFile = files.passportDoc?.[i];
+        const aadharFile = getFile("personAadhar", i);
+        const photoFile = getFile("personPhoto", i);
+        const idProofFile = getFile("personIdProof", i);
+        const dlFile = getFile("driverLicense", i);
+        const policeFile = getFile("policeVerification", i);
+        const employFile = getFile("employmentProof", i);
+        const chaFile = getFile("chaLicenseCopy", i);
+        const passportFile = getFile("passportDoc", i);
 
+        if (!masterPersonId) {
           const existingPerson = await client.query(
             `
           SELECT id
@@ -305,6 +324,13 @@ const PassRequest = {
           }
         }
 
+        // Fetch all details from master_persons to copy into pass_persons snapshot
+        const masterPersonRes = await client.query(
+          `SELECT * FROM master_persons WHERE id = $1`,
+          [masterPersonId]
+        );
+        const mpData = masterPersonRes.rows[0];
+
         const personPassNo = await ReferenceNumber.generatePersonPassNo(client);
 
         await client.query(
@@ -316,6 +342,36 @@ const PassRequest = {
           "masterPersonId",
           "rateId",
           "hepTypeId",
+          "name",
+          "mobile",
+          "email",
+          "nationality",
+          "countryId",
+          "visaNo",
+          "designationId",
+          "designationOther",
+          "cardNumber",
+          "accessAreaId",
+          "withTwoWheeler",
+          "vehicleNo",
+          "idProofType",
+          "idProofNumber",
+          "aadharPDFFilePATH",
+          "aadharPDFFileName",
+          "idProofFilePath",
+          "idProofFileName",
+          "photoFilePath",
+          "photoFileName",
+          "driverLicensePath",
+          "driverLicenseName",
+          "policeVerificationPath",
+          "policeVerificationName",
+          "employmentProofPath",
+          "employmentProofName",
+          "chaLicensePath",
+          "chaLicenseName",
+          "passportPath",
+          "passportName",
           "passType",
           "passPeriod",
           "dateFrom",
@@ -327,6 +383,10 @@ const PassRequest = {
         VALUES
         (
           $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,
+          $11,$12,$13,$14,$15,$16,$17,
+          $18,$19,$20,$21,$22,$23,$24,$25,
+          $26,$27,$28,$29,$30,$31,$32,$33,
+          $34,$35,$36,$37,$38,$39,$40,
           NOW(),NOW()
         )
         `,
@@ -336,6 +396,36 @@ const PassRequest = {
             masterPersonId,
             person.rateId,
             person.hepTypeId,
+            mpData.name,
+            mpData.mobile,
+            mpData.email,
+            mpData.nationality,
+            mpData.countryId,
+            mpData.visaNo,
+            mpData.designationId,
+            mpData.designationOther,
+            mpData.cardNumber,
+            mpData.accessAreaId,
+            mpData.withTwoWheeler,
+            mpData.vehicleNo,
+            mpData.idProofType,
+            mpData.idProofNumber,
+            mpData.aadharPDFFilePATH,
+            mpData.aadharPDFFileName,
+            mpData.idProofFilePath,
+            mpData.idProofFileName,
+            mpData.photoFilePath,
+            mpData.photoFileName,
+            mpData.driverLicensePath,
+            mpData.driverLicenseName,
+            mpData.policeVerificationPath,
+            mpData.policeVerificationName,
+            mpData.employmentProofPath,
+            mpData.employmentProofName,
+            mpData.chaLicensePath,
+            mpData.chaLicenseName,
+            mpData.passportPath,
+            mpData.passportName,
             person.passType,
             person.passPeriod,
             person.dateFrom,
@@ -353,18 +443,18 @@ const PassRequest = {
 
       for (let i = 0; i < vehicles.length; i++) {
         const vehicle = vehicles[i];
-
         let masterVehicleId = vehicle.masterVehicleId;
 
-        if (!masterVehicleId) {
-          const vehicleFile = files.vehicleRC?.[i];
-          const insuranceFile = files.vehicleInsurance?.[i];
-          const permitFile = files.vehiclePermit?.[i];
-          const fitnessFile = files.vehicleFitness?.[i];
-          const reqLetterFile = files.vehicleRequestLetter?.[i];
-          const taxFile = files.vehicleTax?.[i];
-          const emissionFile = files.vehicleEmission?.[i];
+        const fileIdx = vehicle.originalIndex !== undefined ? vehicle.originalIndex : i;
+        const vehicleFile = getFile("vehicleRC", fileIdx);
+        const insuranceFile = getFile("vehicleInsurance", fileIdx);
+        const permitFile = getFile("vehiclePermit", fileIdx);
+        const fitnessFile = getFile("vehicleFitness", fileIdx);
+        const reqLetterFile = getFile("vehicleRequestLetter", fileIdx);
+        const taxFile = getFile("vehicleTax", fileIdx);
+        const emissionFile = getFile("vehicleEmission", fileIdx);
 
+        if (!masterVehicleId) {
           const existingVehicle = await client.query(
             `
             SELECT id
@@ -462,6 +552,13 @@ const PassRequest = {
           }
         }
 
+        // Fetch all details from master_vehicles to copy into pass_vehicles snapshot
+        const masterVehicleRes = await client.query(
+          `SELECT * FROM master_vehicles WHERE id = $1`,
+          [masterVehicleId]
+        );
+        const mvData = masterVehicleRes.rows[0];
+
         const vehiclePassNo =
           await ReferenceNumber.generateVehiclePassNo(client);
 
@@ -473,6 +570,26 @@ const PassRequest = {
             "passRequestId",
             "masterVehicleId",
             "rateId",
+            "vehicleTypeId",
+            "registrationNo",
+            "rfidCardNumber",
+            "scannedCopyFilePath",
+            "scannedCopyFileName",
+            "insuranceExpiry",
+            "rcValidity",
+            "accessAreaId",
+            "insuranceFilePath",
+            "insuranceFileName",
+            "permitFilePath",
+            "permitFileName",
+            "fitnessFilePath",
+            "fitnessFileName",
+            "requestLetterPath",
+            "requestLetterName",
+            "taxDocPath",
+            "taxDocName",
+            "emissionCertPath",
+            "emissionCertName",
             "passType",
             "passPeriod",
             "dateFrom",
@@ -483,7 +600,10 @@ const PassRequest = {
           )
           VALUES
           (
-            $1,$2,$3,$4,$5,$6,$7,$8,$9,
+            $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,
+            $11,$12,$13,$14,$15,$16,$17,$18,
+            $19,$20,$21,$22,$23,$24,$25,$26,
+            $27,$28,$29,
             NOW(),NOW()
           )
           `,
@@ -492,6 +612,26 @@ const PassRequest = {
             passRequestId,
             masterVehicleId,
             vehicle.rateId,
+            mvData.vehicleTypeId,
+            mvData.registrationNo,
+            mvData.rfidCardNumber,
+            mvData.scannedCopyFilePath,
+            mvData.scannedCopyFileName,
+            mvData.insuranceExpiry,
+            mvData.rcValidity,
+            mvData.accessAreaId,
+            mvData.insuranceFilePath,
+            mvData.insuranceFileName,
+            mvData.permitFilePath,
+            mvData.permitFileName,
+            mvData.fitnessFilePath,
+            mvData.fitnessFileName,
+            mvData.requestLetterPath,
+            mvData.requestLetterName,
+            mvData.taxDocPath,
+            mvData.taxDocName,
+            mvData.emissionCertPath,
+            mvData.emissionCertName,
             vehicle.passType,
             vehicle.passPeriod,
             vehicle.dateFrom,

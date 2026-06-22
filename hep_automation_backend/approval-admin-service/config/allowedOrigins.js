@@ -3,6 +3,9 @@ const allowedOrigins = [
   "http://127.0.0.1:3000",
   "http://10.184.3.133:3000",
   "http://10.184.3.133:5005",  // Make sure this is correctly added
-  "http://14.139.180.41:3000"
+  "http://14.139.180.41:3000",
+  "http://10.46.206.13:3000",
+  "http://[IP_ADDRESS]",
+  "http://10.46.206.191:3000"
 ];
 module.exports = allowedOrigins;

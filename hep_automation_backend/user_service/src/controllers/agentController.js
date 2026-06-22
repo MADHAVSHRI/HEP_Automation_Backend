@@ -12,6 +12,7 @@ const AGENT_STATUS = require("../constants/constants").AGENT_STATUS;
 const redisClient = require("../../config/redisClient");
 const { generateOtp, saveOtp, getOtp, deleteOtp, MAX_ATTEMPTS, canSendOtp, setCooldown, incrementOtpCounter } = require("../services/forgotPasswordService");
 const forgotPasswordValidator = require("../utils/forgotPasswordValidator");
+const { pool } = require("../dbconfig/db");
 
 exports.registerAgent = async (req, res) => {
   const deleteFiles = () => {
@@ -292,9 +293,48 @@ exports.getAgentProfile = async (req, res) => {
       });
     }
 
+    // Check if the company is blacklisted
+    const blacklistRes = await pool.query(
+      "SELECT id, reason FROM blacklist_entries WHERE entity_type = 'COMPANY' AND (UPPER(identifier) = UPPER($1) OR identifier = $2) AND status IN ('BLACKLISTED', 'UNBLACKLIST_REQUESTED')",
+      [agent.loginId, String(agent.id)]
+    );
+
+    const isBlacklisted = blacklistRes.rows.length > 0;
+    const blacklistReason = isBlacklisted ? blacklistRes.rows[0].reason : null;
+
+    // Check if any company vehicles are blacklisted
+    const vehiclesRes = await pool.query(
+      `SELECT "registrationNo" FROM master_vehicles WHERE "agentId" = $1
+       UNION
+       SELECT pv."registrationNo" 
+       FROM pass_vehicles pv
+       JOIN pass_requests pr ON pv."passRequestId" = pr.id
+       WHERE pr."agentId" = $1`,
+      [agentId]
+    );
+    let blacklistedVehicles = [];
+    if (vehiclesRes.rows.length > 0) {
+      const regNos = vehiclesRes.rows
+        .map(r => r.registrationNo ? r.registrationNo.toUpperCase().trim() : null)
+        .filter(Boolean);
+      if (regNos.length > 0) {
+        const normalizedRegNos = regNos.map(no => no.replace(/\s/g, '').replace(/-/g, ''));
+        const vehicleBlacklistRes = await pool.query(
+          "SELECT identifier, reason, status FROM blacklist_entries WHERE entity_type = 'VEHICLE' AND REPLACE(REPLACE(UPPER(identifier), ' ', ''), '-', '') = ANY($1) AND status IN ('BLACKLISTED', 'UNBLACKLIST_REQUESTED', 'PENDING_BLACKLIST')",
+          [normalizedRegNos]
+        );
+        blacklistedVehicles = vehicleBlacklistRes.rows;
+      }
+    }
+
     return res.status(200).json({
       success: true,
-      data: agent,
+      data: {
+        ...agent,
+        isBlacklisted,
+        blacklistReason,
+        blacklistedVehicles
+      },
     });
   } catch (error) {
     console.error("Fetch agent profile error:", error);

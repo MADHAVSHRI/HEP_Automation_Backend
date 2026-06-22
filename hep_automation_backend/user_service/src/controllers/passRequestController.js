@@ -136,18 +136,30 @@ const getVisitPurposes = async (req, res) => {
 const createPassRequest = async (req, res) => {
 
   const deleteFiles = () => {
-    const files = req.files || {};
+    const files = req.files;
+    if (!files) return;
 
-    Object.values(files).forEach((fileArray) => {
-      fileArray.forEach((file) => {
-        if (fs.existsSync(file.path)) {
-          fs.unlink(file.path, (err) => {
-            if(err && err.code !== "ENOENT"){
-              console.error("File delete error:",err);
-            }
-          });
+    const allFiles = [];
+    if (Array.isArray(files)) {
+      allFiles.push(...files);
+    } else if (typeof files === "object") {
+      Object.values(files).forEach((item) => {
+        if (Array.isArray(item)) {
+          allFiles.push(...item);
+        } else if (item && typeof item === "object") {
+          allFiles.push(item);
         }
       });
+    }
+
+    allFiles.forEach((file) => {
+      if (file && file.path && fs.existsSync(file.path)) {
+        fs.unlink(file.path, (err) => {
+          if (err && err.code !== "ENOENT") {
+            console.error("File delete error:", err);
+          }
+        });
+      }
     });
   };
 
@@ -205,12 +217,13 @@ const createPassRequest = async (req, res) => {
 
     // 1. Check Company blacklisting
     if (payload.agentId) {
-      const userRes = await pool.query('SELECT "userName" FROM users WHERE id = $1', [payload.agentId]);
-      if (userRes.rows.length > 0) {
-        const companyName = userRes.rows[0].userName;
+      const agentRes = await pool.query('SELECT id, "loginId" FROM "Agents" WHERE id = $1', [payload.agentId]);
+      if (agentRes.rows.length > 0) {
+        const companyName = agentRes.rows[0].loginId;
+        const companyIdStr = String(agentRes.rows[0].id || payload.agentId);
         const blacklistRes = await pool.query(
-          "SELECT id, reason FROM blacklist_entries WHERE entity_type = 'COMPANY' AND identifier = $1 AND status != 'UNBLACKLISTED'",
-          [companyName]
+          "SELECT id, reason FROM blacklist_entries WHERE entity_type = 'COMPANY' AND (UPPER(identifier) = UPPER($1) OR identifier = $2) AND status IN ('BLACKLISTED', 'UNBLACKLIST_REQUESTED')",
+          [companyName, companyIdStr]
         );
         if (blacklistRes.rows.length > 0) {
           return res.status(403).json({
@@ -222,39 +235,58 @@ const createPassRequest = async (req, res) => {
     }
 
     // 2. Check Persons & Drivers blacklisting
+    // Note: person.aadharNo holds either the Aadhaar number OR the Passport number
+    // for Seafarers who chose Passport as their primary ID (stored in same column).
     if (payload.persons && Array.isArray(payload.persons)) {
       for (const person of payload.persons) {
         if (person.aadharNo) {
+          const identifier = person.aadharNo.toUpperCase().trim();
           const blacklistRes = await pool.query(
-            "SELECT id, reason, entity_type FROM blacklist_entries WHERE entity_type IN ('PERSON', 'DRIVER') AND identifier = $1 AND status != 'UNBLACKLISTED'",
-            [person.aadharNo.toUpperCase().trim()]
+            "SELECT id, reason, entity_type FROM blacklist_entries WHERE entity_type IN ('PERSON', 'DRIVER') AND identifier = $1 AND status IN ('BLACKLISTED', 'UNBLACKLIST_REQUESTED', 'PENDING_BLACKLIST')",
+            [identifier]
           );
           if (blacklistRes.rows.length > 0) {
             return res.status(403).json({
               success: false,
-              message: `Pass application blocked. Person/Driver with Aadhaar (${person.aadharNo}) is blacklisted as ${blacklistRes.rows[0].entity_type}. Reason: ${blacklistRes.rows[0].reason}`
+              message: `Pass application blocked. Person/Driver with Primary ID (${identifier}) is blacklisted as ${blacklistRes.rows[0].entity_type}. Reason: ${blacklistRes.rows[0].reason}`
             });
           }
         }
       }
     }
 
-    // 3. Check Vehicles blacklisting
+    // 3. Check Vehicles blacklisting (exclude blacklisted vehicles instead of blocking the entire request)
+    let skippedVehicles = [];
     if (payload.vehicles && Array.isArray(payload.vehicles)) {
-      for (const vehicle of payload.vehicles) {
+      const activeVehicles = [];
+      for (let idx = 0; idx < payload.vehicles.length; idx++) {
+        const vehicle = payload.vehicles[idx];
         if (vehicle.registrationNo) {
           const blacklistRes = await pool.query(
-            "SELECT id, reason FROM blacklist_entries WHERE entity_type = 'VEHICLE' AND identifier = $1 AND status != 'UNBLACKLISTED'",
-            [vehicle.registrationNo.toUpperCase().trim()]
+            "SELECT id, reason FROM blacklist_entries WHERE entity_type = 'VEHICLE' AND REPLACE(REPLACE(UPPER(identifier), ' ', ''), '-', '') = REPLACE(REPLACE(UPPER($1), ' ', ''), '-', '') AND status IN ('BLACKLISTED', 'UNBLACKLIST_REQUESTED', 'PENDING_BLACKLIST')",
+            [vehicle.registrationNo]
           );
           if (blacklistRes.rows.length > 0) {
-            return res.status(403).json({
-              success: false,
-              message: `Pass application blocked. Vehicle (${vehicle.registrationNo}) is blacklisted. Reason: ${blacklistRes.rows[0].reason}`
+            skippedVehicles.push({
+              registrationNo: vehicle.registrationNo,
+              reason: blacklistRes.rows[0].reason
             });
+            continue; // Exclude this blacklisted vehicle
           }
         }
+        vehicle.originalIndex = idx; // Preserve original index for correct file attachment on the backend
+        activeVehicles.push(vehicle);
       }
+      payload.vehicles = activeVehicles;
+    }
+
+    // If there are no persons in the payload AND all vehicles were blacklisted/skipped, block the request
+    const personCount = (payload.persons && Array.isArray(payload.persons)) ? payload.persons.length : 0;
+    if (personCount === 0 && skippedVehicles.length > 0 && payload.vehicles.length === 0) {
+      return res.status(403).json({
+        success: false,
+        message: `Pass application blocked. All vehicles in the request are blacklisted. Reasons: ${skippedVehicles.map(v => `${v.registrationNo}: ${v.reason}`).join("; ")}`
+      });
     }
 
     const passRequestId = await PassRequest.createPassRequest(
@@ -262,10 +294,14 @@ const createPassRequest = async (req, res) => {
       req.files
     );
 
+    let successMessage = "Pass request submitted successfully";
+    if (skippedVehicles.length > 0) {
+      successMessage = `Pass request submitted successfully. Note: Blacklisted vehicle(s) [${skippedVehicles.map(v => v.registrationNo).join(", ")}] were excluded.`;
+    }
 
     res.status(201).json({
       success: true,
-      message: "Pass request submitted successfully",
+      message: successMessage,
       passRequestId
     });
 

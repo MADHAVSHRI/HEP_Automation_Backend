@@ -33,6 +33,7 @@ router.use(verifyToken);
 // CRUD
 router.post("/create", upload.single("supporting_document"), blacklistController.createBlacklistEntry);
 router.get("/list", blacklistController.getBlacklistEntries);
+router.get("/my-blacklist", blacklistController.getMyBlacklistEntries);
 router.get("/stats", blacklistController.getBlacklistStats);
 router.get("/check", blacklistController.checkBlacklisted);
 router.get("/:id", blacklistController.getBlacklistById);
@@ -43,6 +44,8 @@ router.patch("/:id/submit-compliance", blacklistController.submitCompliance);
 router.patch("/:id/request-unblacklist", blacklistController.requestUnblacklist);
 router.patch("/:id/approve-unblacklist", blacklistController.approveUnblacklist);
 router.patch("/:id/reject-unblacklist", blacklistController.rejectUnblacklist);
+router.patch("/:id/approve-blacklist", blacklistController.approveBlacklist);
+router.patch("/:id/reject-blacklist", blacklistController.rejectBlacklist);
 router.patch("/:id/direct-unblock", blacklistController.directUnblock);
 router.patch("/:id/reinstate", blacklistController.reinstateCompany);
 router.post("/use-gate-out", blacklistController.useGateOut);
