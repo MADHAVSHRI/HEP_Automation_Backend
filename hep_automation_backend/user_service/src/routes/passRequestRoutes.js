@@ -19,6 +19,8 @@ router.get("/get-access-areas", passRequestController.getAccessAreas); //coming 
 router.get("/get-visit-purposes", passRequestController.getVisitPurposes); //coming from database
 router.get("/get-hep-types", passRequestController.getHepTypes); //coming from database
 router.get("/get-countries", passRequestController.getCountries); //coming from database
+router.get("/get-states", passRequestController.getStates); //coming from database
+router.get("/get-cities", passRequestController.getCities); //coming from database
 router.get("/getDesignations", passRequestController.getDesignations); //coming from database
 router.get("/getVehicleTypes", passRequestController.getvehicleTypes); //coming from database
 router.get("/my-pass-requests",verifyToken, passRequestController.getAgentPassRequests); //coming from database

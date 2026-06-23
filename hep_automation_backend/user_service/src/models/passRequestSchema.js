@@ -47,6 +47,37 @@ const countries = {
   },
 };
 
+const states = {
+  async getStatesByCountry(countryId) {
+    const query = `
+      SELECT id, name
+      FROM states
+      WHERE "countryId" = $1 AND "isActive" = true
+      ORDER BY name ASC
+    `;
+
+    const result = await pool.query(query, [countryId]);
+
+    return result.rows;
+  },
+};
+
+const cities = {
+  async getCitiesByState(stateId) {
+    const query = `
+      SELECT id, name
+      FROM cities
+      WHERE "stateId" = $1 AND "isActive" = true
+      ORDER BY name ASC
+    `;
+
+    const result = await pool.query(query, [stateId]);
+
+    return result.rows;
+  },
+};
+
+
 const hepTypes = {
   async getAllHepTypes() {
     const query = `
@@ -2504,6 +2535,8 @@ module.exports = {
   vehicleTypes,
   PassRequest,
   countries,
+  states,
+  cities,
   hepTypes,
   visitPurpose,
   getPassRequest,

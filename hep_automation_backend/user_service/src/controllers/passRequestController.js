@@ -8,7 +8,7 @@ const {
 } = require("../constants/constants");
 const passRequestService = require("../services/passRequestService");
 const { Designation, vehicleTypes, PassRequest, hepTypes,
-        countries, visitPurpose, getPassRequest, Master, getAgentPassRequestsDetails, viewPassRequestsDocuments } = require("../models/passRequestSchema");
+        countries, states, cities, visitPurpose, getPassRequest, Master, getAgentPassRequestsDetails, viewPassRequestsDocuments } = require("../models/passRequestSchema");
 const { pool } = require("../dbconfig/db");
 
 const getNationalities = (req, res) => {
@@ -114,6 +114,59 @@ const getCountries = async (req, res) => {
     });
   }
 };
+
+const getStates = async (req, res) => {
+  try {
+    const { countryId } = req.query;
+    if (!countryId) {
+      return res.status(400).json({
+        success: false,
+        message: "countryId is required",
+      });
+    }
+
+    const stateList = await states.getStatesByCountry(countryId);
+
+    res.status(200).json({
+      success: true,
+      data: stateList,
+    });
+  } catch (error) {
+    console.error("States Fetch Error:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+};
+
+const getCities = async (req, res) => {
+  try {
+    const { stateId } = req.query;
+    if (!stateId) {
+      return res.status(400).json({
+        success: false,
+        message: "stateId is required",
+      });
+    }
+
+    const cityList = await cities.getCitiesByState(stateId);
+
+    res.status(200).json({
+      success: true,
+      data: cityList,
+    });
+  } catch (error) {
+    console.error("Cities Fetch Error:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+};
+
 
 const getVisitPurposes = async (req, res) => {
   try {
@@ -1382,6 +1435,8 @@ module.exports = {
   createPassRequest,
   getHepTypes,
   getCountries,
+  getStates,
+  getCities,
   getAgentPassRequests,
   getMasterDirectory,
   getAgentPassRequestsToApproverAdmin,
