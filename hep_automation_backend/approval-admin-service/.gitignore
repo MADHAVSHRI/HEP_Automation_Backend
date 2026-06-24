@@ -1,5 +1,26 @@
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
-
-# dependencies
+# ─── Dependencies ──────────────────────────────────────────────
 /node_modules
+
+# ─── Environment / Secrets ─────────────────────────────────────
+.env
+.env.*
+!.env.example
+
+# Sequelize DB credentials
+/config/config.json
+
+# ─── Logs ──────────────────────────────────────────────────────
 /logs
+*.log
+
+# ─── Uploaded Files ────────────────────────────────────────────
+/uploads
+
+# ─── Build / Coverage ──────────────────────────────────────────
+/dist
+/coverage
+.nyc_output/
+
+# ─── OS / Editor Artifacts ─────────────────────────────────────
+.DS_Store
+Thumbs.db

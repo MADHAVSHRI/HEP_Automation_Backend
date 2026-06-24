@@ -6,7 +6,8 @@ const captchaRoutes = require("./captchaRoutes");
 const passRequestRoutes = require("./passRequestRoutes");
 const vendorPassRoutes = require("./vendorPassRoutes");
 const lockRoutes = require("./lockRoutes");
-const materialPassRoutes = require("./materialPassRoutes")
+const materialPassRoutes = require("./materialPassRoutes");
+const bulkPassRoutes = require("./bulkPassRoutes");
 
 
 router.use("/agents", agentRoutes);
@@ -16,5 +17,6 @@ router.use("/pass-request", passRequestRoutes);
 router.use("/vendor-pass", vendorPassRoutes);
 router.use("/locks", lockRoutes);
 router.use("/material-pass", materialPassRoutes);
+router.use("/bulk-pass", bulkPassRoutes);
 
 module.exports = router;

@@ -4,9 +4,14 @@
   "description": "User/Company registration and other functionalities",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "jest --testPathPattern='__tests__' --runInBand --forceExit",
+    "test:bulk": "jest --testPathPattern='bulkPass' --runInBand --forceExit --verbose",
     "start": "node src/index.js",
     "dev": "nodemon src/index.js"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "testTimeout": 30000
   },
   "repository": {
     "type": "git",
@@ -38,5 +43,9 @@
     "svg-captcha": "^1.4.0",
     "winston": "^3.19.0",
     "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "fast-check": "^4.8.0",
+    "jest": "^30.4.2"
   }
 }

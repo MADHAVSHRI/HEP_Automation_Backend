@@ -2,7 +2,9 @@ const { sendReferenceEmail, sendApprovalEmail, sendRejectionEmail,
   sendDeptUserCreationEmail, sendDeptUserActivatedEmail, sendDeptUserDisabledEmail,
   sendRevertedAgentRequestEmail,sendUpdatedAfterRevertEmail,
   sendVendorPassLinkEmail, sendPassRevertedEmail, sendVendorPassApprovedEmail,
-  sendForgotPasswordOTPEmail, sendForgotPasswordOtpEmail } = require("../services/emailService");
+  sendForgotPasswordOTPEmail, sendForgotPasswordOtpEmail,
+  sendBulkPassInvitationEmail, sendBulkPassSubmittedEmail, sendBulkPassUnderReviewEmail,
+  sendBulkPassReturnedEmail, sendBulkPassApprovedEmail, sendBulkPassRejectedEmail } = require("../services/emailService");
 
 exports.sendReference = async (req, res) => {
 
@@ -408,4 +410,90 @@ exports.sendForgotPasswordOtp = async (req, res) => {
 
   }
 
+};
+
+// ── Bulk Pass Email Controllers ──────────────────────────────────────────────
+
+exports.sendBulkPassInvitation = async (req, res) => {
+  try {
+    const { email, refNo } = req.body;
+    if (!email || !refNo) {
+      return res.status(400).json({ success: false, message: "email and refNo are required" });
+    }
+    await sendBulkPassInvitationEmail(req.body);
+    return res.json({ success: true, message: "Bulk pass invitation email sent" });
+  } catch (error) {
+    console.error("[EMAIL-CTRL] sendBulkPassInvitation error:", error);
+    res.status(500).json({ success: false, message: "Email sending failed" });
+  }
+};
+
+exports.sendBulkPassSubmitted = async (req, res) => {
+  try {
+    const { email, refNo } = req.body;
+    if (!email || !refNo) {
+      return res.status(400).json({ success: false, message: "email and refNo are required" });
+    }
+    await sendBulkPassSubmittedEmail(req.body);
+    return res.json({ success: true, message: "Bulk pass submitted email sent" });
+  } catch (error) {
+    console.error("[EMAIL-CTRL] sendBulkPassSubmitted error:", error);
+    res.status(500).json({ success: false, message: "Email sending failed" });
+  }
+};
+
+exports.sendBulkPassUnderReview = async (req, res) => {
+  try {
+    const { email, refNo } = req.body;
+    if (!email || !refNo) {
+      return res.status(400).json({ success: false, message: "email and refNo are required" });
+    }
+    await sendBulkPassUnderReviewEmail(req.body);
+    return res.json({ success: true, message: "Bulk pass under review email sent" });
+  } catch (error) {
+    console.error("[EMAIL-CTRL] sendBulkPassUnderReview error:", error);
+    res.status(500).json({ success: false, message: "Email sending failed" });
+  }
+};
+
+exports.sendBulkPassReturned = async (req, res) => {
+  try {
+    const { email, refNo } = req.body;
+    if (!email || !refNo) {
+      return res.status(400).json({ success: false, message: "email and refNo are required" });
+    }
+    await sendBulkPassReturnedEmail(req.body);
+    return res.json({ success: true, message: "Bulk pass returned email sent" });
+  } catch (error) {
+    console.error("[EMAIL-CTRL] sendBulkPassReturned error:", error);
+    res.status(500).json({ success: false, message: "Email sending failed" });
+  }
+};
+
+exports.sendBulkPassApproved = async (req, res) => {
+  try {
+    const { email, refNo } = req.body;
+    if (!email || !refNo) {
+      return res.status(400).json({ success: false, message: "email and refNo are required" });
+    }
+    await sendBulkPassApprovedEmail(req.body);
+    return res.json({ success: true, message: "Bulk pass approved email sent" });
+  } catch (error) {
+    console.error("[EMAIL-CTRL] sendBulkPassApproved error:", error);
+    res.status(500).json({ success: false, message: "Email sending failed" });
+  }
+};
+
+exports.sendBulkPassRejected = async (req, res) => {
+  try {
+    const { email, refNo } = req.body;
+    if (!email || !refNo) {
+      return res.status(400).json({ success: false, message: "email and refNo are required" });
+    }
+    await sendBulkPassRejectedEmail(req.body);
+    return res.json({ success: true, message: "Bulk pass rejected email sent" });
+  } catch (error) {
+    console.error("[EMAIL-CTRL] sendBulkPassRejected error:", error);
+    res.status(500).json({ success: false, message: "Email sending failed" });
+  }
 };

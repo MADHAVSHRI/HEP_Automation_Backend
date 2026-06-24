@@ -1,5 +1,6 @@
 const express = require("express");
 const cors = require("cors");
+const path = require("path");
 require("dotenv").config();
 const loggerMiddleware = require("./middlewares/loggerMiddleware");
 const { connectDB } = require("./dbconfig/db");
@@ -22,6 +23,12 @@ initUploadDirs();
 app.use(express.json());
 app.use(loggerMiddleware);
 connectDB();
+
+// Serve uploaded files (bulk pass photos, vehicle docs, work orders, etc.).
+// These are loaded directly via <img>/<a> tags which can't send auth headers,
+// so they are served statically. Aadhaar etc. is masked at the API layer; raw
+// photos/docs are only referenced from authenticated review pages.
+app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
 
 // Health check — used by auth-service startup diagnostic
 app.get("/health", (req, res) => res.status(200).json({ status: "ok" }));

@@ -70,6 +70,9 @@ const VISITOR_TYPES = [
   { id: 6, name: "Others" },
 ];
 
+// Flat array of visitor type names used by the Bulk Pass module for validation.
+const BULK_VISITOR_TYPES = Object.freeze(VISITOR_TYPES.map((t) => t.name));
+
 module.exports = {
   AGENT_STATUS,
   AGENT_STATUS_LIST: Object.values(AGENT_STATUS),
@@ -84,5 +87,6 @@ module.exports = {
   PASS_REQUEST_STATUS,
   PASS_REQUEST_STATUS_LIST: Object.values(PASS_REQUEST_STATUS),
   VISITOR_TYPES,
+  BULK_VISITOR_TYPES,
   MONTH_CODES,
 };

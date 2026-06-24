@@ -167,3 +167,62 @@ exports.generateVendorSingleQr = async (req, res) => {
     });
   }
 };
+
+
+/*
+============================================
+BULK PASS QR CONTROLLERS
+============================================
+*/
+
+// POST /api/qr/bulk-pass/:batchId
+// Internal — called by approval-admin-service at approval time.
+// Generates the QR PDF, stores it, and returns the PDF buffer plus the
+// absolute file path via the X-Pdf-Path response header.
+exports.generateBulkQr = async (req, res) => {
+  try {
+    const { batchId } = req.params;
+    if (!batchId) {
+      return res.status(400).json({ success: false, message: "batchId required" });
+    }
+
+    const { pdfBuffer, filePath } = await passQrService.generateBulkPass(batchId);
+
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("X-Pdf-Path", filePath);
+    res.setHeader("Access-Control-Expose-Headers", "X-Pdf-Path");
+    return res.send(pdfBuffer);
+  } catch (error) {
+    if (error.message === "Batch not found") {
+      return res.status(404).json({ success: false, message: error.message });
+    }
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// GET /api/qr/bulk-pass-view/:batchId
+// Public inline PDF viewer — only serves COMPLETED (approved) batches.
+exports.viewBulkPass = async (req, res) => {
+  try {
+    const { batchId } = req.params;
+    if (!batchId) {
+      return res.status(400).json({ success: false, message: "batchId required" });
+    }
+
+    const { pdfBuffer } = await passQrService.generateBulkPass(batchId, {
+      requireCompleted: true,
+    });
+
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `inline; filename="BulkPass_${batchId}.pdf"`);
+    return res.send(pdfBuffer);
+  } catch (error) {
+    if (error.message === "Batch not approved") {
+      return res.status(403).json({ success: false, message: "This pass is not yet approved" });
+    }
+    if (error.message === "Batch not found") {
+      return res.status(404).json({ success: false, message: "Pass not found" });
+    }
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};

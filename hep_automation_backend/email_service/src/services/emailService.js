@@ -11,6 +11,12 @@ const vendorPassLinkTemplate = require("../emailTemplates/vendorPassLinkTemplate
 const revertedPassTemplate = require("../emailTemplates/revertedPassTemplate");
 const vendorPassApprovedTemplate = require("../emailTemplates/vendorPassApprovedTemplate");
 const forgotPasswordOTPTemplate = require("../emailTemplates/forgotPasswordOTPTemplate");
+const bulkPassInvitationTemplate = require("../emailTemplates/bulkPassInvitationTemplate");
+const bulkPassSubmittedTemplate = require("../emailTemplates/bulkPassSubmittedTemplate");
+const bulkPassUnderReviewTemplate = require("../emailTemplates/bulkPassUnderReviewTemplate");
+const bulkPassReturnedTemplate = require("../emailTemplates/bulkPassReturnedTemplate");
+const bulkPassApprovedTemplate = require("../emailTemplates/bulkPassApprovedTemplate");
+const bulkPassRejectedTemplate = require("../emailTemplates/bulkPassRejectedTemplate");
 
 const sendReferenceEmail = async (email, name, referenceNumber) => {
 
@@ -235,8 +241,78 @@ const sendForgotPasswordOtpEmail = async (email, name, otp) => {
   return sendForgotPasswordOTPEmail(email, name || "User", otp);
 };
 
+// ── Bulk Pass Email Functions ────────────────────────────────────────────────
+
+const sendBulkPassInvitationEmail = async (payload) => {
+  const html = bulkPassInvitationTemplate(payload);
+  const mailOptions = {
+    from: process.env.EMAIL_USER,
+    to: payload.email,
+    subject: `Chennai Port — Bulk Pass Invitation (${payload.refNo})`,
+    html,
+  };
+  return transporter.sendMail(mailOptions);
+};
+
+const sendBulkPassSubmittedEmail = async (payload) => {
+  const html = bulkPassSubmittedTemplate(payload);
+  const mailOptions = {
+    from: process.env.EMAIL_USER,
+    to: payload.email,
+    subject: `Chennai Port — Bulk Pass Submitted (${payload.refNo})`,
+    html,
+  };
+  return transporter.sendMail(mailOptions);
+};
+
+const sendBulkPassUnderReviewEmail = async (payload) => {
+  const html = bulkPassUnderReviewTemplate(payload);
+  const mailOptions = {
+    from: process.env.EMAIL_USER,
+    to: payload.email,
+    subject: `Chennai Port — Bulk Pass Under Review (${payload.refNo})`,
+    html,
+  };
+  return transporter.sendMail(mailOptions);
+};
+
+const sendBulkPassReturnedEmail = async (payload) => {
+  const html = bulkPassReturnedTemplate(payload);
+  const mailOptions = {
+    from: process.env.EMAIL_USER,
+    to: payload.email,
+    subject: `⚠️ Action Required — Bulk Pass Returned (${payload.refNo})`,
+    html,
+  };
+  return transporter.sendMail(mailOptions);
+};
+
+const sendBulkPassApprovedEmail = async (payload) => {
+  const html = bulkPassApprovedTemplate(payload);
+  const mailOptions = {
+    from: process.env.EMAIL_USER,
+    to: payload.email,
+    subject: `✅ Bulk Pass Approved — Chennai Port (${payload.refNo})`,
+    html,
+  };
+  return transporter.sendMail(mailOptions);
+};
+
+const sendBulkPassRejectedEmail = async (payload) => {
+  const html = bulkPassRejectedTemplate(payload);
+  const mailOptions = {
+    from: process.env.EMAIL_USER,
+    to: payload.email,
+    subject: `❌ Bulk Pass Rejected — Chennai Port (${payload.refNo})`,
+    html,
+  };
+  return transporter.sendMail(mailOptions);
+};
+
 module.exports = { sendReferenceEmail, sendApprovalEmail, 
   sendRejectionEmail, sendDeptUserCreationEmail, sendDeptUserActivatedEmail, 
   sendDeptUserDisabledEmail, sendUpdatedAfterRevertEmail, sendRevertedAgentRequestEmail,
   sendVendorPassLinkEmail, sendPassRevertedEmail, sendVendorPassApprovedEmail,
-  sendForgotPasswordOTPEmail, sendForgotPasswordOtpEmail };
+  sendForgotPasswordOTPEmail, sendForgotPasswordOtpEmail,
+  sendBulkPassInvitationEmail, sendBulkPassSubmittedEmail, sendBulkPassUnderReviewEmail,
+  sendBulkPassReturnedEmail, sendBulkPassApprovedEmail, sendBulkPassRejectedEmail };

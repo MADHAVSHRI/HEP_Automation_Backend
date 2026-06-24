@@ -1,1 +1,20 @@
+# ─── Dependencies ──────────────────────────────────────────────
 /node_modules
+
+# ─── Environment / Secrets ─────────────────────────────────────
+.env
+.env.*
+!.env.example
+
+# ─── Logs ──────────────────────────────────────────────────────
+/logs
+*.log
+
+# ─── Build / Coverage ──────────────────────────────────────────
+/dist
+/coverage
+.nyc_output/
+
+# ─── OS / Editor Artifacts ─────────────────────────────────────
+.DS_Store
+Thumbs.db

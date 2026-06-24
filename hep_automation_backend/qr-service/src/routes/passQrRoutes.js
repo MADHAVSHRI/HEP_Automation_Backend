@@ -21,4 +21,10 @@ router.get("/vendor-generate-qr/:vendorPassId", passQrController.generateVendorQ
 // Single entity vendor pass QR generation (public route - no auth needed)
 router.get("/vendor-generate-single-qr/:vendorPassId/:entityType/:entityIndex", passQrController.generateVendorSingleQr);
 
+// ── Bulk Pass QR routes ──────────────────────────────────────────────────────
+// Internal: generate + store QR PDF (returns PDF + X-Pdf-Path header)
+router.post("/bulk-pass/:batchId", passQrController.generateBulkQr);
+// Public: inline PDF viewer for an approved (COMPLETED) bulk pass
+router.get("/bulk-pass-view/:batchId", passQrController.viewBulkPass);
+
 module.exports = router;

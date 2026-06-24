@@ -11,11 +11,17 @@ const {
   ensureDirectory,
   fileExists,
 } = require("../utils/pdfStorage");
+const { encryptToken } = require("../utils/cryptoUtils");
 const LOGO_PATH       = path.join(__dirname, "../assets/PortTrustLogo.jpeg");
 const FONT_REGULAR    = path.join(__dirname, "../assets/NotoSansDevanagari-Regular.ttf");
 const FONT_BOLD       = path.join(__dirname, "../assets/NotoSansDevanagari-Bold.ttf");
 
 const USER_SERVICE = process.env.USER_SERVICE_URL;
+const FRONTEND_BASE_URL = process.env.FRONTEND_BASE_URL || "";
+
+// Directory for generated bulk pass PDFs (absolute path so user_service can
+// resolve and serve the same file via GET /api/bulk-pass/:id/pdf).
+const BULK_PDF_DIR = path.join(process.cwd(), "uploads", "bulk_pass_pdfs");
 
 exports.generatePass = async (
   passRequestId,
@@ -631,3 +637,184 @@ exports.validateQr = async (
 
 
 
+
+
+/*
+============================================
+BULK PASS QR / PDF GENERATION
+============================================
+Fetches { batch, persons } from user_service, builds a group summary page
+plus one page per vehicle, each with a scannable QR linking to the public
+bulk_pass_view page. The QR content is a plain URL (not a JWT) so any phone
+camera opens the public view directly.
+*/
+
+exports.generateBulkPass = async (batchId, options = {}) => {
+  const { requireCompleted = false } = options;
+
+  const response = await axios.get(
+    `${USER_SERVICE}/api/bulk-pass/${batchId}/qr-data`,
+    { headers: { "x-service-name": "QR Service" } }
+  );
+
+  const payload = response.data?.data || {};
+  const batch = payload.batch;
+  const persons = payload.persons || [];
+
+  if (!batch) {
+    throw new Error("Batch not found");
+  }
+  if (requireCompleted && batch.status !== "COMPLETED") {
+    throw new Error("Batch not approved");
+  }
+
+  const pdfBuffer = await generateBulkPassPDF(batch, persons);
+
+  // Persist to an absolute path so user_service can serve the same file.
+  await ensureDirectory(BULK_PDF_DIR);
+  const filePath = path.join(BULK_PDF_DIR, `${batch.refNo}.pdf`);
+  await fs.promises.writeFile(filePath, pdfBuffer);
+
+  return { pdfBuffer, filePath, batch };
+};
+
+async function generateBulkPassPDF(batch, persons) {
+  const PAGE_W = 595;
+  const PAGE_H = 420;
+  const HEADER_H = 70;
+  const LEFT_X = 22;
+  const LABEL_W = 150;
+
+  const doc = new PDFDocument({
+    size: [PAGE_W, PAGE_H],
+    margins: { top: 0, bottom: 0, left: 0, right: 0 },
+  });
+  doc.registerFont("Noto", FONT_REGULAR);
+
+  const buffers = [];
+  doc.on("data", buffers.push.bind(buffers));
+
+  const drawHeader = (subtitle) => {
+    doc.rect(0, 0, PAGE_W, HEADER_H).fill("#E87722");
+
+    const LOGO_SIZE = 52, LOGO_X = 12;
+    const LOGO_Y = (HEADER_H - LOGO_SIZE) / 2;
+    doc.save();
+    doc.circle(LOGO_X + LOGO_SIZE / 2, LOGO_Y + LOGO_SIZE / 2, LOGO_SIZE / 2).clip();
+    doc.image(LOGO_PATH, LOGO_X, LOGO_Y, { width: LOGO_SIZE, height: LOGO_SIZE });
+    doc.restore();
+
+    const TX = LOGO_X + LOGO_SIZE + 8;
+    const TW = PAGE_W - TX - 12;
+    doc.fillColor("white").font("Noto").fontSize(10)
+      .text("चेन्नई पत्तन न्यास", TX, 12, { width: TW, align: "center" });
+    doc.fillColor("white").font("Helvetica-Bold").fontSize(15)
+      .text("CHENNAI PORT AUTHORITY", TX, 28, { width: TW, align: "center" });
+    doc.fillColor("white").font("Helvetica").fontSize(9)
+      .text(subtitle, TX, 50, { width: TW, align: "center" });
+  };
+
+  const fmtDate = (v) => {
+    if (!v) return "-";
+    const d = new Date(v);
+    if (isNaN(d.getTime())) return String(v);
+    const pad = (n) => String(n).padStart(2, "0");
+    return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  };
+
+  const drawFooter = () => {
+    doc.moveTo(12, PAGE_H - 22).lineTo(PAGE_W - 12, PAGE_H - 22)
+      .strokeColor("#dddddd").lineWidth(0.5).stroke();
+    doc.fillColor("#999999").font("Helvetica").fontSize(7)
+      .text("Authorized by Traffic Manager — Chennai Port Authority",
+        12, PAGE_H - 16, { width: PAGE_W - 24, align: "center" });
+  };
+
+  // Derive actual counts from submitted persons data
+  const vehicles = (persons || []).filter(
+    (p) => p.vehicleNumber && String(p.vehicleNumber).trim() !== ""
+  );
+
+  // ── GROUP SUMMARY PAGE ─────────────────────────────────────
+  drawHeader("BULK PASS — GROUP SUMMARY");
+
+  const groupUrl = `${FRONTEND_BASE_URL}/bulk_pass_view/${encryptToken(batch.id)}`;
+  const groupQr = await generateQR(groupUrl);
+
+  const BODY_Y = HEADER_H + 18;
+  let y = BODY_Y;
+
+  doc.fillColor("black").font("Helvetica-Bold").fontSize(16)
+    .text(batch.companyName || "-", LEFT_X, y, { width: PAGE_W - LEFT_X - 160 });
+  y += 28;
+
+  const row = (label, value) => {
+    doc.font("Helvetica-Bold").fontSize(9).fillColor("#555555")
+      .text(label, LEFT_X, y, { width: LABEL_W });
+    doc.font("Helvetica").fontSize(10).fillColor("black")
+      .text(value == null || value === "" ? "-" : String(value),
+        LEFT_X + LABEL_W, y, { width: PAGE_W - LEFT_X - LABEL_W - 150 });
+    y += 19;
+  };
+
+  row("Reference No.:", batch.refNo);
+  row("Department:", batch.departmentName);
+  row("Visitor Type:", batch.visitorType);
+  row("No. of Persons:", persons.length);
+  row("No. of Vehicles:", vehicles.length);
+  row("Valid From:", fmtDate(batch.validityFrom));
+  row("Valid Upto:", fmtDate(batch.validityUpto));
+  row("Purpose:", batch.purpose);
+
+  const QR_W = 120;
+  const QR_X = PAGE_W - QR_W - 24;
+  doc.image(groupQr, QR_X, BODY_Y, { fit: [QR_W, QR_W] });
+  doc.fillColor("#555555").font("Helvetica").fontSize(7)
+    .text("SCAN TO VIEW PASS", QR_X - 4, BODY_Y + QR_W + 4, { width: QR_W + 8, align: "center" });
+
+  drawFooter();
+
+  // ── ONE PAGE PER VEHICLE ───────────────────────────────────
+  for (let i = 0; i < vehicles.length; i++) {
+    const v = vehicles[i];
+    doc.addPage();
+    drawHeader("BULK PASS — VEHICLE PASS");
+
+    const vUrl = `${FRONTEND_BASE_URL}/bulk_pass_view/${encryptToken(batch.id)}?vehicle=${encryptToken(v.id)}`;
+    const vQr = await generateQR(vUrl);
+
+    let vy = HEADER_H + 18;
+    doc.fillColor("black").font("Helvetica-Bold").fontSize(18)
+      .text(v.vehicleNumber || "-", LEFT_X, vy);
+    vy += 32;
+
+    const vrow = (label, value) => {
+      doc.font("Helvetica-Bold").fontSize(9).fillColor("#555555")
+        .text(label, LEFT_X, vy, { width: LABEL_W });
+      doc.font("Helvetica").fontSize(10).fillColor("black")
+        .text(value == null || value === "" ? "-" : String(value),
+          LEFT_X + LABEL_W, vy, { width: PAGE_W - LEFT_X - LABEL_W - 150 });
+      vy += 19;
+    };
+
+    vrow("Vehicle Type:", v.vehicleType);
+    vrow("Driver / Person:", v.name);
+    vrow("Contact No.:", v.mobile);
+    vrow("Company:", batch.companyName);
+    vrow("Valid From:", fmtDate(batch.validityFrom));
+    vrow("Valid Upto:", fmtDate(batch.validityUpto));
+
+    const VQR_Y = HEADER_H + 18;
+    doc.image(vQr, QR_X, VQR_Y, { fit: [QR_W, QR_W] });
+    doc.fillColor("#555555").font("Helvetica").fontSize(7)
+      .text("SCAN TO VIEW VEHICLE", QR_X - 4, VQR_Y + QR_W + 4, { width: QR_W + 8, align: "center" });
+
+    drawFooter();
+  }
+
+  doc.end();
+
+  return new Promise((resolve) => {
+    doc.on("end", () => resolve(Buffer.concat(buffers)));
+  });
+}

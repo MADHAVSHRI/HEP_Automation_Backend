@@ -134,6 +134,40 @@ const ReferenceNumber = {
     const year = String(d.getFullYear()).slice(-2);
 
     return `V${day}${month}${year}${padded}`;
+  },
+
+  /*
+  ==========================================
+  Generate Bulk Pass Reference Number
+  ==========================================
+  */
+
+  async generateBulkPassReference(client){
+
+    const today = new Date().toISOString().slice(0,10);
+
+    const query = `
+      INSERT INTO daily_pass_counters(date,"bulkPassCounter")
+      VALUES($1,1)
+      ON CONFLICT(date)
+      DO UPDATE SET "bulkPassCounter" =
+      daily_pass_counters."bulkPassCounter" + 1
+      RETURNING "bulkPassCounter"
+    `;
+
+    const result = await client.query(query,[today]);
+
+    const count = result.rows[0].bulkPassCounter;
+
+    const padded = String(count).padStart(4,"0");
+
+    const d = new Date(today);
+
+    const day = String(d.getDate()).padStart(2,"0");
+    const month = String(d.getMonth()+1).padStart(2,"0");
+    const year = String(d.getFullYear()).slice(-2);
+
+    return `BLK${day}${month}${year}${padded}`;
   }
 
 };
