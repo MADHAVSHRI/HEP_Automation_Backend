@@ -1,5 +1,6 @@
 const express = require("express");
 const cors = require("cors");
+const path = require("path");
 require("dotenv").config();
 const loggerMiddleware = require("./middlewares/loggerMiddleware");
 const { connectDB } = require("./dbconfig/db");
@@ -12,6 +13,9 @@ app.use(cors());
 app.use(express.json());
 app.use(loggerMiddleware);
 connectDB();
+
+// Serve uploaded files statically
+app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
 
 // Health check — used by auth-service startup diagnostic
 app.get("/health", (req, res) => res.status(200).json({ status: "ok" }));

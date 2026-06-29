@@ -495,8 +495,8 @@ exports.requestUnblacklist = async (req, res) => {
       });
     }
 
-    // If penalty exists, it must be paid
-    if (entry.has_penalty && entry.penalty_status !== "PAID") {
+    // If penalty exists AND is applicable, it must be paid
+    if (entry.has_penalty && entry.penalty_status !== "PAID" && entry.penalty_status !== "NOT_APPLICABLE") {
       return res.status(400).json({
         success: false,
         message: "Penalty must be paid before requesting unblacklist",

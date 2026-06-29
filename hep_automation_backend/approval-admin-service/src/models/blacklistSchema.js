@@ -1,5 +1,33 @@
 const { pool } = require("../dbconfig/db");
 
+/**
+ * Resolve a userId safely against the local `users` table.
+ * Because this service spans multiple microservices, the acting user
+ * may not exist in THIS DB's users table (different auth DB).
+ * Returns the id if found, otherwise NULL — prevents FK violations.
+ */
+async function safeUserId(client, userId) {
+  if (!userId) return null;
+  try {
+    const r = await client.query('SELECT id FROM users WHERE id = $1', [userId]);
+    return r.rows.length > 0 ? userId : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Clamp penalty_amount to the NUMERIC(12,2) safe range (0 – 9,999,999,999.99).
+ * Returns null when has_penalty is false.
+ */
+function safePenalty(hasPenalty, rawAmount) {
+  if (!hasPenalty) return null;
+  const v = parseFloat(rawAmount) || 0;
+  if (v < 0) return 0;
+  if (v > 9999999999.99) return 9999999999.99;
+  return v;
+}
+
 const Blacklist = {
   /**
    * Create a new blacklist entry and its initial audit log.
@@ -8,6 +36,12 @@ const Blacklist = {
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
+
+      // Clamp penalty_amount to NUMERIC(12,2) safe range to prevent DB overflow
+      const penaltyAmount = safePenalty(data.has_penalty, data.penalty_amount);
+
+      // Resolve blacklisted_by safely (cross-microservice: user may not exist here)
+      const blacklistedBy = await safeUserId(client, data.blacklisted_by);
 
       const insertQuery = `
         INSERT INTO blacklist_entries (
@@ -29,10 +63,10 @@ const Blacklist = {
         data.reason,
         data.scenario || null,
         data.has_penalty || false,
-        data.has_penalty ? data.penalty_amount : null,
+        penaltyAmount,
         penaltyStatus,
         data.status || 'BLACKLISTED',
-        data.blacklisted_by,
+        blacklistedBy,
         data.reason_code || null,
         data.authorizing_officer || null,
         data.supporting_document_path || null,
@@ -45,11 +79,11 @@ const Blacklist = {
       const result = await client.query(insertQuery, values);
       const entry = result.rows[0];
 
-      // Insert audit log
+      // Insert audit log (performed_by uses resolved safe userId)
       await client.query(
         `INSERT INTO blacklist_audit_log (blacklist_id, action, performed_by, remarks)
          VALUES ($1, 'BLACKLISTED', $2, $3)`,
-        [entry.id, data.blacklisted_by, data.reason]
+        [entry.id, blacklistedBy, data.reason]
       );
 
       await client.query("COMMIT");
@@ -166,24 +200,27 @@ const Blacklist = {
     try {
       await client.query("BEGIN");
 
+      // Resolve userId safely (cross-microservice: user may not exist in this DB)
+      const safeBy = await safeUserId(client, userId);
+
       await client.query(
-        `UPDATE blacklist_entries 
-         SET penalty_status = $1, 
-             payment_method = $2, 
-             transaction_id = $3, 
-             "updatedAt" = NOW() 
+        `UPDATE blacklist_entries
+         SET penalty_status = $1,
+             payment_method = $2,
+             transaction_id = $3,
+             "updatedAt" = NOW()
          WHERE id = $4`,
         [penaltyStatus, paymentMethod || null, transactionId || null, id]
       );
 
-      const auditRemarks = remarks 
-        ? `${remarks} (Paid via ${paymentMethod || "UNKNOWN"} - Txn: ${transactionId || "N/A"})` 
+      const auditRemarks = remarks
+        ? `${remarks} (Paid via ${paymentMethod || "UNKNOWN"} - Txn: ${transactionId || "N/A"})`
         : `Penalty paid via ${paymentMethod || "UNKNOWN"} (Txn: ${transactionId || "N/A"})`;
 
       await client.query(
         `INSERT INTO blacklist_audit_log (blacklist_id, action, performed_by, remarks)
          VALUES ($1, 'PENALTY_PAID', $2, $3)`,
-        [id, userId, auditRemarks]
+        [id, safeBy, auditRemarks]
       );
 
       await client.query("COMMIT");
@@ -205,6 +242,9 @@ const Blacklist = {
     try {
       await client.query("BEGIN");
 
+      // Resolve userId safely (cross-microservice: user may not exist in this DB)
+      const safeBy = await safeUserId(client, userId);
+
       await client.query(
         `UPDATE blacklist_entries SET compliance_notes = $1, "updatedAt" = NOW() WHERE id = $2`,
         [complianceNotes, id]
@@ -213,7 +253,7 @@ const Blacklist = {
       await client.query(
         `INSERT INTO blacklist_audit_log (blacklist_id, action, performed_by, remarks)
          VALUES ($1, 'COMPLIANCE_SUBMITTED', $2, $3)`,
-        [id, userId, complianceNotes]
+        [id, safeBy, complianceNotes]
       );
 
       await client.query("COMMIT");
@@ -235,6 +275,9 @@ const Blacklist = {
     try {
       await client.query("BEGIN");
 
+      // Resolve userId safely (cross-microservice: user may not exist in this DB)
+      const safeBy = await safeUserId(client, userId);
+
       await client.query(
         `UPDATE blacklist_entries SET status = 'UNBLACKLIST_REQUESTED', "updatedAt" = NOW() WHERE id = $1`,
         [id]
@@ -243,7 +286,7 @@ const Blacklist = {
       await client.query(
         `INSERT INTO blacklist_audit_log (blacklist_id, action, performed_by, remarks)
          VALUES ($1, 'UNBLACKLIST_REQUESTED', $2, $3)`,
-        [id, userId, remarks || "Unblacklist request submitted"]
+        [id, safeBy, remarks || "Unblacklist request submitted"]
       );
 
       await client.query("COMMIT");
@@ -265,6 +308,9 @@ const Blacklist = {
     try {
       await client.query("BEGIN");
 
+      // Resolve userId safely (cross-microservice: user may not exist in this DB)
+      const safeBy = await safeUserId(client, userId);
+
       await client.query(
         `UPDATE blacklist_entries
          SET status = 'UNBLACKLISTED',
@@ -272,13 +318,13 @@ const Blacklist = {
              unblacklisted_at = NOW(),
              "updatedAt" = NOW()
          WHERE id = $2`,
-        [userId, id]
+        [safeBy, id]
       );
 
       await client.query(
         `INSERT INTO blacklist_audit_log (blacklist_id, action, performed_by, remarks)
          VALUES ($1, 'UNBLACKLIST_APPROVED', $2, $3)`,
-        [id, userId, remarks || "Unblacklist approved"]
+        [id, safeBy, remarks || "Unblacklist approved"]
       );
 
       await client.query("COMMIT");
@@ -300,6 +346,9 @@ const Blacklist = {
     try {
       await client.query("BEGIN");
 
+      // Resolve userId safely (cross-microservice: user may not exist in this DB)
+      const safeBy = await safeUserId(client, userId);
+
       await client.query(
         `UPDATE blacklist_entries SET status = 'BLACKLISTED', "updatedAt" = NOW() WHERE id = $1`,
         [id]
@@ -308,7 +357,7 @@ const Blacklist = {
       await client.query(
         `INSERT INTO blacklist_audit_log (blacklist_id, action, performed_by, remarks)
          VALUES ($1, 'UNBLACKLIST_REJECTED', $2, $3)`,
-        [id, userId, remarks || "Unblacklist rejected"]
+        [id, safeBy, remarks || "Unblacklist rejected"]
       );
 
       await client.query("COMMIT");
@@ -363,6 +412,9 @@ const Blacklist = {
     try {
       await client.query("BEGIN");
 
+      // Resolve userId safely (cross-microservice: user may not exist in this DB)
+      const safeBy = await safeUserId(client, userId);
+
       await client.query(
         `UPDATE blacklist_entries
          SET status = 'UNBLACKLISTED',
@@ -370,13 +422,13 @@ const Blacklist = {
              unblacklisted_at = NOW(),
              "updatedAt" = NOW()
          WHERE id = $2`,
-        [userId, id]
+        [safeBy, id]
       );
 
       await client.query(
         `INSERT INTO blacklist_audit_log (blacklist_id, action, performed_by, remarks)
          VALUES ($1, 'UNBLACKLISTED', $2, $3)`,
-        [id, userId, remarks || "Directly unblocked by ATM"]
+        [id, safeBy, remarks || "Directly unblocked by ATM"]
       );
 
       await client.query("COMMIT");
@@ -398,6 +450,9 @@ const Blacklist = {
     try {
       await client.query("BEGIN");
 
+      // Resolve userId safely (cross-microservice: user may not exist in this DB)
+      const safeBy = await safeUserId(client, userId);
+
       await client.query(
         `UPDATE blacklist_entries
          SET status = 'UNBLACKLISTED',
@@ -406,13 +461,13 @@ const Blacklist = {
              reinstatement_justification = $2,
              "updatedAt" = NOW()
          WHERE id = $3`,
-        [userId, justification, id]
+        [safeBy, justification, id]
       );
 
       await client.query(
         `INSERT INTO blacklist_audit_log (blacklist_id, action, performed_by, remarks)
          VALUES ($1, 'REINSTATED', $2, $3)`,
-        [id, userId, justification || "Company blacklisting reversed by Traffic Department"]
+        [id, safeBy, justification || "Company blacklisting reversed by Traffic Department"]
       );
 
       await client.query("COMMIT");
