@@ -75,7 +75,10 @@ router.put(
   ]),
   agentController.updateAgentByReference
 );
-
+router.get(
+  "/getAgentById/:agentId",
+  agentController.getAgentDetailsById
+);
 router.post(
   "/change-password",
   verifyToken,

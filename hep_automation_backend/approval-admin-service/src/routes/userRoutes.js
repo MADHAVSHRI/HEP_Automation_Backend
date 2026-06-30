@@ -21,6 +21,8 @@ router.get("/agent-users", verifyToken, adminController.getAgentRequests);
 
 router.put("/agent-request", adminController.agentRequestAction);
 
+router.get("/agent/:agentId", adminController.getAgentById);
+
 router.patch(
   "/update-user-approval", verifyToken,
   adminController.updateUserApproval

@@ -47,6 +47,46 @@ const Agent = {
     await pool.query(query, [agentId]);
   },
 
+  async getAgentDetailsById(agentId) {
+    const query = `
+    SELECT
+      id,
+      "userTypeName",
+      "entityName",
+      "firstName",
+      "lastName",
+      "email",
+      "mobileNo",
+      "city",
+      "state",
+      "country",
+      "addressLine",
+      "pincode",
+      "workOrder",
+      "gstinNumber",
+      "gstinDoc",
+      "panNumber",
+      "panDoc",
+      "tanNumber",
+      "tanDoc",
+      "licenseNumber",
+      "licenseValidityDate",
+      "requisitionLetter",
+      "contactMobile",
+      "contactEmail",
+      "referenceNumber",
+      "loginId",
+      "role",
+      "status",
+      "createdAt"
+    FROM "Agents"
+    WHERE id = $1
+  `;
+
+    const result = await pool.query(query, [agentId]);
+
+    return result.rows[0];
+  },
   async create(agentData) {
     const referenceNumber = await Agent.generateReferenceNumber();
     const createdAt = new Date().toISOString(); // Set the current timestamp

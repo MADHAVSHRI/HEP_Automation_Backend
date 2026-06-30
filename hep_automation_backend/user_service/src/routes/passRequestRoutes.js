@@ -11,7 +11,6 @@ router.post("/createPassRequest",verifyToken,
   passRequestController.createPassRequest
 );
 
-
 router.get("/get-nationality", passRequestController.getNationalities); //coming from constants
 router.get("/get-pass-types", passRequestController.getPassTypes); //coming from constants
 router.get("/get-id-proof-types", passRequestController.getIdProofTypes); //coming from constants

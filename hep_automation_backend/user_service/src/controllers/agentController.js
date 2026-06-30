@@ -280,6 +280,33 @@ exports.getAllRegisteredUsers = async (req, res) => {
   }
 };
 
+exports.getAgentDetailsById = async (req, res) => {
+  try {
+    const { agentId } = req.params;
+
+    const agent = await Agent.getAgentDetailsById(agentId);
+
+    if (!agent) {
+      return res.status(404).json({
+        success: false,
+        message: "Agent not found or not approved",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: agent,
+    });
+  } catch (error) {
+    console.error("Fetch agent profile error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+};
+
 exports.getAgentProfile = async (req, res) => {
   try {
     const agentId = req.user.userId;

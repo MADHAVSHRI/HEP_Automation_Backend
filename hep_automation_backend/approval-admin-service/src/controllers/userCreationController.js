@@ -126,7 +126,36 @@ exports.getDepartments = async (req, res) => {
     data: departments,
   });
 };
+exports.getAgentById = async (req, res) => {
+  try {
+    const { agentId } = req.params;
+    const userServiceUrl = process.env.USER_SERVICE_URL;
 
+    const response = await axios.get(
+      `${userServiceUrl}/api/agents/getAgentById/${agentId}`,
+      {
+        headers: {
+          "x-service-name": "APPROVAL-SERVICE",
+        },
+      }
+    );
+
+    return res.status(200).json(response.data);
+
+  } catch (error) {
+
+    if (error.response?.status === 404) {
+      return res.status(404).json(error.response.data);
+    }
+
+    console.error("Error fetching agent:", error.response?.data || error.message);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch agent",
+    });
+  }
+};
 exports.getAgentRequests = async (req, res) => {
   try {
 

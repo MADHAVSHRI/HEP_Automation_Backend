@@ -1,0 +1,17 @@
+npx sequelize-cli db:create
+
+npx sequelize-cli db:migrate
+
+
+npx sequelize-cli db:seed:all
+
+===========================
+
+docker compose -f docker-compose.kafka.yml down
+
+
+docker compose -f docker-compose.kafka.yml up -d
+
+===============
+
+npm run dev
