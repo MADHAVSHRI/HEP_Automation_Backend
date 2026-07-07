@@ -1,0 +1,31 @@
+{
+  "name": "iportman-service",
+  "version": "1.0.0",
+  "description": "Communication with iportman and weighbridge",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MADHAVSHRI/HEP_Automation.git"
+  },
+  "author": "MS",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/MADHAVSHRI/HEP_Automation/issues"
+  },
+  "homepage": "https://github.com/MADHAVSHRI/HEP_Automation#readme",
+  "dependencies": {
+    "axios": "^1.18.1",
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "nodemon": "^3.1.14",
+    "pg": "^8.22.0",
+    "sequelize": "^6.37.8",
+    "winston": "^3.19.0"
+  }
+}
