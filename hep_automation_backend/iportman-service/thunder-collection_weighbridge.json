@@ -1,0 +1,39 @@
+{
+  "clientName": "Thunder Client",
+  "collectionName": "Iportman - Weighbridge",
+  "collectionId": "3ee2d048-70bc-4bbc-8486-c106bff63a54",
+  "dateExported": "2026-07-09T08:30:00.000Z",
+  "version": "1.2",
+  "folders": [],
+  "requests": [
+    {
+      "_id": "c9c94380-4143-4428-9ddc-22e6e06737bf",
+      "colId": "3ee2d048-70bc-4bbc-8486-c106bff63a54",
+      "containerId": "",
+      "name": "Post Weighbridge Record",
+      "url": "http://localhost:5008/api/cargo/weighbridge",
+      "method": "POST",
+      "sortNum": 10000,
+      "created": "2026-07-09T08:30:00.000Z",
+      "modified": "2026-07-09T08:30:00.000Z",
+      "headers": [
+        {
+          "name": "Content-Type",
+          "value": "application/json"
+        },
+        {
+          "name": "Apacs-api-key",
+          "value": "8f7a1dd232ad9cb8c1db585ccc34a3feae32546e9cce6fbb3db17ea79b3e0931"
+        }
+      ],
+      "params": [],
+      "body": {
+        "type": "json",
+        "raw": "{\n  \"weighBridgeName\": \"APAC Weighbridge-1\",\n  \"serialNo\": \"SN-1001\",\n  \"weighedAt\": \"2026-07-09T10:30:00Z\",\n  \"vehicleNumber\": \"TN01AB1234\",\n  \"movementType\": \"export\",\n  \"cargo\": \"Iron Ore\",\n  \"clientName\": \"ABC Exports Pvt Ltd\",\n  \"grossWeight\": 32500.50,\n  \"tareWeight\": 12500.25,\n  \"netWeight\": 20000.25,\n  \"weightUnit\": \"kg\"\n}",
+        "form": []
+      },
+      "tests": []
+    }
+  ],
+  "settings": {}
+}
