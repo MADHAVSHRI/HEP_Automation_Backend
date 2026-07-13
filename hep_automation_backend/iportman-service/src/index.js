@@ -61,6 +61,7 @@ const allowedIPs = [
 
   // Example
   "14.139.180.41",
+  "152.57.88.46"
 
   // Add more client IPs here
   // "49.xxx.xxx.xxx",
