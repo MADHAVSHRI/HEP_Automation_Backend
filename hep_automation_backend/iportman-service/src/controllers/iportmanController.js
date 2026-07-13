@@ -4,7 +4,8 @@ const { MOVEMENT_TYPE_LIST, WEIGHT_UNIT_LIST } = require("../constants/constants
 const REQUIRED_FIELDS = [
   "weighBridgeName",
   "serialNo",
-  "weighedAt",
+  "weighDate",
+  "weighTime",
   "vehicleNumber",
   "movementType",
   "cargo",
@@ -22,7 +23,8 @@ exports.createWeighbridgeRecord = async (req, res) => {
     const {
       weighBridgeName,
       serialNo,
-      weighedAt,
+      weighDate,
+      weighTime,
       vehicleNumber,
       movementType,
       cargo,
@@ -69,7 +71,8 @@ exports.createWeighbridgeRecord = async (req, res) => {
     const record = await WeighbridgeRecord.create({
       weighBridgeName,
       serialNo,
-      weighedAt,
+      weighDate,
+      weighTime,
       vehicleNumber,
       movementType,
       cargo,

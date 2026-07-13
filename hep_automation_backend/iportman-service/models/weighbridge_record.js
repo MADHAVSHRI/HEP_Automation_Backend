@@ -20,7 +20,14 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: false,
         unique: true,
       },
-      weighedAt: DataTypes.DATE,
+      weighDate: {
+        type: DataTypes.DATEONLY,
+        allowNull: false,
+      },
+      weighTime: {
+        type: DataTypes.TIME,
+        allowNull: false,
+      },
       vehicleNumber: DataTypes.STRING,
       movementType: {
         type: DataTypes.STRING,

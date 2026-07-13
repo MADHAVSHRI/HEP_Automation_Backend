@@ -4,10 +4,10 @@ const crypto = require("crypto");
 // system) must send the shared secret in the "Apacs-api-key" header.
 const apiKeyAuth = (req, res, next) => {
   const providedKey = req.headers["apacs-api-key"];
-  const expectedKey = process.env.IPORTAN_API_KEY;
+  const expectedKey = process.env.IPORTMAN_API_KEY;
 
   if (!expectedKey) {
-    console.error("IPORTAN_API_KEY is not configured");
+    console.error("IPORTMAN_API_KEY is not configured");
     return res.status(500).json({
       success: false,
       message: "Internal server error",

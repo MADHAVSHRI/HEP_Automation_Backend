@@ -1,14 +1,14 @@
 const express = require("express");
 const router = express.Router();
 const iportmanController = require("../controllers/iportmanController");
-const apiKeyAuth = require("../middlewares/apiKeyAuth");
+const operatorAuth = require("../middlewares/operatorAuth");
 
 router.get("/", (req, res) => {
   res.send("Welcome to the IPORTMAN Service API");
 });
 
-router.post("/weighbridge", apiKeyAuth, iportmanController.createWeighbridgeRecord);
-router.get("/weighbridge", apiKeyAuth, iportmanController.getWeighbridgeRecords);
-router.get("/weighbridge/:id", apiKeyAuth, iportmanController.getWeighbridgeRecordById);
+router.post("/weighbridge", operatorAuth, iportmanController.createWeighbridgeRecord);
+router.get("/weighbridge", operatorAuth, iportmanController.getWeighbridgeRecords);
+router.get("/weighbridge/:id", operatorAuth, iportmanController.getWeighbridgeRecordById);
 
 module.exports = router;
