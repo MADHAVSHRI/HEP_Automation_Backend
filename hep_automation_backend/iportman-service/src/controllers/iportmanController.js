@@ -81,6 +81,7 @@ exports.createWeighbridgeRecord = async (req, res) => {
       tareWeight,
       netWeight,
       weightUnit,
+      operatorId: req.operator.id,
     });
 
     return res.status(201).json({

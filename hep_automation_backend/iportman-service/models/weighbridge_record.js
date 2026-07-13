@@ -9,7 +9,10 @@ module.exports = (sequelize, DataTypes) => {
      * The `models/index` file will call this method automatically.
      */
     static associate(models) {
-      // define association here
+      WeighbridgeRecord.belongsTo(models.WeighbridgeOperator, {
+        foreignKey: "operatorId",
+        as: "operator",
+      });
     }
   }
   WeighbridgeRecord.init(
@@ -47,6 +50,10 @@ module.exports = (sequelize, DataTypes) => {
       netWeight: DataTypes.DECIMAL,
       weightUnit: {
         type: DataTypes.STRING,
+        allowNull: false,
+      },
+      operatorId: {
+        type: DataTypes.INTEGER,
         allowNull: false,
       },
     },
