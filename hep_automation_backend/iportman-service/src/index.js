@@ -117,12 +117,12 @@ app.use((req, res, next) => {
 
   console.log(`Incoming IP: ${clientIp}`);
 
-  if (!allowedIPs.includes(clientIp)) {
-    return res.status(403).json({
-      success: false,
-      message: "Access denied. Your IP is not whitelisted.",
-    });
-  }
+  // if (!allowedIPs.includes(clientIp)) {
+  //   return res.status(403).json({
+  //     success: false,
+  //     message: "Access denied. Your IP is not whitelisted.",
+  //   });
+  // }
 
   next();
 });
