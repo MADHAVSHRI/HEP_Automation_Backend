@@ -8,8 +8,16 @@ const allowCredentials = require("../config/allowCredentials");
 const corsConfig = require("../config/corsConfig");
 
 const app = express();
-app.use(allowCredentials);
-corsConfig(app);
+// app.use(allowCredentials);
+// corsConfig(app);
+app.use(
+  cors({
+    origin: ["http://localhost:3000", "http://14.139.180.41:3000"],
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization", "x-service-name"],
+    credentials: true,
+  }),
+);
 app.use(express.json());
 app.use(loggerMiddleware);
 connectDB();
