@@ -20,6 +20,7 @@ const multer = require("multer");
 
 const verifyToken = require("../middlewares/verifyToken");
 const upload = require("../middlewares/uploadMiddleware");
+const { validateUploadedFileTypes } = require("../middlewares/uploadMiddleware");
 const bulkPassController = require("../controllers/bulkPassController");
 
 // ── Excel-upload multer instance (Req 11.8) ────────────────────────────────
@@ -174,6 +175,7 @@ router.post(
         next();
       });
   },
+  validateUploadedFileTypes,
   bulkPassController.submitRowsDirectly
 );
 
@@ -186,7 +188,18 @@ router.get("/visitor-types", verifyToken, bulkPassController.getBulkVisitorTypes
 router.post(
   "/intake",
   verifyToken,
-  upload.fields([{ name: "workOrder", maxCount: 1 }]),
+  (req, res, next) => {
+    upload.fields([{ name: "workOrder", maxCount: 1 }])(req, res, (err) => {
+      if (err) {
+        if (err.code === "LIMIT_FILE_SIZE") {
+          return res.status(400).json({ success: false, message: "File size exceeds the allowed limit" });
+        }
+        return res.status(400).json({ success: false, message: err.message || "Invalid file upload" });
+      }
+      next();
+    });
+  },
+  validateUploadedFileTypes,
   bulkPassController.createIntake
 );
 

@@ -35,6 +35,24 @@ app.get("/health", (req, res) => res.status(200).json({ status: "ok" }));
 
 app.use("/api", routes);
 
+// ── Global error handler ────────────────────────────────────────────────────
+// Catches any unhandled errors passed via next(err) — including unexpected
+// multer errors, validation throws, or controller exceptions — and returns a
+// controlled JSON response instead of leaking stack traces or returning 500.
+// eslint-disable-next-line no-unused-vars
+app.use((err, req, res, next) => {
+  // Multer errors (file size, count, invalid type, unexpected field)
+  if (err && (err.code === "LIMIT_FILE_SIZE" || err.code === "LIMIT_FILE_COUNT" || err.code === "LIMIT_UNEXPECTED_FILE")) {
+    return res.status(400).json({ success: false, message: err.message || "File upload limit exceeded" });
+  }
+  if (err && err.name === "MulterError") {
+    return res.status(400).json({ success: false, message: err.message || "File upload error" });
+  }
+  // Generic unhandled errors — log internally, return generic message
+  console.error("[GlobalErrorHandler]", err);
+  return res.status(500).json({ success: false, message: "An unexpected error occurred. Please try again." });
+});
+
 const PORT = process.env.PORT || 5001;
 
 app.listen(PORT, "0.0.0.0", () => {

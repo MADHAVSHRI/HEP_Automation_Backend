@@ -822,14 +822,16 @@ exports.login = async (req, res) => {
     /* ── 5. User existence check ── */
     if (!user) {
       log.warn(TAG, "User not found", { loginId });
-      // Dummy bcrypt to prevent timing attack
+      // Dummy bcrypt to prevent timing-based enumeration — always run even when
+      // no user record exists so response time is indistinguishable from a
+      // valid-user / wrong-password attempt.
       await bcrypt.compare(
         password,
         "$2b$10$invalidhashpadding000000000000000000000000000000000000",
       );
       return res
-        .status(404)
-        .json({ success: false, message: "User not found" });
+        .status(401)
+        .json({ success: false, message: "Invalid credentials" });
     }
 
     log.info(TAG, "User record fetched", {

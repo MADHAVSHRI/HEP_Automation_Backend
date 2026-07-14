@@ -362,6 +362,87 @@ const fileFilter = (req, file, cb) => {
   cb(null, true);
 };
 
+/* ===== MAGIC BYTE VALIDATORS ===== */
+
+// PDF magic bytes: %PDF- (25 50 44 46 2D)
+const PDF_MAGIC = Buffer.from([0x25, 0x50, 0x44, 0x46, 0x2D]);
+// JPEG magic bytes: FF D8 FF
+const JPEG_MAGIC = Buffer.from([0xFF, 0xD8, 0xFF]);
+// PNG magic bytes: 89 50 4E 47 0D 0A 1A 0A
+const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
+
+/**
+ * Reads the first 8 bytes of a file and checks magic bytes against the
+ * declared extension. Returns true if the content matches, false otherwise.
+ * @param {string} filePath  Absolute path to the uploaded file on disk
+ * @param {string} fieldname Multer field name (e.g. "workOrder", "personPhoto")
+ * @returns {boolean}
+ */
+function verifyFileMagicBytes(filePath, fieldname) {
+  try {
+    const fd = fs.openSync(filePath, "r");
+    const buf = Buffer.alloc(8);
+    fs.readSync(fd, buf, 0, 8, 0);
+    fs.closeSync(fd);
+
+    const fieldPrefix = fieldname.replace(/_\d+$/, "");
+
+    // personPhoto is the only field that accepts images; everything else must be PDF
+    if (fieldPrefix === "personPhoto") {
+      return (
+        buf.slice(0, JPEG_MAGIC.length).equals(JPEG_MAGIC) ||
+        buf.slice(0, PNG_MAGIC.length).equals(PNG_MAGIC)
+      );
+    }
+
+    // All other fields expect a real PDF
+    return buf.slice(0, PDF_MAGIC.length).equals(PDF_MAGIC);
+  } catch {
+    // Cannot read → treat as invalid
+    return false;
+  }
+}
+
+/**
+ * Express middleware — must be placed AFTER the multer upload middleware.
+ * Iterates over every file multer wrote to disk and validates magic bytes.
+ * Deletes invalid files and returns 400 immediately.
+ */
+function validateUploadedFileTypes(req, res, next) {
+  // Collect all uploaded files from req.file (single) and req.files (fields/array)
+  const uploadedFiles = [];
+
+  if (req.file) {
+    uploadedFiles.push(req.file);
+  }
+
+  if (req.files) {
+    if (Array.isArray(req.files)) {
+      uploadedFiles.push(...req.files);
+    } else {
+      // req.files is an object keyed by field name
+      for (const files of Object.values(req.files)) {
+        uploadedFiles.push(...files);
+      }
+    }
+  }
+
+  for (const file of uploadedFiles) {
+    if (!verifyFileMagicBytes(file.path, file.fieldname)) {
+      // Delete all files already written to disk before responding
+      for (const f of uploadedFiles) {
+        try { fs.unlinkSync(f.path); } catch { /* ignore */ }
+      }
+      return res.status(400).json({
+        success: false,
+        message: "Invalid file content. Only genuine PDF documents are allowed for document uploads.",
+      });
+    }
+  }
+
+  next();
+}
+
 /* ===== CHANGE =====
 Better limits for performance and protection
 */
@@ -376,3 +457,4 @@ const upload = multer({
 });
 
 module.exports = upload;
+module.exports.validateUploadedFileTypes = validateUploadedFileTypes;

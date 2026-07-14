@@ -9,7 +9,7 @@ router.post("/create-user",verifyService,verifyToken,authorizeToken("Admin"), ad
 
 router.post("/login",verifyService, adminController.getAdminUser);
 
-router.get("/roles", adminController.getRoles);
+router.get("/roles", verifyToken, authorizeToken("Admin"), adminController.getRoles);
 
 router.get("/departments", adminController.getDepartments);
 

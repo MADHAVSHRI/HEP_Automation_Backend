@@ -3,6 +3,7 @@ const router = express.Router();
 
 const verifyToken = require("../middlewares/verifyToken");
 const upload = require("../middlewares/uploadMiddleware");
+const { validateUploadedFileTypes } = require("../middlewares/uploadMiddleware");
 const vendorPassController = require("../controllers/vendorPassController");
 
 /**
@@ -14,54 +15,87 @@ router.get("/public/work-order/:id", vendorPassController.getWorkOrderFile);
 router.get("/public/:token", vendorPassController.getPublicByToken);
 router.post(
   "/public/:token/submit",
-  upload.fields([
-    { name: "personPhoto", maxCount: 50 },
-    { name: "personAadhar", maxCount: 50 },
-    { name: "personIdProof", maxCount: 50 },
-    { name: "driverLicense", maxCount: 50 },
-    { name: "requisitionLetter", maxCount: 50 },
-    { name: "policeVerification", maxCount: 50 },
-    { name: "employmentProof", maxCount: 50 },
-    { name: "chaLicenseCopy", maxCount: 50 },
-    { name: "passportDoc", maxCount: 50 },
-    { name: "vehicleRC", maxCount: 50 },
-    { name: "vehicleInsurance", maxCount: 50 },
-    { name: "vehiclePermit", maxCount: 50 },
-    { name: "vehicleFitness", maxCount: 50 },
-    { name: "vehicleRequestLetter", maxCount: 50 },
-    { name: "vehicleTax", maxCount: 50 },
-    { name: "vehicleEmission", maxCount: 50 },
-  ]),
+  (req, res, next) => {
+    upload.fields([
+      { name: "personPhoto", maxCount: 50 },
+      { name: "personAadhar", maxCount: 50 },
+      { name: "personIdProof", maxCount: 50 },
+      { name: "driverLicense", maxCount: 50 },
+      { name: "requisitionLetter", maxCount: 50 },
+      { name: "policeVerification", maxCount: 50 },
+      { name: "employmentProof", maxCount: 50 },
+      { name: "chaLicenseCopy", maxCount: 50 },
+      { name: "passportDoc", maxCount: 50 },
+      { name: "vehicleRC", maxCount: 50 },
+      { name: "vehicleInsurance", maxCount: 50 },
+      { name: "vehiclePermit", maxCount: 50 },
+      { name: "vehicleFitness", maxCount: 50 },
+      { name: "vehicleRequestLetter", maxCount: 50 },
+      { name: "vehicleTax", maxCount: 50 },
+      { name: "vehicleEmission", maxCount: 50 },
+    ])(req, res, (err) => {
+      if (err) {
+        if (err.code === "LIMIT_FILE_SIZE") {
+          return res.status(400).json({ success: false, message: "File size exceeds the allowed limit" });
+        }
+        return res.status(400).json({ success: false, message: err.message || "Invalid file upload" });
+      }
+      next();
+    });
+  },
+  validateUploadedFileTypes,
   vendorPassController.submitPublicVendorForm
 );
 
 router.put(
   "/public/:id/update-person/:personIndex",
-  upload.fields([
-    { name: "personPhoto", maxCount: 1 },
-    { name: "personAadhar", maxCount: 1 },
-    { name: "personIdProof", maxCount: 1 },
-    { name: "requisitionLetter", maxCount: 1 },
-    { name: "driverLicense", maxCount: 1 },
-    { name: "policeVerification", maxCount: 1 },
-    { name: "employmentProof", maxCount: 1 },
-    { name: "chaLicenseCopy", maxCount: 1 },
-    { name: "passportDoc", maxCount: 1 },
-  ]),
+  (req, res, next) => {
+    upload.fields([
+      { name: "personPhoto", maxCount: 1 },
+      { name: "personAadhar", maxCount: 1 },
+      { name: "personIdProof", maxCount: 1 },
+      { name: "requisitionLetter", maxCount: 1 },
+      { name: "driverLicense", maxCount: 1 },
+      { name: "policeVerification", maxCount: 1 },
+      { name: "employmentProof", maxCount: 1 },
+      { name: "chaLicenseCopy", maxCount: 1 },
+      { name: "passportDoc", maxCount: 1 },
+    ])(req, res, (err) => {
+      if (err) {
+        if (err.code === "LIMIT_FILE_SIZE") {
+          return res.status(400).json({ success: false, message: "File size exceeds the allowed limit" });
+        }
+        return res.status(400).json({ success: false, message: err.message || "Invalid file upload" });
+      }
+      next();
+    });
+  },
+  validateUploadedFileTypes,
   vendorPassController.updateVendorPerson
 );
 
 router.put(
   "/public/:id/update-vehicle/:vehicleIndex",
-  upload.fields([
-    { name: "vehicleRC", maxCount: 1 },
-    { name: "vehicleInsurance", maxCount: 1 },
-    { name: "vehiclePermit", maxCount: 1 },
-    { name: "vehicleFitness", maxCount: 1 },
-    { name: "vehicleRequestLetter", maxCount: 1 },
-    { name: "vehicleTax", maxCount: 1 },
-    { name: "vehicleEmission", maxCount: 1 },
-  ]),
+  (req, res, next) => {
+    upload.fields([
+      { name: "vehicleRC", maxCount: 1 },
+      { name: "vehicleInsurance", maxCount: 1 },
+      { name: "vehiclePermit", maxCount: 1 },
+      { name: "vehicleFitness", maxCount: 1 },
+      { name: "vehicleRequestLetter", maxCount: 1 },
+      { name: "vehicleTax", maxCount: 1 },
+      { name: "vehicleEmission", maxCount: 1 },
+    ])(req, res, (err) => {
+      if (err) {
+        if (err.code === "LIMIT_FILE_SIZE") {
+          return res.status(400).json({ success: false, message: "File size exceeds the allowed limit" });
+        }
+        return res.status(400).json({ success: false, message: err.message || "Invalid file upload" });
+      }
+      next();
+    });
+  },
+  validateUploadedFileTypes,
   vendorPassController.updateVendorVehicle
 );
 
@@ -77,7 +111,18 @@ router.put(
 router.post(
   "/intake",
   verifyToken,
-  upload.fields([{ name: "vendorWorkOrder", maxCount: 1 }]),
+  (req, res, next) => {
+    upload.fields([{ name: "vendorWorkOrder", maxCount: 1 }])(req, res, (err) => {
+      if (err) {
+        if (err.code === "LIMIT_FILE_SIZE") {
+          return res.status(400).json({ success: false, message: "File size exceeds the allowed limit" });
+        }
+        return res.status(400).json({ success: false, message: err.message || "Invalid file upload" });
+      }
+      next();
+    });
+  },
+  validateUploadedFileTypes,
   vendorPassController.createIntake
 );
 
