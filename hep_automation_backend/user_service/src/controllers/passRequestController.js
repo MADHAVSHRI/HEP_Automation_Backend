@@ -11,6 +11,12 @@ const { Designation, vehicleTypes, PassRequest, hepTypes,
         countries, states, cities, visitPurpose, getPassRequest, Master, getAgentPassRequestsDetails, viewPassRequestsDocuments } = require("../models/passRequestSchema");
 const { pool } = require("../dbconfig/db");
 
+const isOilDockArea = (val) => {
+  if (!val) return false;
+  const str = String(val).toUpperCase();
+  return str === "1" || str.includes("OIL JETTY") || str.includes("OIL_JETTY");
+};
+
 const getNationalities = (req, res) => {
   const sorted = NATIONALITIES.slice().sort((a, b) =>
     a.label.localeCompare(b.label),
@@ -536,6 +542,7 @@ const getAgentPassRequestsToApproverAdmin = async (req, res) => {
   try {
 
     const role = req.user.role;
+    const roleId = req.user.roleId;
     const departmentId = req.user.departmentId;
     const userId = req.user.userId;
 
@@ -547,7 +554,8 @@ const getAgentPassRequestsToApproverAdmin = async (req, res) => {
       role, departmentId, {
         ...pag,
         processedByMe: req.query.processedByMe === "true" || req.query.processedByMe === true,
-        userId
+        userId,
+        roleId
       }
     );
 
@@ -685,14 +693,53 @@ const approvePerson = async(req,res)=>{
 
   try{
 
-    const {personId} = req.body;
+    const {personId, remarks} = req.body;
+    const role = req.user?.role;
+    const roleId = req.user?.roleId;
 
-    const person = await PassRequest.approvePerson(personId);
+    if (roleId === 28 || role === 'Senior Deputy Traffic Manager') {
+      const query = `
+        UPDATE pass_persons
+        SET "srDtmApproved" = true, "srDtmRemarks" = $2, "updatedAt" = NOW()
+        WHERE id = $1
+        RETURNING *
+      `;
+      const personRes = await pool.query(query, [personId, remarks || null]);
+      const person = personRes.rows[0];
+      if (!person) {
+        return res.status(404).json({ success: false, message: "Person not found" });
+      }
 
-    return res.json({
-      success:true,
-      data:person
-    });
+      const passRequestId = person.passRequestId;
+
+      const allPersonsQuery = `
+        SELECT pp.id, pp."srDtmApproved", pp."accessAreaId"
+        FROM pass_persons pp
+        WHERE pp."passRequestId" = $1
+      `;
+      const allPersonsRes = await pool.query(allPersonsQuery, [passRequestId]);
+      const oilDockPersons = allPersonsRes.rows.filter(p => isOilDockArea(p.accessAreaId));
+      const allApproved = oilDockPersons.every(p => p.srDtmApproved);
+
+      if (allApproved) {
+        // Update workflow state — Pass Section query now uses per-entity flags directly
+        await pool.query(
+          `UPDATE pass_requests SET "workflowState" = 'PENDING_PASS_SECTION', "updatedAt" = NOW() WHERE id = $1`,
+          [passRequestId]
+        );
+      }
+
+      return res.json({
+        success: true,
+        data: person
+      });
+    } else {
+      const person = await PassRequest.approvePerson(personId);
+      return res.json({
+        success:true,
+        data:person
+      });
+    }
 
   }catch(error){
 
@@ -737,14 +784,140 @@ const approveVehicle = async(req,res)=>{
 
   try{
 
-    const {vehicleId} = req.body;
+    const {vehicleId, remarks} = req.body;
+    const role = req.user?.role;
+    const roleId = req.user?.roleId;
 
-    const vehicle = await PassRequest.approveVehicle(vehicleId);
+    if (roleId === 26 || role === 'Safety Officer') {
+      const query = `
+        UPDATE pass_vehicles
+        SET "twistLockCertified" = true, "twistLockRemarks" = $2, "updatedAt" = NOW()
+        WHERE id = $1
+        RETURNING *
+      `;
+      const vehicleRes = await pool.query(query, [vehicleId, remarks || null]);
+      const vehicle = vehicleRes.rows[0];
+      if (!vehicle) {
+        return res.status(404).json({ success: false, message: "Vehicle not found" });
+      }
 
-    return res.json({
-      success:true,
-      data:vehicle
-    });
+      const passRequestId = vehicle.passRequestId;
+
+      // SRS §386: All vehicles (oil dock daily AND monthly/yearly) now route through Safety Officer.
+      // Monthly/yearly vehicles require twistLockCertified.
+      // Daily oil dock vehicles just need to be individually certified (twistLockCertified set to true).
+      // "Complete Review" button handles the actual state transition — here we just track per-vehicle.
+      // Check if ALL monthly/yearly vehicles in this request have been twist-lock certified.
+      const allVehiclesQuery = `
+        SELECT id, "twistLockCertified", "passType", "accessAreaId"
+        FROM pass_vehicles
+        WHERE "passRequestId" = $1
+      `;
+      const allVehiclesRes = await pool.query(allVehiclesQuery, [passRequestId]);
+      // Only monthly/yearly vehicles strictly require twistLockCertified to advance.
+      // Daily oil dock vehicles are certified individually via this same endpoint (twistLockCertified=true).
+      // The overall state transition is handled by completePassReview.
+      const monthlyYearlyVehicles = allVehiclesRes.rows.filter(v => ["MONTHLY", "YEARLY", "ANNUAL"].includes(v.passType));
+      const allCertified = monthlyYearlyVehicles.length === 0 || monthlyYearlyVehicles.every(v => v.twistLockCertified);
+
+      if (allCertified) {
+        const prRes = await pool.query(`SELECT "isOilDock" FROM pass_requests WHERE id = $1`, [passRequestId]);
+        const isOilDock = prRes.rows[0]?.isOilDock;
+
+        const nextState = isOilDock ? 'PENDING_FIRE_SAFETY' : 'PENDING_PASS_SECTION';
+
+        await pool.query(
+          `UPDATE pass_requests SET "workflowState" = $2, "updatedAt" = NOW() WHERE id = $1`,
+          [passRequestId, nextState]
+        );
+      }
+
+      return res.json({
+        success: true,
+        data: vehicle
+      });
+
+    } else if (roleId === 27 || role === 'Fire Safety Officer') {
+      const query = `
+        UPDATE pass_vehicles
+        SET "sparkArresterCertified" = true, "sparkArresterRemarks" = $2, "updatedAt" = NOW()
+        WHERE id = $1
+        RETURNING *
+      `;
+      const vehicleRes = await pool.query(query, [vehicleId, remarks || null]);
+      const vehicle = vehicleRes.rows[0];
+      if (!vehicle) {
+        return res.status(404).json({ success: false, message: "Vehicle not found" });
+      }
+
+      const passRequestId = vehicle.passRequestId;
+
+      const allVehiclesQuery = `
+        SELECT id, "sparkArresterCertified", "accessAreaId"
+        FROM pass_vehicles
+        WHERE "passRequestId" = $1
+      `;
+      const allVehiclesRes = await pool.query(allVehiclesQuery, [passRequestId]);
+      const oilDockVehicles = allVehiclesRes.rows.filter(v => isOilDockArea(v.accessAreaId));
+      const allCertified = oilDockVehicles.every(v => v.sparkArresterCertified);
+
+      if (allCertified) {
+        await pool.query(
+          `UPDATE pass_requests SET "workflowState" = 'PENDING_SR_DTM', "updatedAt" = NOW() WHERE id = $1`,
+          [passRequestId]
+        );
+      }
+
+      return res.json({
+        success: true,
+        data: vehicle
+      });
+
+    } else if (roleId === 28 || role === 'Senior Deputy Traffic Manager') {
+      const query = `
+        UPDATE pass_vehicles
+        SET "srDtmApproved" = true, "srDtmRemarks" = $2, "updatedAt" = NOW()
+        WHERE id = $1
+        RETURNING *
+      `;
+      const vehicleRes = await pool.query(query, [vehicleId, remarks || null]);
+      const vehicle = vehicleRes.rows[0];
+      if (!vehicle) {
+        return res.status(404).json({ success: false, message: "Vehicle not found" });
+      }
+
+      const passRequestId = vehicle.passRequestId;
+
+      // Check if ALL oil dock vehicles in this request have been srDtmApproved
+      const allVehiclesQuery = `
+        SELECT id, "srDtmApproved", "accessAreaId"
+        FROM pass_vehicles
+        WHERE "passRequestId" = $1
+      `;
+      const allVehiclesRes = await pool.query(allVehiclesQuery, [passRequestId]);
+      const oilDockVehicles = allVehiclesRes.rows.filter(v => isOilDockArea(v.accessAreaId));
+      const allApproved = oilDockVehicles.every(v => v.srDtmApproved);
+
+      if (allApproved) {
+        // Update workflow state — Pass Section query now uses per-entity flags directly
+        await pool.query(
+          `UPDATE pass_requests SET "workflowState" = 'PENDING_PASS_SECTION', "updatedAt" = NOW() WHERE id = $1`,
+          [passRequestId]
+        );
+      }
+
+      return res.json({
+        success: true,
+        data: vehicle
+      });
+
+    } else {
+      const vehicle = await PassRequest.approveVehicle(vehicleId);
+      return res.json({
+        success:true,
+        data:vehicle
+      });
+    }
 
   }catch(error){
 
@@ -857,8 +1030,9 @@ const completeReview = async(req,res)=>{
 
     const {passRequestId} = req.body;
     const userId = req.user ? req.user.userId : null;
-
-    const result = await PassRequest.completePassReview(passRequestId, userId);
+    const role = req.user ? req.user.role : null;
+    const roleId = req.user ? req.user.roleId : null;
+    const result = await PassRequest.completePassReview(passRequestId, userId, role, roleId);
 
     return res.json({
       success:true,
@@ -1010,6 +1184,7 @@ const updatePassPerson = async (req, res) => {
     attachFile(updateData, "employmentProof", "employmentProofPath", "employmentProofName");
     attachFile(updateData, "chaLicenseCopy", "chaLicensePath", "chaLicenseName");
     attachFile(updateData, "passportDoc", "passportPath", "passportName");
+    attachFile(updateData, "entryAuthorization", "entryAuthorizationFilePath", "entryAuthorizationFileName");
 
     const { PassRequest } = require("../models/passRequestSchema");
 
@@ -1062,6 +1237,8 @@ const updatePassVehicle = async (req, res) => {
     attachFile(updateData, "vehicleRequestLetter", "requestLetterPath", "requestLetterName");
     attachFile(updateData, "vehicleTax", "taxDocPath", "taxDocName");
     attachFile(updateData, "vehicleEmission", "emissionCertPath", "emissionCertName");
+    attachFile(updateData, "sparkArrester", "sparkArresterFilePath", "sparkArresterFileName");
+    attachFile(updateData, "twistLock", "twistLockFilePath", "twistLockFileName");
 
     const { PassRequest } = require("../models/passRequestSchema");
 

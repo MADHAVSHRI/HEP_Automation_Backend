@@ -33,6 +33,9 @@ router.post(
       { name: "vehicleRequestLetter", maxCount: 50 },
       { name: "vehicleTax", maxCount: 50 },
       { name: "vehicleEmission", maxCount: 50 },
+    { name: "sparkArrester", maxCount: 50 },
+    { name: "twistLock", maxCount: 50 },
+    { name: "entryAuthorization", maxCount: 50 },
     ])(req, res, (err) => {
       if (err) {
         if (err.code === "LIMIT_FILE_SIZE") {
@@ -60,6 +63,7 @@ router.put(
       { name: "employmentProof", maxCount: 1 },
       { name: "chaLicenseCopy", maxCount: 1 },
       { name: "passportDoc", maxCount: 1 },
+    { name: "entryAuthorization", maxCount: 1 },
     ])(req, res, (err) => {
       if (err) {
         if (err.code === "LIMIT_FILE_SIZE") {
@@ -85,6 +89,8 @@ router.put(
       { name: "vehicleRequestLetter", maxCount: 1 },
       { name: "vehicleTax", maxCount: 1 },
       { name: "vehicleEmission", maxCount: 1 },
+    { name: "sparkArrester", maxCount: 1 },
+    { name: "twistLock", maxCount: 1 },
     ])(req, res, (err) => {
       if (err) {
         if (err.code === "LIMIT_FILE_SIZE") {

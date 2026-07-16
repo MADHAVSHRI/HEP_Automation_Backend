@@ -2,6 +2,7 @@ const { sendReferenceEmail, sendApprovalEmail, sendRejectionEmail,
   sendDeptUserCreationEmail, sendDeptUserActivatedEmail, sendDeptUserDisabledEmail,
   sendRevertedAgentRequestEmail,sendUpdatedAfterRevertEmail,
   sendVendorPassLinkEmail, sendPassRevertedEmail, sendVendorPassApprovedEmail,
+  sendVendorPassSubmittedEmail,
   sendForgotPasswordOTPEmail, sendForgotPasswordOtpEmail,
   sendBulkPassInvitationEmail, sendBulkPassSubmittedEmail, sendBulkPassUnderReviewEmail,
   sendBulkPassReturnedEmail, sendBulkPassApprovedEmail, sendBulkPassRejectedEmail } = require("../services/emailService");
@@ -268,7 +269,7 @@ exports.sendPassReverted = async (req, res) => {
 
   try {
 
-    const { email, name, referenceNumber, revertedEntities, revertedCount } = req.body;
+    const { email, name, referenceNumber, revertedEntities, revertedCount, formLink } = req.body;
 
     console.log(`[EMAIL-CTRL] Received pass reverted email request for ${email}`);
     console.log(`[EMAIL-CTRL] Payload:`, JSON.stringify(req.body, null, 2));
@@ -282,7 +283,7 @@ exports.sendPassReverted = async (req, res) => {
     }
 
     console.log(`[EMAIL-CTRL] Calling sendPassRevertedEmail for ${email}`);
-    await sendPassRevertedEmail(email, name, referenceNumber, revertedEntities, revertedCount);
+    await sendPassRevertedEmail(email, name, referenceNumber, revertedEntities, revertedCount, formLink || null);
 
     console.log(`[EMAIL-CTRL] Email sent successfully to ${email}`);
     return res.json({
@@ -347,6 +348,33 @@ exports.sendVendorPassApproved = async (req, res) => {
 
   } catch (error) {
     console.error("[EMAIL-CTRL] sendVendorPassApproved error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Email sending failed"
+    });
+  }
+};
+
+exports.sendVendorPassSubmitted = async (req, res) => {
+  try {
+    const { email, companyName, referenceNo, personsCount, vehiclesCount, departmentName } = req.body;
+
+    if (!email || !referenceNo) {
+      return res.status(400).json({
+        success: false,
+        message: "email and referenceNo are required"
+      });
+    }
+
+    await sendVendorPassSubmittedEmail({ email, companyName, referenceNo, personsCount, vehiclesCount, departmentName });
+
+    return res.json({
+      success: true,
+      message: "Vendor pass submission acknowledgement email sent successfully"
+    });
+
+  } catch (error) {
+    console.error("[EMAIL-CTRL] sendVendorPassSubmitted error:", error);
     res.status(500).json({
       success: false,
       message: "Email sending failed"

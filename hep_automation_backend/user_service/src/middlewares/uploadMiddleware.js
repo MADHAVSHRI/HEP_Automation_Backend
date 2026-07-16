@@ -38,6 +38,9 @@ const TAX_DIR = path.join(passRequestBaseDir,"vehicleTax");
 const EMISSION_DIR = path.join(passRequestBaseDir,"vehicleEmission");
 const CDC_DIR = path.join(passRequestBaseDir,"cdcDocument");
 const DECLARATION_DIR = path.join(passRequestBaseDir,"declarationForm");
+const SPARK_ARRESTER_DIR = path.join(passRequestBaseDir, "sparkArrester");
+const TWIST_LOCK_DIR = path.join(passRequestBaseDir, "twistLock");
+const ENTRY_AUTHORIZATION_DIR = path.join(passRequestBaseDir, "entryAuthorization");
 
 const VENDOR_WORK_ORDER_DIR = path.join(vendorPassBaseDir, "workOrder");
 
@@ -67,7 +70,10 @@ const passRequestFolders = [
   "vehicleTax",
   "vehicleEmission",
   "cdcDocument",
-  "declarationForm"
+  "declarationForm",
+  "sparkArrester",
+  "twistLock",
+  "entryAuthorization"
 ];
 
 folders.forEach((folder) => {
@@ -212,6 +218,18 @@ const storage = multer.diskStorage({
         cb(null, VENDOR_WORK_ORDER_DIR);
         break;
 
+      case "sparkArrester":
+        cb(null, SPARK_ARRESTER_DIR);
+        break;
+
+      case "twistLock":
+        cb(null, TWIST_LOCK_DIR);
+        break;
+
+      case "entryAuthorization":
+        cb(null, ENTRY_AUTHORIZATION_DIR);
+        break;
+
       default:
         cb(new Error("Invalid upload field"), "null");
     }
@@ -325,6 +343,18 @@ const storage = multer.diskStorage({
 
     else if (fieldPrefix === "declarationForm") {
       fileName = `DECLARATIONFORM${timestamp}.pdf`;
+    }
+
+    else if (fieldPrefix === "entryAuthorization") {
+      fileName = `ENTRYAUTH${timestamp}.pdf`;
+    }
+
+    else if (fieldPrefix === "sparkArrester") {
+      fileName = `SPARKARRESTER${timestamp}.pdf`;
+    }
+
+    else if (fieldPrefix === "twistLock") {
+      fileName = `TWISTLOCK${timestamp}.pdf`;
     }
 
     else if (!fileName) {

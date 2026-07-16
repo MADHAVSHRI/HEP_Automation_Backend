@@ -17,6 +17,7 @@ const bulkPassUnderReviewTemplate = require("../emailTemplates/bulkPassUnderRevi
 const bulkPassReturnedTemplate = require("../emailTemplates/bulkPassReturnedTemplate");
 const bulkPassApprovedTemplate = require("../emailTemplates/bulkPassApprovedTemplate");
 const bulkPassRejectedTemplate = require("../emailTemplates/bulkPassRejectedTemplate");
+const vendorPassSubmittedTemplate = require("../emailTemplates/vendorPassSubmittedTemplate");
 
 const sendReferenceEmail = async (email, name, referenceNumber) => {
 
@@ -163,11 +164,11 @@ const sendVendorPassLinkEmail = async ({
   return transporter.sendMail(mailOptions);
 };
 
-const sendPassRevertedEmail = async (email, name, referenceNumber, revertedEntities, revertedCount) => {
+const sendPassRevertedEmail = async (email, name, referenceNumber, revertedEntities, revertedCount, formLink = null) => {
   console.log(`[EMAIL-SVC] Preparing to send revert email to ${email}`);
   console.log(`[EMAIL-SVC] Reverted count: ${revertedCount || revertedEntities?.length || 0}`);
   
-  const html = revertedPassTemplate(name, referenceNumber, revertedEntities, revertedCount);
+  const html = revertedPassTemplate(name, referenceNumber, revertedEntities, revertedCount, formLink);
 
   const mailOptions = {
     from: process.env.EMAIL_USER,
@@ -221,6 +222,20 @@ const sendVendorPassApprovedEmail = async ({
   console.log(`[EMAIL-SVC] Sending vendor pass approval email to ${email}`);
   const result = await transporter.sendMail(mailOptions);
   console.log(`[EMAIL-SVC] Vendor approval email sent:`, result.messageId);
+  return result;
+};
+
+const sendVendorPassSubmittedEmail = async (payload) => {
+  const html = vendorPassSubmittedTemplate(payload);
+  const mailOptions = {
+    from: process.env.EMAIL_USER,
+    to: payload.email,
+    subject: `✅ Application Received — Vendor Pass (${payload.referenceNo})`,
+    html,
+  };
+  console.log(`[EMAIL-SVC] Sending vendor pass submission acknowledgement to ${payload.email}`);
+  const result = await transporter.sendMail(mailOptions);
+  console.log(`[EMAIL-SVC] Submission acknowledgement email sent:`, result.messageId);
   return result;
 };
 
@@ -313,6 +328,7 @@ module.exports = { sendReferenceEmail, sendApprovalEmail,
   sendRejectionEmail, sendDeptUserCreationEmail, sendDeptUserActivatedEmail, 
   sendDeptUserDisabledEmail, sendUpdatedAfterRevertEmail, sendRevertedAgentRequestEmail,
   sendVendorPassLinkEmail, sendPassRevertedEmail, sendVendorPassApprovedEmail,
+  sendVendorPassSubmittedEmail,
   sendForgotPasswordOTPEmail, sendForgotPasswordOtpEmail,
   sendBulkPassInvitationEmail, sendBulkPassSubmittedEmail, sendBulkPassUnderReviewEmail,
   sendBulkPassReturnedEmail, sendBulkPassApprovedEmail, sendBulkPassRejectedEmail };

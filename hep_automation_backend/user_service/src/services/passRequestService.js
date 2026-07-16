@@ -271,6 +271,7 @@ exports.getVendorQrData = async (vendorPassId) => {
         idProofFileName: person.idProofFileName || '',
         cdcDocumentName: person.cdcDocumentName || '',
         declarationFormName: person.declarationFormName || '',
+        entryAuthorizationFileName: person.entryAuthorizationFileName || '',
         // File paths
         aadharPDFFilePATH: person.aadharPDFFilePATH || '',
         idProofFilePath: person.idProofFilePath || '',
@@ -283,6 +284,7 @@ exports.getVendorQrData = async (vendorPassId) => {
         chaLicensePath: person.chaLicensePath || '',
         cdcDocumentPath: person.cdcDocumentPath || '',
         declarationFormPath: person.declarationFormPath || '',
+        entryAuthorizationFilePath: person.entryAuthorizationFilePath || '',
         // QR display fields
         validFrom: formatISTDateTime(person.dateFrom, false),
         validTo: formatISTDateTime(person.dateTo, false),
@@ -329,6 +331,8 @@ exports.getVendorQrData = async (vendorPassId) => {
       requestLetterName: vehicle.requestLetterName || '',
       taxDocName: vehicle.taxFileName || '',
       emissionCertName: vehicle.emissionFileName || '',
+      sparkArresterFileName: vehicle.sparkArresterFileName || '',
+      twistLockFileName: vehicle.twistLockFileName || '',
       // File paths
       scannedCopyFilePath: vehicle.scannedCopyFilePath || '',
       insuranceFilePath: vehicle.insuranceFilePath || '',
@@ -337,6 +341,8 @@ exports.getVendorQrData = async (vendorPassId) => {
       requestLetterPath: vehicle.requestLetterPath || '',
       taxFilePath: vehicle.taxFilePath || '',
       emissionFilePath: vehicle.emissionFilePath || '',
+      sparkArresterFilePath: vehicle.sparkArresterFilePath || '',
+      twistLockFilePath: vehicle.twistLockFilePath || '',
       // QR display fields
       validFrom: formatISTDateTime(vehicle.dateFrom, false),
       validTo: formatISTDateTime(vehicle.dateTo, false),

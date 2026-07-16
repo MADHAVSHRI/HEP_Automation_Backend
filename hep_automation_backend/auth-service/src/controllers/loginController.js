@@ -922,6 +922,7 @@ exports.login = async (req, res) => {
     const tokenPayload = {
       userId: user.id,
       role: user.role,
+      roleId: user.roleId,
       departmentId: user.departmentId,
       departmentName: user.departmentName,
       sessionId,
@@ -1034,7 +1035,7 @@ exports.refreshToken = async (req, res) => {
       return res.status(401).json({ message: "Invalid refresh token" });
     }
 
-    const { userId, role, sessionId, departmentId, departmentName, source } =
+    const { userId, role, roleId, sessionId, departmentId, departmentName, source } =
       decoded;
 
     log.info(TAG, "Token decoded", { userId, role, sessionId });
@@ -1066,6 +1067,7 @@ exports.refreshToken = async (req, res) => {
     const newAccessToken = generateAccessToken({
       userId,
       role,
+      roleId,
       departmentId,
       departmentName,
       sessionId,

@@ -6,6 +6,12 @@ const { MONTH_CODES, VISITOR_TYPES } = require("../constants/constants");
 const { pool } = require("../dbconfig/db");
 const ReferenceNumber = require("../models/referenceNumberSchema");
 
+const isOilDockArea = (val) => {
+  if (!val) return false;
+  const str = String(val).toUpperCase();
+  return str === "1" || str.includes("OIL JETTY") || str.includes("OIL_JETTY");
+};
+
 const buildReferenceNo = async (client) => {
   return await ReferenceNumber.generateVendorPassReference(client);
 };
@@ -615,6 +621,7 @@ exports.submitPublicVendorForm = async (req, res) => {
       attachFile(out, "employmentProof", i, "employmentProofPath", "employmentProofName");
       attachFile(out, "chaLicenseCopy", i, "chaLicensePath", "chaLicenseName");
       attachFile(out, "passportDoc", i, "passportPath", "passportName");
+      attachFile(out, "entryAuthorization", i, "entryAuthorizationFilePath", "entryAuthorizationFileName");
       return out;
     });
 
@@ -627,6 +634,8 @@ exports.submitPublicVendorForm = async (req, res) => {
       attachFile(out, "vehicleRequestLetter", i, "requestLetterPath", "requestLetterName");
       attachFile(out, "vehicleTax", i, "taxFilePath", "taxFileName");
       attachFile(out, "vehicleEmission", i, "emissionFilePath", "emissionFileName");
+      attachFile(out, "sparkArrester", i, "sparkArresterFilePath", "sparkArresterFileName");
+      attachFile(out, "twistLock", i, "twistLockFilePath", "twistLockFileName");
       return out;
     });
 
@@ -636,6 +645,26 @@ exports.submitPublicVendorForm = async (req, res) => {
       persons,
       vehicles
     );
+
+    // Send acknowledgement email to vendor (fire-and-forget)
+    const emailUrl = process.env.EMAIL_SERVICE_URL;
+    if (emailUrl && updated.vendorEmail) {
+      axios.post(`${emailUrl}/api/email/sendVendorPassSubmitted`, {
+        email: updated.vendorEmail,
+        companyName: updated.companyName,
+        referenceNo: updated.referenceNo,
+        personsCount: persons.length,
+        vehiclesCount: vehicles.length,
+        departmentName: updated.departmentName,
+      }, {
+        headers: { "x-service-name": "USER-SERVICE" },
+        timeout: 8000,
+      }).then(() => {
+        console.log(`[VENDOR-PASS] Submission acknowledgement email sent to ${updated.vendorEmail}`);
+      }).catch((emailErr) => {
+        console.warn(`[VENDOR-PASS] Submission acknowledgement email failed (non-critical):`, emailErr.message);
+      });
+    }
 
     return res.status(200).json({
       success: true,
@@ -668,14 +697,64 @@ exports.submitPublicVendorForm = async (req, res) => {
 exports.approveVendorPerson = async (req, res) => {
   try {
     const { id, personIndex } = req.params;
-    const result = await VendorPassRequest.approveVendorPerson(
-      Number(id),
-      Number(personIndex)
-    );
-    if (!result) {
-      return res.status(404).json({ success: false, message: "Vendor pass not found" });
+    const { remarks } = req.body;
+    const role = req.user?.role;
+    const roleId = req.user?.roleId;
+
+    if (roleId === 28 || role === 'Senior Deputy Traffic Manager') {
+      const personRes = await pool.query(
+        `SELECT id FROM "vendor_pass_persons" WHERE "vendorPassRequestId" = $1 ORDER BY id ASC`,
+        [Number(id)]
+      );
+      const personEntry = personRes.rows[Number(personIndex)];
+      if (!personEntry) {
+        return res.status(404).json({ success: false, message: "Person not found" });
+      }
+
+      await pool.query(
+        `UPDATE "vendor_pass_persons"
+         SET "srDtmApproved" = true, "srDtmRemarks" = $2, "updatedAt" = NOW()
+         WHERE id = $1`,
+        [personEntry.id, remarks || null]
+      );
+
+      const allPersonsQuery = `
+        SELECT id, "srDtmApproved", "accessAreaId"
+        FROM "vendor_pass_persons"
+        WHERE "vendorPassRequestId" = $1
+      `;
+      const allPersonsRes = await pool.query(allPersonsQuery, [Number(id)]);
+      const oilDockPersons = allPersonsRes.rows.filter(p => isOilDockArea(p.accessAreaId));
+      const allApproved = oilDockPersons.every(p => p.srDtmApproved);
+
+      if (allApproved) {
+        // Reset entity statuses to 'pending' for Pass Section fresh review
+        await pool.query(
+          `UPDATE "vendor_pass_persons" SET status = 'pending', "updatedAt" = NOW() WHERE "vendorPassRequestId" = $1 AND status = 'approved'`,
+          [Number(id)]
+        );
+        await pool.query(
+          `UPDATE "vendor_pass_vehicles" SET status = 'pending', "updatedAt" = NOW() WHERE "vendorPassRequestId" = $1 AND status = 'approved'`,
+          [Number(id)]
+        );
+        await pool.query(
+          `UPDATE "vendor_pass_requests" SET "workflowState" = 'PENDING_PASS_SECTION', "updatedAt" = NOW() WHERE id = $1`,
+          [Number(id)]
+        );
+      }
+
+      const result = await VendorPassRequest.getById(Number(id));
+      return res.json({ success: true, data: result });
+    } else {
+      const result = await VendorPassRequest.approveVendorPerson(
+        Number(id),
+        Number(personIndex)
+      );
+      if (!result) {
+        return res.status(404).json({ success: false, message: "Vendor pass not found" });
+      }
+      return res.json({ success: true, data: result });
     }
-    return res.json({ success: true, data: result });
   } catch (error) {
     console.error("approveVendorPerson error:", error);
     return res.status(500).json({ success: false, message: error.message || "Internal server error" });
@@ -732,6 +811,7 @@ exports.updateVendorPerson = async (req, res) => {
     attachFile(data, "passportDoc", "passportPath", "passportName");
     attachFile(data, "cdcDocument", "cdcDocumentPath", "cdcDocumentName");
     attachFile(data, "declarationForm", "declarationFormPath", "declarationFormName");
+    attachFile(data, "entryAuthorization", "entryAuthorizationFilePath", "entryAuthorizationFileName");
 
     const result = await VendorPassRequest.updateVendorPerson(
       resolvedId,
@@ -771,6 +851,8 @@ exports.updateVendorVehicle = async (req, res) => {
     attachFile(data, "vehicleRequestLetter", "requestLetterPath", "requestLetterName");
     attachFile(data, "vehicleTax", "taxFilePath", "taxFileName");
     attachFile(data, "vehicleEmission", "emissionFilePath", "emissionFileName");
+    attachFile(data, "sparkArrester", "sparkArresterFilePath", "sparkArresterFileName");
+    attachFile(data, "twistLock", "twistLockFilePath", "twistLockFileName");
 
     const result = await VendorPassRequest.updateVendorVehicle(
       resolvedId,
@@ -824,14 +906,154 @@ exports.revertVendorPerson = async (req, res) => {
 exports.approveVendorVehicle = async (req, res) => {
   try {
     const { id, vehicleIndex } = req.params;
-    const result = await VendorPassRequest.approveVendorVehicle(
-      Number(id),
-      Number(vehicleIndex)
-    );
-    if (!result) {
-      return res.status(404).json({ success: false, message: "Vendor pass not found" });
+    const { remarks } = req.body;
+    const role = req.user?.role;
+    const roleId = req.user?.roleId;
+
+    if (roleId === 26 || role === 'Safety Officer') {
+      const vehicleRes = await pool.query(
+        `SELECT id FROM "vendor_pass_vehicles" WHERE "vendorPassRequestId" = $1 ORDER BY id ASC`,
+        [Number(id)]
+      );
+      const vehicleEntry = vehicleRes.rows[Number(vehicleIndex)];
+      if (!vehicleEntry) {
+        return res.status(404).json({ success: false, message: "Vehicle not found" });
+      }
+
+      await pool.query(
+        `UPDATE "vendor_pass_vehicles"
+         SET "twistLockCertified" = true, "twistLockRemarks" = $2, "updatedAt" = NOW()
+         WHERE id = $1`,
+        [vehicleEntry.id, remarks || null]
+      );
+
+      const allVehiclesQuery = `
+        SELECT id, "twistLockCertified", "passType"
+        FROM "vendor_pass_vehicles"
+        WHERE "vendorPassRequestId" = $1
+      `;
+      const allVehiclesRes = await pool.query(allVehiclesQuery, [Number(id)]);
+      const monthlyYearlyVehicles = allVehiclesRes.rows.filter(v => v.passType === "MONTHLY" || v.passType === "YEARLY");
+      const allCertified = monthlyYearlyVehicles.every(v => v.twistLockCertified);
+
+      if (allCertified) {
+        const prRes = await pool.query(`SELECT "isOilDock" FROM "vendor_pass_requests" WHERE id = $1`, [Number(id)]);
+        const isOilDock = prRes.rows[0]?.isOilDock;
+
+        const nextState = isOilDock ? 'PENDING_FIRE_SAFETY' : 'PENDING_PASS_SECTION';
+
+        // Reset entity statuses to 'pending' when entering Pass Section queue
+        if (nextState === 'PENDING_PASS_SECTION') {
+          await pool.query(
+            `UPDATE "vendor_pass_persons" SET status = 'pending', "updatedAt" = NOW() WHERE "vendorPassRequestId" = $1 AND status = 'approved'`,
+            [Number(id)]
+          );
+          await pool.query(
+            `UPDATE "vendor_pass_vehicles" SET status = 'pending', "updatedAt" = NOW() WHERE "vendorPassRequestId" = $1 AND status = 'approved'`,
+            [Number(id)]
+          );
+        }
+
+        await pool.query(
+          `UPDATE "vendor_pass_requests" SET "workflowState" = $2, "updatedAt" = NOW() WHERE id = $1`,
+          [Number(id), nextState]
+        );
+      }
+
+      const result = await VendorPassRequest.getById(Number(id));
+      return res.json({ success: true, data: result });
+
+    } else if (roleId === 27 || role === 'Fire Safety Officer') {
+      const vehicleRes = await pool.query(
+        `SELECT id FROM "vendor_pass_vehicles" WHERE "vendorPassRequestId" = $1 ORDER BY id ASC`,
+        [Number(id)]
+      );
+      const vehicleEntry = vehicleRes.rows[Number(vehicleIndex)];
+      if (!vehicleEntry) {
+        return res.status(404).json({ success: false, message: "Vehicle not found" });
+      }
+
+      await pool.query(
+        `UPDATE "vendor_pass_vehicles"
+         SET "sparkArresterCertified" = true, "sparkArresterRemarks" = $2, "updatedAt" = NOW()
+         WHERE id = $1`,
+        [vehicleEntry.id, remarks || null]
+      );
+
+      const allVehiclesQuery = `
+        SELECT id, "sparkArresterCertified", "accessAreaId"
+        FROM "vendor_pass_vehicles"
+        WHERE "vendorPassRequestId" = $1
+      `;
+      const allVehiclesRes = await pool.query(allVehiclesQuery, [Number(id)]);
+      const oilDockVehicles = allVehiclesRes.rows.filter(v => isOilDockArea(v.accessAreaId));
+      const allCertified = oilDockVehicles.every(v => v.sparkArresterCertified);
+
+      if (allCertified) {
+        await pool.query(
+          `UPDATE "vendor_pass_requests" SET "workflowState" = 'PENDING_SR_DTM', "updatedAt" = NOW() WHERE id = $1`,
+          [Number(id)]
+        );
+      }
+
+      const result = await VendorPassRequest.getById(Number(id));
+      return res.json({ success: true, data: result });
+
+    } else if (roleId === 28 || role === 'Senior Deputy Traffic Manager') {
+      const vehicleRes = await pool.query(
+        `SELECT id FROM "vendor_pass_vehicles" WHERE "vendorPassRequestId" = $1 ORDER BY id ASC`,
+        [Number(id)]
+      );
+      const vehicleEntry = vehicleRes.rows[Number(vehicleIndex)];
+      if (!vehicleEntry) {
+        return res.status(404).json({ success: false, message: "Vehicle not found" });
+      }
+
+      await pool.query(
+        `UPDATE "vendor_pass_vehicles"
+         SET "srDtmApproved" = true, "srDtmRemarks" = $2, "updatedAt" = NOW()
+         WHERE id = $1`,
+        [vehicleEntry.id, remarks || null]
+      );
+
+      const allVehiclesQuery = `
+        SELECT id, "srDtmApproved", "accessAreaId"
+        FROM "vendor_pass_vehicles"
+        WHERE "vendorPassRequestId" = $1
+      `;
+      const allVehiclesRes = await pool.query(allVehiclesQuery, [Number(id)]);
+      const oilDockVehicles = allVehiclesRes.rows.filter(v => isOilDockArea(v.accessAreaId));
+      const allApproved = oilDockVehicles.every(v => v.srDtmApproved);
+
+      if (allApproved) {
+        // Reset entity statuses to 'pending' for Pass Section review
+        await pool.query(
+          `UPDATE "vendor_pass_persons" SET status = 'pending', "updatedAt" = NOW() WHERE "vendorPassRequestId" = $1 AND status = 'approved'`,
+          [Number(id)]
+        );
+        await pool.query(
+          `UPDATE "vendor_pass_vehicles" SET status = 'pending', "updatedAt" = NOW() WHERE "vendorPassRequestId" = $1 AND status = 'approved'`,
+          [Number(id)]
+        );
+        await pool.query(
+          `UPDATE "vendor_pass_requests" SET "workflowState" = 'PENDING_PASS_SECTION', "updatedAt" = NOW() WHERE id = $1`,
+          [Number(id)]
+        );
+      }
+
+      const result = await VendorPassRequest.getById(Number(id));
+      return res.json({ success: true, data: result });
+
+    } else {
+      const result = await VendorPassRequest.approveVendorVehicle(
+        Number(id),
+        Number(vehicleIndex)
+      );
+      if (!result) {
+        return res.status(404).json({ success: false, message: "Vendor pass not found" });
+      }
+      return res.json({ success: true, data: result });
     }
-    return res.json({ success: true, data: result });
   } catch (error) {
     console.error("approveVendorVehicle error:", error);
     return res.status(500).json({ success: false, message: error.message || "Internal server error" });
@@ -883,7 +1105,9 @@ exports.completeVendorReview = async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user ? req.user.userId : null;
-    const result = await VendorPassRequest.completeVendorPassReview(Number(id), userId);
+    const role = req.user ? req.user.role : null;
+    const roleId = req.user ? req.user.roleId : null;
+    const result = await VendorPassRequest.completeVendorPassReview(Number(id), userId, role, roleId);
     return res.json({ success: true, data: result });
   } catch (error) {
     console.error("completeVendorReview error:", error);

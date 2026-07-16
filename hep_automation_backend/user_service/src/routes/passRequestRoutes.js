@@ -65,6 +65,7 @@ router.put(
     { name: "employmentProof", maxCount: 1 },
     { name: "chaLicenseCopy", maxCount: 1 },
     { name: "passportDoc", maxCount: 1 },
+    { name: "entryAuthorization", maxCount: 1 },
   ]),
   passRequestController.updatePassPerson
 );
@@ -80,6 +81,8 @@ router.put(
     { name: "vehicleRequestLetter", maxCount: 1 },
     { name: "vehicleTax", maxCount: 1 },
     { name: "vehicleEmission", maxCount: 1 },
+    { name: "sparkArrester", maxCount: 1 },
+    { name: "twistLock", maxCount: 1 },
   ]),
   passRequestController.updatePassVehicle
 );

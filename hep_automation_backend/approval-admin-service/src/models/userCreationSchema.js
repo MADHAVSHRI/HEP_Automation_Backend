@@ -162,6 +162,7 @@ const User = {
         u."isApprovedByAdmin",
         u."status",
         u."departmentId",
+        u."roleId",
         r."roleName" AS role,
         d."departmentName" AS "departmentName"
 

@@ -159,6 +159,33 @@ const PassRequest = {
    SAFE REFERENCE NUMBER GENERATION (Retry Logic)
 ===== */
 
+      const isOilDockArea = (val) => {
+        if (!val) return false;
+        const str = String(val).toUpperCase();
+        return str === "1" || str.includes("OIL JETTY") || str.includes("OIL_JETTY");
+      };
+
+      const hasMonthlyYearlyVehicle = (vehicles || []).some(v => 
+        ["MONTHLY", "YEARLY", "ANNUAL"].includes(v.passType)
+      );
+      const hasOilDockVehicle = (vehicles || []).some(v => 
+        isOilDockArea(v.accessAreaId || v.accessArea)
+      );
+      const hasOilDockPerson = (persons || []).some(p => 
+        isOilDockArea(p.accessAreaId || p.accessArea)
+      );
+
+      const isOilDock = hasOilDockVehicle || hasOilDockPerson;
+
+      let initialWorkflowState = "PENDING_PASS_SECTION";
+      if (hasMonthlyYearlyVehicle) {
+        initialWorkflowState = "PENDING_SAFETY";
+      } else if (hasOilDockVehicle) {
+        initialWorkflowState = "PENDING_FIRE_SAFETY";
+      } else if (hasOilDockPerson) {
+        initialWorkflowState = "PENDING_SR_DTM";
+      }
+
       let referenceNo;
       let passRequestId;
       let inserted = false;
@@ -173,8 +200,8 @@ const PassRequest = {
             INSERT INTO pass_requests
             ("referenceNo","agentId","purposeOfVisitId","authLetterFilePath","authLetterFileName","requisitionLetterFilePath",
             "requisitionLetterFileName","paymentMode","baseTotal",
-            "grossTotal","gstAmount","netAmount","status","originType","submittedAt","createdAt","updatedAt")
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'SUBMITTED','AGENT',NOW(),NOW(),NOW())
+            "grossTotal","gstAmount","netAmount","status","originType","isOilDock","workflowState","submittedAt","createdAt","updatedAt")
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'SUBMITTED','AGENT',$13,$14,NOW(),NOW(),NOW())
             RETURNING id
             `,
             [
@@ -190,6 +217,8 @@ const PassRequest = {
               grossTotal,
               gstAmount,
               netAmount,
+              isOilDock,
+              initialWorkflowState,
             ],
           );
 
@@ -231,18 +260,23 @@ const PassRequest = {
         const employFile = getFile("employmentProof", i);
         const chaFile = getFile("chaLicenseCopy", i);
         const passportFile = getFile("passportDoc", i);
+        const entryAuthFile = getFile("entryAuthorization", i);
 
         if (!masterPersonId) {
-          const existingPerson = await client.query(
-            `
-          SELECT id
-          FROM master_persons
-          WHERE "agentId" = $1
-          AND "aadharNo" = $2
-          LIMIT 1
-          `,
-            [agentId, person.aadharNo],
-          );
+          let existingPerson = { rows: [] };
+          if (person.aadharNo && String(person.aadharNo).trim() !== "") {
+            existingPerson = await client.query(
+              `
+            SELECT id
+            FROM master_persons
+            WHERE "agentId" = $1
+            AND "aadharNo" = $2
+            AND LOWER(TRIM("name")) = LOWER(TRIM($3))
+            LIMIT 1
+            `,
+              [agentId, person.aadharNo, person.name],
+            );
+          }
 
           if (existingPerson.rows.length > 0) {
             masterPersonId = existingPerson.rows[0].id;
@@ -374,6 +408,7 @@ const PassRequest = {
           "rateId",
           "hepTypeId",
           "name",
+          "aadharNo",
           "mobile",
           "email",
           "nationality",
@@ -408,16 +443,18 @@ const PassRequest = {
           "dateFrom",
           "dateTo",
           "amount",
+          "entryAuthorizationFilePath",
+          "entryAuthorizationFileName",
           "createdAt",
           "updatedAt"
         )
         VALUES
         (
           $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,
-          $11,$12,$13,$14,$15,$16,$17,
-          $18,$19,$20,$21,$22,$23,$24,$25,
-          $26,$27,$28,$29,$30,$31,$32,$33,
-          $34,$35,$36,$37,$38,$39,$40,
+          $11,$12,$13,$14,$15,$16,$17,$18,
+          $19,$20,$21,$22,$23,$24,$25,$26,
+          $27,$28,$29,$30,$31,$32,$33,$34,
+          $35,$36,$37,$38,$39,$40,$41,$42,$43,
           NOW(),NOW()
         )
         `,
@@ -427,41 +464,44 @@ const PassRequest = {
             masterPersonId,
             person.rateId,
             person.hepTypeId,
-            mpData.name,
-            mpData.mobile,
-            mpData.email,
-            mpData.nationality,
-            mpData.countryId,
+            person.name || mpData.name,
+            person.aadharNo || mpData.aadharNo,
+            person.mobile || mpData.mobile,
+            person.email || mpData.email,
+            person.nationality || mpData.nationality,
+            person.countryId || mpData.countryId,
             mpData.visaNo,
-            mpData.designationId,
+            person.designationId || mpData.designationId,
             mpData.designationOther,
-            mpData.cardNumber,
-            mpData.accessAreaId,
-            mpData.withTwoWheeler,
-            mpData.vehicleNo,
-            mpData.idProofType,
-            mpData.idProofNumber,
-            mpData.aadharPDFFilePATH,
-            mpData.aadharPDFFileName,
-            mpData.idProofFilePath,
-            mpData.idProofFileName,
-            mpData.photoFilePath,
-            mpData.photoFileName,
-            mpData.driverLicensePath,
-            mpData.driverLicenseName,
-            mpData.policeVerificationPath,
-            mpData.policeVerificationName,
-            mpData.employmentProofPath,
-            mpData.employmentProofName,
-            mpData.chaLicensePath,
-            mpData.chaLicenseName,
-            mpData.passportPath,
-            mpData.passportName,
+            person.cardNumber || mpData.cardNumber,
+            person.accessAreaId || mpData.accessAreaId,
+            person.withTwoWheeler !== undefined ? person.withTwoWheeler : mpData.withTwoWheeler,
+            person.vehicleNo || mpData.vehicleNo,
+            person.idProofType || mpData.idProofType,
+            person.idProofNumber || mpData.idProofNumber,
+            aadharFile?.path || mpData.aadharPDFFilePATH,
+            aadharFile?.originalname || mpData.aadharPDFFileName,
+            idProofFile?.path || mpData.idProofFilePath,
+            idProofFile?.originalname || mpData.idProofFileName,
+            photoFile?.path || mpData.photoFilePath,
+            photoFile?.originalname || mpData.photoFileName,
+            dlFile?.path || mpData.driverLicensePath,
+            dlFile?.originalname || mpData.driverLicenseName,
+            policeFile?.path || mpData.policeVerificationPath,
+            policeFile?.originalname || mpData.policeVerificationName,
+            employFile?.path || mpData.employmentProofPath,
+            employFile?.originalname || mpData.employmentProofName,
+            chaFile?.path || mpData.chaLicensePath,
+            chaFile?.originalname || mpData.chaLicenseName,
+            passportFile?.path || mpData.passportPath,
+            passportFile?.originalname || mpData.passportName,
             person.passType,
             person.passPeriod,
             person.dateFrom,
             person.dateTo,
             person.amount,
+            entryAuthFile?.path || null,
+            entryAuthFile?.originalname || null,
           ],
         );
       }
@@ -484,18 +524,23 @@ const PassRequest = {
         const reqLetterFile = getFile("vehicleRequestLetter", fileIdx);
         const taxFile = getFile("vehicleTax", fileIdx);
         const emissionFile = getFile("vehicleEmission", fileIdx);
+        const sparkArresterFile = getFile("sparkArrester", fileIdx);
+        const twistLockFile = getFile("twistLock", fileIdx);
 
         if (!masterVehicleId) {
-          const existingVehicle = await client.query(
-            `
-            SELECT id
-            FROM master_vehicles
-            WHERE "agentId" = $1
-            AND "registrationNo" = $2
-            LIMIT 1
-            `,
-            [agentId, vehicle.registrationNo],
-          );
+          let existingVehicle = { rows: [] };
+          if (vehicle.registrationNo && String(vehicle.registrationNo).trim() !== "") {
+            existingVehicle = await client.query(
+              `
+              SELECT id
+              FROM master_vehicles
+              WHERE "agentId" = $1
+              AND "registrationNo" = $2
+              LIMIT 1
+              `,
+              [agentId, vehicle.registrationNo],
+            );
+          }
 
           if (existingVehicle.rows.length > 0) {
             masterVehicleId = existingVehicle.rows[0].id;
@@ -626,6 +671,10 @@ const PassRequest = {
             "dateFrom",
             "dateTo",
             "amount",
+            "sparkArresterFilePath",
+            "sparkArresterFileName",
+            "twistLockFilePath",
+            "twistLockFileName",
             "createdAt",
             "updatedAt"
           )
@@ -634,7 +683,7 @@ const PassRequest = {
             $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,
             $11,$12,$13,$14,$15,$16,$17,$18,
             $19,$20,$21,$22,$23,$24,$25,$26,
-            $27,$28,$29,
+            $27,$28,$29,$30,$31,$32,$33,
             NOW(),NOW()
           )
           `,
@@ -646,28 +695,32 @@ const PassRequest = {
             mvData.vehicleTypeId,
             mvData.registrationNo,
             mvData.rfidCardNumber,
-            mvData.scannedCopyFilePath,
-            mvData.scannedCopyFileName,
-            mvData.insuranceExpiry,
-            mvData.rcValidity,
-            mvData.accessAreaId,
-            mvData.insuranceFilePath,
-            mvData.insuranceFileName,
-            mvData.permitFilePath,
-            mvData.permitFileName,
-            mvData.fitnessFilePath,
-            mvData.fitnessFileName,
-            mvData.requestLetterPath,
-            mvData.requestLetterName,
-            mvData.taxDocPath,
-            mvData.taxDocName,
-            mvData.emissionCertPath,
-            mvData.emissionCertName,
+            vehicleFile?.path || mvData.scannedCopyFilePath,
+            vehicleFile?.originalname || mvData.scannedCopyFileName,
+            vehicle.insuranceExpiry || mvData.insuranceExpiry,
+            vehicle.rcValidity || mvData.rcValidity,
+            vehicle.accessAreaId || mvData.accessAreaId,
+            insuranceFile?.path || mvData.insuranceFilePath,
+            insuranceFile?.originalname || mvData.insuranceFileName,
+            permitFile?.path || mvData.permitFilePath,
+            permitFile?.originalname || mvData.permitFileName,
+            fitnessFile?.path || mvData.fitnessFilePath,
+            fitnessFile?.originalname || mvData.fitnessFileName,
+            reqLetterFile?.path || mvData.requestLetterPath,
+            reqLetterFile?.originalname || mvData.requestLetterName,
+            taxFile?.path || mvData.taxDocPath,
+            taxFile?.originalname || mvData.taxDocName,
+            emissionFile?.path || mvData.emissionCertPath,
+            emissionFile?.originalname || mvData.emissionCertName,
             vehicle.passType,
             vehicle.passPeriod,
             vehicle.dateFrom,
             vehicle.dateTo,
             vehicle.amount,
+            sparkArresterFile?.path || null,
+            sparkArresterFile?.originalname || null,
+            twistLockFile?.path || null,
+            twistLockFile?.originalname || null,
           ],
         );
       }
@@ -794,88 +847,226 @@ const PassRequest = {
     return result.rows[0];
   },
 
-  async completePassReview(passRequestId, approvedByUserId) {
-    const pendingCheck = `
-        SELECT
-        (SELECT COUNT(*) FROM pass_persons
-        WHERE "passRequestId"=$1 AND status='pending') as pendingPersons,
+  async completePassReview(passRequestId, approvedByUserId, role, roleId = null) {
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
 
-        (SELECT COUNT(*) FROM pass_vehicles
-        WHERE "passRequestId"=$1 AND status='pending') as pendingVehicles,
-
-        (SELECT COUNT(*) FROM pass_persons
-        WHERE "passRequestId"=$1 AND status='reverted') as revertedPersons,
-
-        (SELECT COUNT(*) FROM pass_vehicles
-        WHERE "passRequestId"=$1 AND status='reverted') as revertedVehicles
-      `;
-
-    const check = await pool.query(pendingCheck, [passRequestId]);
-
-    const { pendingpersons, pendingvehicles, revertedpersons, revertedvehicles } = check.rows[0];
-
-    if (pendingpersons > 0 || pendingvehicles > 0) {
-      throw new Error("All entities must be reviewed before completing");
-    }
-
-    let approvedBy = null;
-    if (approvedByUserId) {
-      try {
-        const userRes = await pool.query('SELECT "userName" FROM "users" WHERE id = $1', [approvedByUserId]);
-        if (userRes.rows.length > 0) {
-          approvedBy = userRes.rows[0].userName;
-        }
-      } catch (userErr) {
-        console.error("Error looking up approver user details:", userErr);
+      // Fetch request details
+      const requestRes = await client.query(
+        `SELECT id, status, "isOilDock" FROM "pass_requests" WHERE id = $1`,
+        [passRequestId]
+      );
+      const request = requestRes.rows[0];
+      if (!request) {
+        throw new Error("Pass request not found");
       }
-    }
 
-    // Check if any entities were reverted
-    const hasReverted = (revertedpersons > 0 || revertedvehicles > 0);
-    
-    if (hasReverted) {
-      // If reverted entities exist, update pass request with revert tracking
-      // Set status to 'REVERTED' so it moves to processed tab for approver
-      // But stays in "Reverted Applications" for user
-      const query = `
-        UPDATE pass_requests
-        SET 
-          status = 'REVERTED',
-          "hasRevertedEntities" = true,
-          "revertCount" = "revertCount" + 1,
-          "lastRevertedAt" = NOW(),
-          "approvedBy" = $2
-        WHERE id=$1
-        RETURNING *
-      `;
-      const result = await pool.query(query, [passRequestId, approvedBy]);
-      
+      // Fetch entities
+      const [personsRes, vehiclesRes] = await Promise.all([
+        client.query(
+          `SELECT id, status, "srDtmApproved" FROM "pass_persons" WHERE "passRequestId" = $1`,
+          [passRequestId]
+        ),
+        client.query(
+          `SELECT id, status, "passType", "twistLockCertified", "sparkArresterCertified" FROM "pass_vehicles" WHERE "passRequestId" = $1`,
+          [passRequestId]
+        ),
+      ]);
+
+      const persons = personsRes.rows;
+      const vehicles = vehiclesRes.rows;
+
+      // Check if any reverted entities
+      const hasRevertedPerson = persons.some(p => p.status === 'reverted');
+      const hasRevertedVehicle = vehicles.some(v => v.status === 'reverted');
+      const isReverted = hasRevertedPerson || hasRevertedVehicle;
+
+      let approvedBy = null;
+      if (approvedByUserId) {
+        try {
+          const userRes = await client.query('SELECT "userName" FROM "users" WHERE id = $1', [approvedByUserId]);
+          if (userRes.rows.length > 0) {
+            approvedBy = userRes.rows[0].userName;
+          }
+        } catch (userErr) {
+          console.error("Error looking up approver user details:", userErr);
+        }
+      }
+
+      if (isReverted) {
+        const result = await client.query(
+          `UPDATE "pass_requests"
+           SET "status" = 'REVERTED',
+               "hasRevertedEntities" = true,
+               "revertCount" = "revertCount" + 1,
+               "lastRevertedAt" = NOW(),
+               "approvedBy" = $2,
+               "updatedAt" = NOW()
+           WHERE id = $1
+           RETURNING *`,
+          [passRequestId, approvedBy]
+        );
+        await client.query("COMMIT");
+        client.release();
+        return {
+          ...result.rows[0],
+          reviewStatus: 'REVERTED',
+          message: 'Review saved. Pass request has reverted entities that need correction.'
+        };
+      }
+
+      const isSafety = roleId === 26 || role === "Safety Officer";
+      const isFireSafety = roleId === 27 || role === "Fire Safety Officer";
+      const isSrDtm = roleId === 28 || role === "Senior Deputy Traffic Manager";
+
+      const isOilDockArea = (val) => {
+        if (!val) return false;
+        const str = String(val).toUpperCase();
+        return str === "1" || str.includes("OIL JETTY") || str.includes("OIL_JETTY");
+      };
+
+      if (isSafety) {
+        const uncertifiedVehicles = vehicles.filter(v => 
+          v.status !== 'rejected' && 
+          v.status !== 'reverted' &&
+          (v.passType === 'MONTHLY' || v.passType === 'YEARLY' || v.passType === 'ANNUAL') && 
+          !v.twistLockCertified
+        );
+        if (uncertifiedVehicles.length > 0) {
+          throw new Error("All monthly/yearly/annual vehicles must be certified by the Safety Officer.");
+        }
+
+        const isOilDock = request.isOilDock;
+        const nextState = isOilDock ? 'PENDING_FIRE_SAFETY' : 'PENDING_PASS_SECTION';
+
+        // Reset entity statuses to 'pending' when entering Pass Section queue
+        if (nextState === 'PENDING_PASS_SECTION') {
+          await client.query(`
+            UPDATE "pass_persons" SET status = 'pending', "updatedAt" = NOW()
+            WHERE "passRequestId" = $1 AND status = 'approved'
+          `, [passRequestId]);
+          await client.query(`
+            UPDATE "pass_vehicles" SET status = 'pending', "updatedAt" = NOW()
+            WHERE "passRequestId" = $1 AND status = 'approved'
+          `, [passRequestId]);
+        }
+
+        const result = await client.query(`
+          UPDATE "pass_requests"
+          SET "workflowState" = $2, "approvedBy" = $3, "updatedAt" = NOW()
+          WHERE id = $1
+          RETURNING *
+        `, [passRequestId, nextState, approvedBy]);
+        await client.query("COMMIT");
+        client.release();
+        return {
+          ...result.rows[0],
+          reviewStatus: 'PENDING_NEXT',
+          message: 'Safety Officer pre-approval completed.'
+        };
+      }
+
+      if (isFireSafety) {
+        const oilDockVehicles = vehicles.filter(v => isOilDockArea(v.accessAreaId));
+        const uncertifiedVehicles = oilDockVehicles.filter(v => 
+          v.status !== 'rejected' && 
+          v.status !== 'reverted' &&
+          !v.sparkArresterCertified
+        );
+        if (uncertifiedVehicles.length > 0) {
+          throw new Error("All vehicles must be certified by the Fire Safety Officer.");
+        }
+
+        const result = await client.query(`
+          UPDATE "pass_requests"
+          SET "workflowState" = 'PENDING_SR_DTM', "approvedBy" = $2, "updatedAt" = NOW()
+          WHERE id = $1
+          RETURNING *
+        `, [passRequestId, approvedBy]);
+        await client.query("COMMIT");
+        client.release();
+        return {
+          ...result.rows[0],
+          reviewStatus: 'PENDING_NEXT',
+          message: 'Fire Safety Officer pre-approval completed.'
+        };
+      }
+
+      if (isSrDtm) {
+        const oilDockPersons = persons.filter(p => isOilDockArea(p.accessAreaId));
+        const unapprovedPersons = oilDockPersons.filter(p => 
+          p.status !== 'rejected' && 
+          p.status !== 'reverted' &&
+          !p.srDtmApproved
+        );
+        if (unapprovedPersons.length > 0) {
+          throw new Error("All persons must be approved by the Senior Deputy Traffic Manager.");
+        }
+
+        const oilDockVehicles = vehicles.filter(v => isOilDockArea(v.accessAreaId));
+        const unapprovedVehicles = oilDockVehicles.filter(v => 
+          !['approved', 'rejected', 'reverted'].includes(v.status)
+        );
+        if (unapprovedVehicles.length > 0) {
+          throw new Error("All vehicles must be approved by the Senior Deputy Traffic Manager.");
+        }
+
+        // Reset entity statuses to 'pending' when entering Pass Section queue
+        await client.query(`
+          UPDATE "pass_persons" SET status = 'pending', "updatedAt" = NOW()
+          WHERE "passRequestId" = $1 AND status = 'approved'
+        `, [passRequestId]);
+        await client.query(`
+          UPDATE "pass_vehicles" SET status = 'pending', "updatedAt" = NOW()
+          WHERE "passRequestId" = $1 AND status = 'approved'
+        `, [passRequestId]);
+
+        const result = await client.query(`
+          UPDATE "pass_requests"
+          SET "workflowState" = 'PENDING_PASS_SECTION', "approvedBy" = $2, "updatedAt" = NOW()
+          WHERE id = $1
+          RETURNING *
+        `, [passRequestId, approvedBy]);
+        await client.query("COMMIT");
+        client.release();
+        return {
+          ...result.rows[0],
+          reviewStatus: 'PENDING_NEXT',
+          message: 'Senior Deputy Traffic Manager pre-approval completed.'
+        };
+      }
+
+      // Check if all reviewed
+      const allPersonsReviewed = persons.every(p => ['approved', 'rejected', 'reverted'].includes(p.status));
+      const allVehiclesReviewed = vehicles.every(v => ['approved', 'rejected', 'reverted'].includes(v.status));
+      const allReviewed = allPersonsReviewed && allVehiclesReviewed;
+
+      let finalStatus = 'SUBMITTED';
+      if (allReviewed) {
+        finalStatus = 'COMPLETED';
+      }
+
+      // Update pass request status
+      const result = await client.query(
+        `UPDATE pass_requests
+         SET status=$1, "approvedBy" = $3, "updatedAt" = NOW()
+         WHERE id=$2
+         RETURNING *`,
+        [finalStatus, passRequestId, approvedBy]
+      );
+      await client.query("COMMIT");
+      client.release();
       return {
         ...result.rows[0],
-        reviewStatus: 'REVERTED',
-        message: 'Review saved. Pass request has reverted entities that need correction.',
-        revertedEntities: {
-          persons: parseInt(revertedpersons),
-          vehicles: parseInt(revertedvehicles)
-        }
+        reviewStatus: finalStatus === 'COMPLETED' ? 'COMPLETED' : 'PENDING_NEXT',
+        message: finalStatus === 'COMPLETED' ? 'Review completed successfully.' : 'Partial review submitted successfully.'
       };
+    } catch (error) {
+      await client.query("ROLLBACK");
+      client.release();
+      throw error;
     }
-
-    // No reverted entities - mark as COMPLETED
-    const query = `
-        UPDATE pass_requests
-        SET status='COMPLETED', "approvedBy" = $2
-        WHERE id=$1
-        RETURNING *
-      `;
-
-    const result = await pool.query(query, [passRequestId, approvedBy]);
-
-    return {
-      ...result.rows[0],
-      reviewStatus: 'COMPLETED',
-      message: 'Review completed successfully.'
-    };
   },
 
   // ============================================
@@ -912,7 +1103,8 @@ const PassRequest = {
         'passportPath', 'passportName',
         'requisitionLetterPath', 'requisitionLetterName',
         'cdcDocumentPath', 'cdcDocumentName',
-        'declarationFormPath', 'declarationFormName'
+        'declarationFormPath', 'declarationFormName',
+        'entryAuthorizationFilePath', 'entryAuthorizationFileName'
       ];
 
       const updates = [];
@@ -932,7 +1124,8 @@ const PassRequest = {
         'passportPath', 'passportName',
         'requisitionLetterPath', 'requisitionLetterName',
         'cdcDocumentPath', 'cdcDocumentName',
-        'declarationFormPath', 'declarationFormName'
+        'declarationFormPath', 'declarationFormName',
+        'entryAuthorizationFilePath', 'entryAuthorizationFileName'
       ]);
 
       for (const field of allowedFields) {
@@ -1008,7 +1201,9 @@ const PassRequest = {
         'fitnessFilePath', 'fitnessFileName',
         'requestLetterPath', 'requestLetterName',
         'taxDocPath', 'taxDocName',
-        'emissionCertPath', 'emissionCertName'
+        'emissionCertPath', 'emissionCertName',
+        'sparkArresterFilePath', 'sparkArresterFileName',
+        'twistLockFilePath', 'twistLockFileName'
       ];
 
       const updates = [];
@@ -1027,7 +1222,9 @@ const PassRequest = {
         'fitnessFilePath', 'fitnessFileName',
         'requestLetterPath', 'requestLetterName',
         'taxDocPath', 'taxDocName',
-        'emissionCertPath', 'emissionCertName'
+        'emissionCertPath', 'emissionCertName',
+        'sparkArresterFilePath', 'sparkArresterFileName',
+        'twistLockFilePath', 'twistLockFileName'
       ]);
 
       for (const field of allowedFields) {
@@ -1103,12 +1300,49 @@ const PassRequest = {
         return { success: false, message: 'Pass is not in reverted status' };
       }
 
+      // Fetch all persons and vehicles to determine workflowState
+      const personsRes = await client.query(
+        `SELECT "accessAreaId" FROM pass_persons WHERE "passRequestId" = $1`,
+        [passRequestId]
+      );
+      const vehiclesRes = await client.query(
+        `SELECT "accessAreaId", "passType" FROM pass_vehicles WHERE "passRequestId" = $1`,
+        [passRequestId]
+      );
+
+      const isOilDockArea = (val) => {
+        if (!val) return false;
+        const str = String(val).toUpperCase();
+        return str === "1" || str.includes("OIL JETTY") || str.includes("OIL_JETTY");
+      };
+
+      const hasMonthlyYearlyVehicle = vehiclesRes.rows.some(v => 
+        ["MONTHLY", "YEARLY", "ANNUAL"].includes(v.passType)
+      );
+      const hasOilDockVehicle = vehiclesRes.rows.some(v => 
+        isOilDockArea(v.accessAreaId)
+      );
+      const hasOilDockPerson = personsRes.rows.some(p => 
+        isOilDockArea(p.accessAreaId)
+      );
+
+      const isOilDock = hasOilDockVehicle || hasOilDockPerson;
+
+      let workflowState = "PENDING_PASS_SECTION";
+      if (hasMonthlyYearlyVehicle) {
+        workflowState = "PENDING_SAFETY";
+      } else if (hasOilDockVehicle) {
+        workflowState = "PENDING_FIRE_SAFETY";
+      } else if (hasOilDockPerson) {
+        workflowState = "PENDING_SR_DTM";
+      }
+
       // Reset reverted persons and vehicles to 'pending' so only they need re-review
-      // Already approved/rejected entities stay as-is
       await client.query(`
         UPDATE pass_persons
         SET status = 'pending',
             "rejectedReason" = NULL,
+            "srDtmApproved" = false,
             "updatedAt" = NOW()
         WHERE "passRequestId" = $1 AND status = 'reverted'
       `, [passRequestId]);
@@ -1117,21 +1351,32 @@ const PassRequest = {
         UPDATE pass_vehicles
         SET status = 'pending',
             "rejectedReason" = NULL,
+            "twistLockCertified" = false,
+            "twistLockRemarks" = NULL,
+            "sparkArresterCertified" = false,
+            "sparkArresterRemarks" = NULL,
+            "srDtmApproved" = false,
+            "srDtmRemarks" = NULL,
             "updatedAt" = NOW()
         WHERE "passRequestId" = $1 AND status = 'reverted'
       `, [passRequestId]);
 
-      // Update pass status back to SUBMITTED
+      // Per-entity visibility: Pass Section query evaluates readiness via entity flags directly
+      // No need to reset already-approved entities — only reverted ones were reset above
+
+      // Update pass status back to SUBMITTED and recalculate routing
       const updateQuery = `
         UPDATE pass_requests
         SET status = 'SUBMITTED',
+            "isOilDock" = $2,
+            "workflowState" = $3,
             "hasRevertedEntities" = false,
             "updatedAt" = NOW()
         WHERE id = $1
         RETURNING *
       `;
 
-      const result = await client.query(updateQuery, [passRequestId]);
+      const result = await client.query(updateQuery, [passRequestId, isOilDock, workflowState]);
       await client.query('COMMIT');
 
       return {
@@ -1268,10 +1513,10 @@ const getPassRequest = {
           json_agg(
             jsonb_build_object(
               'id',           pp.id,
-              'name',         mp.name,
-              'email',        mp.email,
-              'aadharNo',     mp."aadharNo",
-              'mobile',       mp.mobile,
+              'name',         COALESCE(pp.name, mp.name),
+              'email',        COALESCE(pp.email, mp.email),
+              'aadharNo',     COALESCE(pp."aadharNo", mp."aadharNo"),
+              'mobile',       COALESCE(pp.mobile, mp.mobile),
               'hepTypeId',    pp."hepTypeId",
               'passType',     pp."passType",
               'passPeriod',   pp."passPeriod",
@@ -1281,40 +1526,42 @@ const getPassRequest = {
               'status',       pp.status,
               'rejectedReason', pp."rejectedReason",
               'personPassNo', pp."personPassNo",
-              'designationId', mp."designationId",
-              'accessAreaId', mp."accessAreaId",
+              'designationId', COALESCE(pp."designationId", mp."designationId"),
+              'accessAreaId', COALESCE(pp."accessAreaId"::TEXT, mp."accessAreaId"::TEXT),
               'nationality', mp.nationality,
-              'countryId', mp."countryId",
+              'countryId', COALESCE(pp."countryId", mp."countryId"),
               'visaNo', mp."visaNo",
               'cardNumber', mp."cardNumber",
-              'withTwoWheeler', mp."withTwoWheeler",
-              'vehicleNo', mp."vehicleNo",
-              'idProofType', mp."idProofType",
-              'idProofNumber', mp."idProofNumber",
-              'photoFilePath', mp."photoFilePath",
-              'photoFileName', mp."photoFileName",
+              'withTwoWheeler', COALESCE(pp."withTwoWheeler", mp."withTwoWheeler"),
+              'vehicleNo', COALESCE(pp."vehicleNo", mp."vehicleNo"),
+              'idProofType', COALESCE(pp."idProofType", mp."idProofType"),
+              'idProofNumber', COALESCE(pp."idProofNumber", mp."idProofNumber"),
+              'photoFilePath', COALESCE(pp."photoFilePath", mp."photoFilePath"),
+              'photoFileName', COALESCE(pp."photoFileName", mp."photoFileName"),
 
-              'aadharPDFFilePATH', mp."aadharPDFFilePATH",
-              'aadharPDFFileName', mp."aadharPDFFileName",
+              'aadharPDFFilePATH', COALESCE(pp."aadharPDFFilePATH", mp."aadharPDFFilePATH"),
+              'aadharPDFFileName', COALESCE(pp."aadharPDFFileName", mp."aadharPDFFileName"),
 
-              'idProofFilePath', mp."idProofFilePath",
-              'idProofFileName', mp."idProofFileName",
+              'idProofFilePath', COALESCE(pp."idProofFilePath", mp."idProofFilePath"),
+              'idProofFileName', COALESCE(pp."idProofFileName", mp."idProofFileName"),
 
-              'driverLicensePath', mp."driverLicensePath",
-              'driverLicenseName', mp."driverLicenseName",
+              'driverLicensePath', COALESCE(pp."driverLicensePath", mp."driverLicensePath"),
+              'driverLicenseName', COALESCE(pp."driverLicenseName", mp."driverLicenseName"),
 
-              'policeVerificationPath', mp."policeVerificationPath",
-              'policeVerificationName', mp."policeVerificationName",
+              'policeVerificationPath', COALESCE(pp."policeVerificationPath", mp."policeVerificationPath"),
+              'policeVerificationName', COALESCE(pp."policeVerificationName", mp."policeVerificationName"),
 
-              'employmentProofPath', mp."employmentProofPath",
-              'employmentProofName', mp."employmentProofName",
+              'employmentProofPath', COALESCE(pp."employmentProofPath", mp."employmentProofPath"),
+              'employmentProofName', COALESCE(pp."employmentProofName", mp."employmentProofName"),
 
-              'chaLicensePath', mp."chaLicensePath",
-              'chaLicenseName', mp."chaLicenseName",
+              'chaLicensePath', COALESCE(pp."chaLicensePath", mp."chaLicensePath"),
+              'chaLicenseName', COALESCE(pp."chaLicenseName", mp."chaLicenseName"),
 
-              'passportPath', mp."passportPath",
-              'passportName', mp."passportName"
-            )
+               'passportPath', COALESCE(pp."passportPath", mp."passportPath"),
+              'passportName', COALESCE(pp."passportName", mp."passportName"),
+              'entryAuthorizationFilePath', pp."entryAuthorizationFilePath",
+              'entryAuthorizationFileName', pp."entryAuthorizationFileName"
+            ) ORDER BY pp.id ASC
           ) AS persons
         FROM pass_persons pp
 
@@ -1330,8 +1577,8 @@ const getPassRequest = {
           json_agg(
             jsonb_build_object(
               'id',               pv.id,
-              'registrationNo',   mv."registrationNo",
-              'vehicleTypeId',    mv."vehicleTypeId",
+              'registrationNo',   COALESCE(pv."registrationNo", mv."registrationNo"),
+              'vehicleTypeId',    COALESCE(pv."vehicleTypeId", mv."vehicleTypeId"),
               'rfidCardNumber',   mv."rfidCardNumber",
               'passType',         pv."passType",
               'passPeriod',       pv."passPeriod",
@@ -1341,30 +1588,40 @@ const getPassRequest = {
               'status',           pv.status,
               'rejectedReason',   pv."rejectedReason",
               'vehiclePassNo',    pv."vehiclePassNo",
-              'insuranceExpiry',  mv."insuranceExpiry",
-              'rcValidity',       mv."rcValidity",
-              'accessAreaId',     mv."accessAreaId",
-              'scannedCopyFilePath', mv."scannedCopyFilePath",
-              'scannedCopyFileName', mv."scannedCopyFileName",
+              'insuranceExpiry',  COALESCE(pv."insuranceExpiry", mv."insuranceExpiry"),
+              'rcValidity',       COALESCE(pv."rcValidity", mv."rcValidity"),
+              'accessAreaId',     COALESCE(pv."accessAreaId"::TEXT, mv."accessAreaId"::TEXT),
+              'scannedCopyFilePath', COALESCE(pv."scannedCopyFilePath", mv."scannedCopyFilePath"),
+              'scannedCopyFileName', COALESCE(pv."scannedCopyFileName", mv."scannedCopyFileName"),
 
-              'insuranceFilePath', mv."insuranceFilePath",
-              'insuranceFileName', mv."insuranceFileName",
+              'insuranceFilePath', COALESCE(pv."insuranceFilePath", mv."insuranceFilePath"),
+              'insuranceFileName', COALESCE(pv."insuranceFileName", mv."insuranceFileName"),
 
-              'permitFilePath', mv."permitFilePath",
-              'permitFileName', mv."permitFileName",
+              'permitFilePath', COALESCE(pv."permitFilePath", mv."permitFilePath"),
+              'permitFileName', COALESCE(pv."permitFileName", mv."permitFileName"),
 
-              'fitnessFilePath', mv."fitnessFilePath",
-              'fitnessFileName', mv."fitnessFileName",
+              'fitnessFilePath', COALESCE(pv."fitnessFilePath", mv."fitnessFilePath"),
+              'fitnessFileName', COALESCE(pv."fitnessFileName", mv."fitnessFileName"),
 
-              'requestLetterPath', mv."requestLetterPath",
-              'requestLetterName', mv."requestLetterName",
+              'requestLetterPath', COALESCE(pv."requestLetterPath", mv."requestLetterPath"),
+              'requestLetterName', COALESCE(pv."requestLetterName", mv."requestLetterName"),
 
-              'taxDocPath', mv."taxDocPath",
-              'taxDocName', mv."taxDocName",
+              'taxDocPath', COALESCE(pv."taxDocPath", mv."taxDocPath"),
+              'taxDocName', COALESCE(pv."taxDocName", mv."taxDocName"),
+              'taxFilePath', COALESCE(pv."taxDocPath", mv."taxDocPath"),
+              'taxFileName', COALESCE(pv."taxDocName", mv."taxDocName"),
 
-              'emissionCertPath', mv."emissionCertPath",
-              'emissionCertName', mv."emissionCertName"
-            )
+              'emissionCertPath', COALESCE(pv."emissionCertPath", mv."emissionCertPath"),
+              'emissionCertName', COALESCE(pv."emissionCertName", mv."emissionCertName"),
+              'emissionFilePath', COALESCE(pv."emissionCertPath", mv."emissionCertPath"),
+              'emissionFileName', COALESCE(pv."emissionCertName", mv."emissionCertName"),
+
+              'sparkArresterFilePath', pv."sparkArresterFilePath",
+              'sparkArresterFileName', pv."sparkArresterFileName",
+
+              'twistLockFilePath', pv."twistLockFilePath",
+              'twistLockFileName', pv."twistLockFileName"
+            ) ORDER BY pv.id ASC
           ) AS vehicles
         FROM pass_vehicles pv
 
@@ -1613,6 +1870,7 @@ const getAgentPassRequestsDetails = {
       sortOrder = "DESC",
       processedByMe = false,
       userId = null,
+      roleId = null,
     } = pagination;
 
     let approvedByUserName = null;
@@ -1633,7 +1891,173 @@ const getAgentPassRequestsDetails = {
     const VENDOR_PROCESSED  = ["APPROVED", "REJECTED", "REVERTED", "COMPLETED"];
     const ALL_VENDOR_STATUSES = [...VENDOR_PENDING, ...VENDOR_PROCESSED];
 
-    const includeVendor = role === "Approval" && departmentId !== 7;
+    let includeVendor = role === "Approval" && departmentId !== 7;
+
+    const isSafety = roleId === 26 || role === "Safety Officer";
+    const isFireSafety = roleId === 27 || role === "Fire Safety Officer";
+    const isSrDtm = roleId === 28 || role === "Senior Deputy Traffic Manager";
+    const isPassSection = role === "Approval";
+
+    // Define SQL conditions for pending/processed normal requests
+    let normalPendingCond = "pr.status::TEXT IN ('SUBMITTED','PENDING','IN_REVIEW','UNDER_REVIEW')";
+    let normalProcessedCond = "pr.status::TEXT IN ('APPROVED','REJECTED','REVERTED','PROCESSED','COMPLETED')";
+
+    // Define SQL conditions for pending/processed vendor requests
+    let vendorPendingCond = "v.status = 'VENDOR_SUBMITTED'";
+    let vendorProcessedCond = "v.status IN ('APPROVED','REJECTED','REVERTED','COMPLETED')";
+
+    if (isSafety) {
+      normalPendingCond += `
+        AND EXISTS (
+          SELECT 1 FROM pass_vehicles pv
+          WHERE pv."passRequestId" = pr.id
+            AND pv.status = 'pending'
+            AND pv."twistLockCertified" = false
+            AND pv."passType"::TEXT IN ('MONTHLY', 'YEARLY', 'ANNUAL')
+        )
+      `;
+      vendorPendingCond += `
+        AND EXISTS (
+          SELECT 1 FROM vendor_pass_vehicles vpv
+          WHERE vpv."vendorPassRequestId" = v.id
+            AND vpv.status = 'pending'
+            AND vpv."twistLockCertified" = false
+            AND vpv."passType"::TEXT IN ('MONTHLY', 'YEARLY', 'ANNUAL')
+        )
+      `;
+    } else if (isFireSafety) {
+      normalPendingCond += `
+        AND EXISTS (
+          SELECT 1 FROM pass_vehicles pv
+          WHERE pv."passRequestId" = pr.id
+            AND pv.status = 'pending'
+            AND pv."sparkArresterCertified" = false
+            AND (pv."accessAreaId"::TEXT = '1' OR pv."accessAreaId"::TEXT ILIKE '%oil%jetty%')
+            AND (pv."passType"::TEXT NOT IN ('MONTHLY', 'YEARLY', 'ANNUAL') OR pv."twistLockCertified" = true)
+        )
+      `;
+      vendorPendingCond += `
+        AND EXISTS (
+          SELECT 1 FROM vendor_pass_vehicles vpv
+          WHERE vpv."vendorPassRequestId" = v.id
+            AND vpv.status = 'pending'
+            AND vpv."sparkArresterCertified" = false
+            AND (vpv."accessAreaId"::TEXT = '1' OR vpv."accessAreaId"::TEXT ILIKE '%oil%jetty%')
+            AND (vpv."passType"::TEXT NOT IN ('MONTHLY', 'YEARLY', 'ANNUAL') OR vpv."twistLockCertified" = true)
+        )
+      `;
+    } else if (isSrDtm) {
+      normalPendingCond += `
+        AND (
+          EXISTS (
+            SELECT 1 FROM pass_persons pp
+            WHERE pp."passRequestId" = pr.id
+              AND pp.status = 'pending'
+              AND pp."srDtmApproved" = false
+              AND (pp."accessAreaId"::TEXT = '1' OR pp."accessAreaId"::TEXT ILIKE '%oil%jetty%')
+          )
+          OR EXISTS (
+            SELECT 1 FROM pass_vehicles pv
+            WHERE pv."passRequestId" = pr.id
+              AND pv.status = 'pending'
+              AND pv."srDtmApproved" = false
+              AND (pv."accessAreaId"::TEXT = '1' OR pv."accessAreaId"::TEXT ILIKE '%oil%jetty%')
+              AND pv."sparkArresterCertified" = true
+          )
+        )
+      `;
+      vendorPendingCond += `
+        AND (
+          EXISTS (
+            SELECT 1 FROM vendor_pass_persons vpp
+            WHERE vpp."vendorPassRequestId" = v.id
+              AND vpp.status = 'pending'
+              AND vpp."srDtmApproved" = false
+              AND (vpp."accessAreaId"::TEXT = '1' OR vpp."accessAreaId"::TEXT ILIKE '%oil%jetty%')
+          )
+          OR EXISTS (
+            SELECT 1 FROM vendor_pass_vehicles vpv
+            WHERE vpv."vendorPassRequestId" = v.id
+              AND vpv.status = 'pending'
+              AND vpv."srDtmApproved" = false
+              AND (vpv."accessAreaId"::TEXT = '1' OR vpv."accessAreaId"::TEXT ILIKE '%oil%jetty%')
+              AND vpv."sparkArresterCertified" = true
+          )
+        )
+      `;
+    } else if (isPassSection) {
+      // Show request if it has AT LEAST ONE entity ready for Pass Section final approval.
+      // A "ready" entity is either:
+      //   - A normal person (Other Gates) → immediately ready, no pre-approval needed
+      //   - A normal daily vehicle (Other Gates, not monthly/yearly) → immediately ready
+      //   - A monthly/yearly vehicle whose twist lock is certified (and if Oil Dock, spark arrester + Sr.DTM too)
+      //   - An Oil Dock person whose Sr.DTM has approved
+      //   - An Oil Dock vehicle whose spark arrester is certified AND Sr.DTM has approved
+      normalPendingCond += `
+        AND (
+          EXISTS (
+            SELECT 1 FROM pass_persons pp
+            WHERE pp."passRequestId" = pr.id
+              AND pp.status = 'pending'
+              AND (
+                (pp."accessAreaId"::TEXT NOT IN ('1') AND pp."accessAreaId"::TEXT NOT ILIKE '%oil%jetty%')
+                OR pp."srDtmApproved" = true
+              )
+          )
+          OR EXISTS (
+            SELECT 1 FROM pass_vehicles pv
+            WHERE pv."passRequestId" = pr.id
+              AND pv.status = 'pending'
+              AND (
+                CASE
+                  WHEN pv."passType"::TEXT IN ('MONTHLY', 'YEARLY', 'ANNUAL') THEN
+                    pv."twistLockCertified" = true
+                    AND (
+                      (pv."accessAreaId"::TEXT NOT IN ('1') AND pv."accessAreaId"::TEXT NOT ILIKE '%oil%jetty%')
+                      OR (pv."sparkArresterCertified" = true AND pv."srDtmApproved" = true)
+                    )
+                  ELSE
+                    (pv."accessAreaId"::TEXT NOT IN ('1') AND pv."accessAreaId"::TEXT NOT ILIKE '%oil%jetty%')
+                    OR (pv."sparkArresterCertified" = true AND pv."srDtmApproved" = true)
+                END
+              )
+          )
+        )
+      `;
+      vendorPendingCond += `
+        AND (
+          EXISTS (
+            SELECT 1 FROM vendor_pass_persons vpp
+            WHERE vpp."vendorPassRequestId" = v.id
+              AND vpp.status = 'pending'
+              AND (
+                (vpp."accessAreaId"::TEXT NOT IN ('1') AND vpp."accessAreaId"::TEXT NOT ILIKE '%oil%jetty%')
+                OR vpp."srDtmApproved" = true
+              )
+          )
+          OR EXISTS (
+            SELECT 1 FROM vendor_pass_vehicles vpv
+            WHERE vpv."vendorPassRequestId" = v.id
+              AND vpv.status = 'pending'
+              AND (
+                CASE
+                  WHEN vpv."passType"::TEXT IN ('MONTHLY', 'YEARLY', 'ANNUAL') THEN
+                    vpv."twistLockCertified" = true
+                    AND (
+                      (vpv."accessAreaId"::TEXT NOT IN ('1') AND vpv."accessAreaId"::TEXT NOT ILIKE '%oil%jetty%')
+                      OR (vpv."sparkArresterCertified" = true AND vpv."srDtmApproved" = true)
+                    )
+                  ELSE
+                    (vpv."accessAreaId"::TEXT NOT IN ('1') AND vpv."accessAreaId"::TEXT NOT ILIKE '%oil%jetty%')
+                    OR (vpv."sparkArresterCertified" = true AND vpv."srDtmApproved" = true)
+                END
+              )
+          )
+        )
+      `;
+    }
+
+    includeVendor = (role === "Approval" && departmentId !== 7) || isSafety || isFireSafety || isSrDtm;
 
     // ─── Department filter SQL for normal passes ───
     let deptFilter = "";
@@ -1642,16 +2066,14 @@ const getAgentPassRequestsDetails = {
         deptFilter = `
           AND EXISTS (
             SELECT 1 FROM pass_persons pp
-            JOIN hep_types ht ON ht.id = pp."hepTypeId"
-            WHERE pp."passRequestId" = pr.id AND ht.name = 'Seafarers'
+            WHERE pp."passRequestId" = pr.id AND pp."hepTypeId" = 7
           )`;
       } else {
         deptFilter = `
           AND (
             EXISTS (
               SELECT 1 FROM pass_persons pp
-              JOIN hep_types ht ON ht.id = pp."hepTypeId"
-              WHERE pp."passRequestId" = pr.id AND ht.name IN ('Drivers','Personnel')
+              WHERE pp."passRequestId" = pr.id AND pp."hepTypeId" IN (5, 6)
             )
             OR EXISTS (
               SELECT 1 FROM pass_vehicles pv WHERE pv."passRequestId" = pr.id
@@ -1703,11 +2125,11 @@ const getAgentPassRequestsDetails = {
     let normalStatusFilter = "";
     let vendorStatusFilter = "";
     if (status === "pending") {
-      normalStatusFilter = `AND pr.status::TEXT IN ('SUBMITTED','PENDING','IN_REVIEW','UNDER_REVIEW')`;
-      vendorStatusFilter = `AND v.status IN ('VENDOR_SUBMITTED')`;
+      normalStatusFilter = `AND ${normalPendingCond}`;
+      vendorStatusFilter = `AND ${vendorPendingCond}`;
     } else if (status === "processed") {
-      normalStatusFilter = `AND pr.status::TEXT IN ('APPROVED','REJECTED','REVERTED','PROCESSED','COMPLETED')`;
-      vendorStatusFilter = `AND v.status IN ('APPROVED','REJECTED','REVERTED','COMPLETED')`;
+      normalStatusFilter = `AND ${normalProcessedCond}`;
+      vendorStatusFilter = `AND ${vendorProcessedCond}`;
       
       if (processedByMe && approvedByUserName) {
         normalStatusFilter += ` AND pr."approvedBy" = $${paramIdx} `;
@@ -1724,8 +2146,8 @@ const getAgentPassRequestsDetails = {
     let normalCountSQL = `
       SELECT
         COUNT(*) AS total,
-        COUNT(CASE WHEN pr.status::TEXT IN ('SUBMITTED','PENDING','IN_REVIEW','UNDER_REVIEW') THEN 1 END) AS pending,
-        COUNT(CASE WHEN pr.status::TEXT IN ('APPROVED','REJECTED','REVERTED','PROCESSED','COMPLETED') ${processedByMe && approvedByUserName ? `AND pr."approvedBy" = $1` : ""} THEN 1 END) AS processed
+        COUNT(CASE WHEN ${normalPendingCond} THEN 1 END) AS pending,
+        COUNT(CASE WHEN ${normalProcessedCond} ${processedByMe && approvedByUserName ? `AND pr."approvedBy" = $1` : ""} THEN 1 END) AS processed
       FROM pass_requests pr
       WHERE pr."isActive" = true ${deptFilter}
     `;
@@ -1739,10 +2161,10 @@ const getAgentPassRequestsDetails = {
       let vendorCountSQL = `
         SELECT
           COUNT(*) AS total,
-          COUNT(CASE WHEN status = 'VENDOR_SUBMITTED' THEN 1 END) AS pending,
-          COUNT(CASE WHEN status IN ('APPROVED','REJECTED','REVERTED','COMPLETED') ${processedByMe && approvedByUserName ? `AND "approvedBy" = $1` : ""} THEN 1 END) AS processed
-        FROM vendor_pass_requests
-        WHERE status IN ('VENDOR_SUBMITTED','APPROVED','REJECTED','REVERTED','COMPLETED')
+          COUNT(CASE WHEN ${vendorPendingCond} THEN 1 END) AS pending,
+          COUNT(CASE WHEN ${vendorProcessedCond} ${processedByMe && approvedByUserName ? `AND v."approvedBy" = $1` : ""} THEN 1 END) AS processed
+        FROM vendor_pass_requests v
+        WHERE 1 = 1
       `;
       if (processedByMe && approvedByUserName) {
         vendorCountParams.push(approvedByUserName);
@@ -1820,6 +2242,8 @@ const getAgentPassRequestsDetails = {
           pr."submittedAt",
           pr."createdAt",
           pr."approvedBy",
+          pr."workflowState",
+          pr."isOilDock",
 
           a."entityName",
           a."email",
@@ -1851,41 +2275,41 @@ const getAgentPassRequestsDetails = {
     ||
 
       jsonb_build_object(
-        'name', mp.name,
-        'email', mp.email,
-        'mobile', mp.mobile,
-        'aadharNo', mp."aadharNo",
+        'name', COALESCE(pp.name, mp.name),
+        'email', COALESCE(pp.email, mp.email),
+        'mobile', COALESCE(pp.mobile, mp.mobile),
+        'aadharNo', COALESCE(pp."aadharNo", mp."aadharNo"),
 
-        'photoFilePath', mp."photoFilePath",
-        'photoFileName', mp."photoFileName",
+        'photoFilePath', COALESCE(pp."photoFilePath", mp."photoFilePath"),
+        'photoFileName', COALESCE(pp."photoFileName", mp."photoFileName"),
 
-        'aadharPDFFilePATH', mp."aadharPDFFilePATH",
-        'aadharPDFFileName', mp."aadharPDFFileName",
+        'aadharPDFFilePATH', COALESCE(pp."aadharPDFFilePATH", mp."aadharPDFFilePATH"),
+        'aadharPDFFileName', COALESCE(pp."aadharPDFFileName", mp."aadharPDFFileName"),
 
-        'idProofFilePath', mp."idProofFilePath",
-        'idProofFileName', mp."idProofFileName",
+        'idProofFilePath', COALESCE(pp."idProofFilePath", mp."idProofFilePath"),
+        'idProofFileName', COALESCE(pp."idProofFileName", mp."idProofFileName"),
 
-        'driverLicensePath', mp."driverLicensePath",
-        'driverLicenseName', mp."driverLicenseName",
+        'driverLicensePath', COALESCE(pp."driverLicensePath", mp."driverLicensePath"),
+        'driverLicenseName', COALESCE(pp."driverLicenseName", mp."driverLicenseName"),
 
-        'policeVerificationPath', mp."policeVerificationPath",
-        'policeVerificationName', mp."policeVerificationName",
+        'policeVerificationPath', COALESCE(pp."policeVerificationPath", mp."policeVerificationPath"),
+        'policeVerificationName', COALESCE(pp."policeVerificationName", mp."policeVerificationName"),
 
-        'employmentProofPath', mp."employmentProofPath",
-        'employmentProofName', mp."employmentProofName",
+        'employmentProofPath', COALESCE(pp."employmentProofPath", mp."employmentProofPath"),
+        'employmentProofName', COALESCE(pp."employmentProofName", mp."employmentProofName"),
 
-        'chaLicensePath', mp."chaLicensePath",
-        'chaLicenseName', mp."chaLicenseName",
+        'chaLicensePath', COALESCE(pp."chaLicensePath", mp."chaLicensePath"),
+        'chaLicenseName', COALESCE(pp."chaLicenseName", mp."chaLicenseName"),
 
-        'passportPath', mp."passportPath",
-        'passportName', mp."passportName",
+        'passportPath', COALESCE(pp."passportPath", mp."passportPath"),
+        'passportName', COALESCE(pp."passportName", mp."passportName"),
 
         'designationId', d.name,
-        'accessAreaId', mp."accessAreaId",
-        'vehicleNo', mp."vehicleNo",
-        'withTwoWheeler', mp."withTwoWheeler",
-        'idProofType', mp."idProofType",
-        'idProofNumber', mp."idProofNumber"
+        'accessAreaId', COALESCE(pp."accessAreaId"::TEXT, mp."accessAreaId"::TEXT),
+        'vehicleNo', COALESCE(pp."vehicleNo", mp."vehicleNo"),
+        'withTwoWheeler', COALESCE(pp."withTwoWheeler", mp."withTwoWheeler"),
+        'idProofType', COALESCE(pp."idProofType", mp."idProofType"),
+        'idProofNumber', COALESCE(pp."idProofNumber", mp."idProofNumber")
       )
     )
     ORDER BY pp.id ASC
@@ -1918,37 +2342,47 @@ const getAgentPassRequestsDetails = {
             ||
 
             jsonb_build_object(
-              'registrationNo', mv."registrationNo",
-              'vehicleTypeId', mv."vehicleTypeId",
+              'registrationNo', COALESCE(pv."registrationNo", mv."registrationNo"),
+              'vehicleTypeId', COALESCE(pv."vehicleTypeId", mv."vehicleTypeId"),
               'vehicleTypeName', vt.name,
               'rfidCardNumber', mv."rfidCardNumber",
 
-              'scannedCopyFilePath', mv."scannedCopyFilePath",
-              'scannedCopyFileName', mv."scannedCopyFileName",
+              'scannedCopyFilePath', COALESCE(pv."scannedCopyFilePath", mv."scannedCopyFilePath"),
+              'scannedCopyFileName', COALESCE(pv."scannedCopyFileName", mv."scannedCopyFileName"),
 
-              'insuranceFilePath', mv."insuranceFilePath",
-              'insuranceFileName', mv."insuranceFileName",
+              'insuranceFilePath', COALESCE(pv."insuranceFilePath", mv."insuranceFilePath"),
+              'insuranceFileName', COALESCE(pv."insuranceFileName", mv."insuranceFileName"),
 
-              'permitFilePath', mv."permitFilePath",
-              'permitFileName', mv."permitFileName",
+              'permitFilePath', COALESCE(pv."permitFilePath", mv."permitFilePath"),
+              'permitFileName', COALESCE(pv."permitFileName", mv."permitFileName"),
 
-              'fitnessFilePath', mv."fitnessFilePath",
-              'fitnessFileName', mv."fitnessFileName",
+              'fitnessFilePath', COALESCE(pv."fitnessFilePath", mv."fitnessFilePath"),
+              'fitnessFileName', COALESCE(pv."fitnessFileName", mv."fitnessFileName"),
 
-              'requestLetterPath', mv."requestLetterPath",
-              'requestLetterName', mv."requestLetterName",
+              'requestLetterPath', COALESCE(pv."requestLetterPath", mv."requestLetterPath"),
+              'requestLetterName', COALESCE(pv."requestLetterName", mv."requestLetterName"),
 
-              'taxDocPath', mv."taxDocPath",
-              'taxDocName', mv."taxDocName",
+              'taxDocPath', COALESCE(pv."taxDocPath", mv."taxDocPath"),
+              'taxDocName', COALESCE(pv."taxDocName", mv."taxDocName"),
+              'taxFilePath', COALESCE(pv."taxDocPath", mv."taxDocPath"),
+              'taxFileName', COALESCE(pv."taxDocName", mv."taxDocName"),
 
-              'emissionCertPath', mv."emissionCertPath",
-              'emissionCertName', mv."emissionCertName",
+              'emissionCertPath', COALESCE(pv."emissionCertPath", mv."emissionCertPath"),
+              'emissionCertName', COALESCE(pv."emissionCertName", mv."emissionCertName"),
+              'emissionFilePath', COALESCE(pv."emissionCertPath", mv."emissionCertPath"),
+              'emissionFileName', COALESCE(pv."emissionCertName", mv."emissionCertName"),
 
-              'insuranceExpiry', mv."insuranceExpiry",
-              'rcValidity', mv."rcValidity",
-              'accessAreaId', mv."accessAreaId"
+              'sparkArresterFilePath', pv."sparkArresterFilePath",
+              'sparkArresterFileName', pv."sparkArresterFileName",
+
+              'twistLockFilePath', pv."twistLockFilePath",
+              'twistLockFileName', pv."twistLockFileName",
+
+              'insuranceExpiry', COALESCE(pv."insuranceExpiry", mv."insuranceExpiry"),
+              'rcValidity', COALESCE(pv."rcValidity", mv."rcValidity"),
+              'accessAreaId', COALESCE(pv."accessAreaId"::TEXT, mv."accessAreaId"::TEXT)
             )
-          )
+          ) ORDER BY pv.id ASC
         ) AS vehicles
           FROM pass_vehicles pv
           LEFT JOIN master_vehicles mv
@@ -1977,6 +2411,8 @@ const getAgentPassRequestsDetails = {
           v."submittedAt",
           v."createdAt",
           v."approvedBy",
+          v."workflowState",
+          v."isOilDock",
           v."companyName"  AS "entityName",
           v."vendorEmail"  AS "email",
           v."vendorMobile" AS "mobileNo",
@@ -1984,16 +2420,36 @@ const getAgentPassRequestsDetails = {
           COALESCE(veh.vehicles, '[]') AS vehicles
         FROM vendor_pass_requests v
         LEFT JOIN (
-          SELECT "vendorPassRequestId",
-            json_agg(to_jsonb(vpp) ORDER BY vpp.id ASC) AS persons
+          SELECT vpp."vendorPassRequestId",
+            json_agg(
+              (
+                to_jsonb(vpp)
+                ||
+                jsonb_build_object(
+                  'designationId', COALESCE(d.name, vpp."designationId"::TEXT),
+                  'hepType', ht.name
+                )
+              ) ORDER BY vpp.id ASC
+            ) AS persons
           FROM vendor_pass_persons vpp
-          GROUP BY "vendorPassRequestId"
+          LEFT JOIN designations d ON d.id = vpp."designationId"
+          LEFT JOIN hep_types ht ON ht.id = vpp."hepTypeId"
+          GROUP BY vpp."vendorPassRequestId"
         ) p ON p."vendorPassRequestId" = v.id
         LEFT JOIN (
-          SELECT "vendorPassRequestId",
-            json_agg(to_jsonb(vpv) ORDER BY vpv.id ASC) AS vehicles
+          SELECT vpv."vendorPassRequestId",
+            json_agg(
+              (
+                to_jsonb(vpv)
+                ||
+                jsonb_build_object(
+                  'vehicleTypeName', vt.name
+                )
+              ) ORDER BY vpv.id ASC
+            ) AS vehicles
           FROM vendor_pass_vehicles vpv
-          GROUP BY "vendorPassRequestId"
+          LEFT JOIN vehicle_types vt ON vt.id = vpv."vehicleTypeId"
+          GROUP BY vpv."vendorPassRequestId"
         ) veh ON veh."vendorPassRequestId" = v.id
         WHERE v.id IN (${placeholders})
         ORDER BY v."createdAt" ${sortOrder}
@@ -2006,6 +2462,8 @@ const getAgentPassRequestsDetails = {
         submittedAt: v.submittedAt,
         createdAt: v.createdAt,
         approvedBy: v.approvedBy,
+        workflowState: v.workflowState,
+        isOilDock: v.isOilDock,
         entityName: v.entityName,
         email: v.email,
         mobileNo: v.mobileNo,
@@ -2048,6 +2506,8 @@ const getAgentPassRequestsDetails = {
       pr."hasRevertedEntities",
       pr."revertCount",
       pr."lastRevertedAt",
+      pr."workflowState",
+      pr."isOilDock",
 
       a."entityName" AS "agentName",
       a."email" AS "agentEmail",
@@ -2141,36 +2601,46 @@ const getAgentPassRequestsDetails = {
               ||
 
               jsonb_build_object(
-                'registrationNo', mv."registrationNo",
-                'vehicleTypeId', mv."vehicleTypeId",
+                'registrationNo', COALESCE(pv."registrationNo", mv."registrationNo"),
+                'vehicleTypeId', COALESCE(pv."vehicleTypeId", mv."vehicleTypeId"),
                 'rfidCardNumber', mv."rfidCardNumber",
 
-                'scannedCopyFilePath', mv."scannedCopyFilePath",
-                'scannedCopyFileName', mv."scannedCopyFileName",
+                'scannedCopyFilePath', COALESCE(pv."scannedCopyFilePath", mv."scannedCopyFilePath"),
+                'scannedCopyFileName', COALESCE(pv."scannedCopyFileName", mv."scannedCopyFileName"),
 
-                'insuranceFilePath', mv."insuranceFilePath",
-                'insuranceFileName', mv."insuranceFileName",
+                'insuranceFilePath', COALESCE(pv."insuranceFilePath", mv."insuranceFilePath"),
+                'insuranceFileName', COALESCE(pv."insuranceFileName", mv."insuranceFileName"),
 
-                'permitFilePath', mv."permitFilePath",
-                'permitFileName', mv."permitFileName",
+                'permitFilePath', COALESCE(pv."permitFilePath", mv."permitFilePath"),
+                'permitFileName', COALESCE(pv."permitFileName", mv."permitFileName"),
 
-                'fitnessFilePath', mv."fitnessFilePath",
-                'fitnessFileName', mv."fitnessFileName",
+                'fitnessFilePath', COALESCE(pv."fitnessFilePath", mv."fitnessFilePath"),
+                'fitnessFileName', COALESCE(pv."fitnessFileName", mv."fitnessFileName"),
 
-                'requestLetterPath', mv."requestLetterPath",
-                'requestLetterName', mv."requestLetterName",
+                'requestLetterPath', COALESCE(pv."requestLetterPath", mv."requestLetterPath"),
+                'requestLetterName', COALESCE(pv."requestLetterName", mv."requestLetterName"),
 
-                'taxDocPath', mv."taxDocPath",
-                'taxDocName', mv."taxDocName",
+                'taxDocPath', COALESCE(pv."taxDocPath", mv."taxDocPath"),
+                'taxDocName', COALESCE(pv."taxDocName", mv."taxDocName"),
+                'taxFilePath', COALESCE(pv."taxDocPath", mv."taxDocPath"),
+                'taxFileName', COALESCE(pv."taxDocName", mv."taxDocName"),
 
-                'emissionCertPath', mv."emissionCertPath",
-                'emissionCertName', mv."emissionCertName",
+                'emissionCertPath', COALESCE(pv."emissionCertPath", mv."emissionCertPath"),
+                'emissionCertName', COALESCE(pv."emissionCertName", mv."emissionCertName"),
+                'emissionFilePath', COALESCE(pv."emissionCertPath", mv."emissionCertPath"),
+                'emissionFileName', COALESCE(pv."emissionCertName", mv."emissionCertName"),
 
-                'insuranceExpiry', mv."insuranceExpiry",
-                'rcValidity', mv."rcValidity",
-                'accessAreaId', mv."accessAreaId"
+                'sparkArresterFilePath', pv."sparkArresterFilePath",
+                'sparkArresterFileName', pv."sparkArresterFileName",
+
+                'twistLockFilePath', pv."twistLockFilePath",
+                'twistLockFileName', pv."twistLockFileName",
+
+                'insuranceExpiry', COALESCE(pv."insuranceExpiry", mv."insuranceExpiry"),
+                'rcValidity', COALESCE(pv."rcValidity", mv."rcValidity"),
+                'accessAreaId', COALESCE(pv."accessAreaId"::TEXT, mv."accessAreaId"::TEXT)
               )
-            )
+            ) ORDER BY pv.id ASC
           ) AS vehicles
 
         FROM pass_vehicles pv
@@ -2220,6 +2690,7 @@ const viewPassRequestsDocuments = {
         employmentProof: "employmentProofPath",
         chaLicenseCopy: "chaLicensePath",
         passportDoc: "passportPath",
+        entryAuthorization: "entryAuthorizationFilePath",
       };
 
       // Map document types to keys for vehicles
@@ -2231,6 +2702,8 @@ const viewPassRequestsDocuments = {
         vehicleRequestLetter: "requestLetterPath",
         vehicleTax: "taxFilePath",
         vehicleEmission: "emissionFilePath",
+        sparkArrester: "sparkArresterFilePath",
+        twistLock: "twistLockFilePath",
       };
 
       if (personDocMap[documentType]) {
@@ -2282,11 +2755,6 @@ const viewPassRequestsDocuments = {
 
       case "personIdProof":
         columnName = "idProofFilePath";
-        tableName = "pass_persons";
-        break;
-
-      case "passRequisitionLetter":
-        columnName = "requisitionLetterFilePath";
         tableName = "pass_persons";
         break;
 
@@ -2351,6 +2819,21 @@ const viewPassRequestsDocuments = {
         tableName = "pass_vehicles";
         break;
 
+      case "entryAuthorization":
+        columnName = "entryAuthorizationFilePath";
+        tableName = "pass_persons";
+        break;
+
+      case "sparkArrester":
+        columnName = "sparkArresterFilePath";
+        tableName = "pass_vehicles";
+        break;
+
+      case "twistLock":
+        columnName = "twistLockFilePath";
+        tableName = "pass_vehicles";
+        break;
+
       case "authLetter":
         columnName = "authLetterFilePath";
         tableName = "pass_requests";
@@ -2397,19 +2880,23 @@ const viewPassRequestsDocuments = {
       "employmentProof",
       "chaLicenseCopy",
       "passportDoc",
+      "entryAuthorization",
     ];
 
     if (personDocuments.includes(documentType)) {
+      const selectExpr = (documentType === "entryAuthorization")
+        ? `pp."${columnName}" AS "${columnName}"`
+        : `COALESCE(pp."${columnName}", mp."${columnName}") AS "${columnName}"`;
+
       const query = `
           SELECT
-            mp."${columnName}" 
+            ${selectExpr} 
           FROM pass_persons pp
 
           INNER JOIN master_persons mp
             ON mp.id = pp."masterPersonId"
 
           WHERE pp."passRequestId" = $1
-          AND mp."${columnName}" IS NOT NULL
 
           ORDER BY pp.id
         `;
@@ -2431,19 +2918,24 @@ const viewPassRequestsDocuments = {
       "vehicleRequestLetter",
       "vehicleTax",
       "vehicleEmission",
+      "sparkArrester",
+      "twistLock",
     ];
 
     if (vehicleDocuments.includes(documentType)) {
+      const selectExpr = (documentType === "sparkArrester" || documentType === "twistLock")
+        ? `pv."${columnName}" AS "${columnName}"`
+        : `COALESCE(pv."${columnName}", mv."${columnName}") AS "${columnName}"`;
+
       const query = `
           SELECT
-            mv."${columnName}" 
+            ${selectExpr} 
           FROM pass_vehicles pv
 
           INNER JOIN master_vehicles mv
             ON mv.id = pv."masterVehicleId"
 
           WHERE pv."passRequestId" = $1
-          AND mv."${columnName}" IS NOT NULL
 
           ORDER BY pv.id
         `;
@@ -2466,6 +2958,7 @@ const viewPassRequestsDocuments = {
       employmentProof: "employmentProofPath",
       chaLicenseCopy: "chaLicensePath",
       passportDoc: "passportPath",
+      entryAuthorization: "entryAuthorizationFilePath",
     };
 
     const vehicleDocMap = {
@@ -2476,6 +2969,8 @@ const viewPassRequestsDocuments = {
       vehicleRequestLetter: "requestLetterPath",
       vehicleTax: "taxDocPath",
       vehicleEmission: "emissionCertPath",
+      sparkArrester: "sparkArresterFilePath",
+      twistLock: "twistLockFilePath",
     };
 
     if (!masterId) {
