@@ -156,7 +156,28 @@ const BulkPassSchema = {
 
     const query = `
       SELECT
-        b.*,
+        b.id,
+        b."refNo",
+        b."departmentId",
+        b."departmentName",
+        b."visitorType",
+        b."companyName",
+        b."noOfPersons",
+        b."noOfVehicles",
+        b."paymentMode",
+        b."purpose",
+        b."validityFrom",
+        b."validityUpto",
+        b."workOrderRequired",
+        b."remarks",
+        b."status",
+        b."returnReason",
+        b."rejectionReason",
+        b."approvedAt",
+        b."rejectedAt",
+        b."qrPdfPath",
+        b."createdAt",
+        b."updatedAt",
         COALESCE(p.person_count, 0) AS "submittedPersonsCount",
         COALESCE(p.vehicle_count, 0) AS "submittedVehiclesCount"
       FROM "bulk_pass_batches" b
@@ -186,7 +207,28 @@ const BulkPassSchema = {
   async listApprovalQueue() {
     const query = `
       SELECT
-        b.*,
+        b.id,
+        b."refNo",
+        b."departmentId",
+        b."departmentName",
+        b."visitorType",
+        b."companyName",
+        b."noOfPersons",
+        b."noOfVehicles",
+        b."paymentMode",
+        b."purpose",
+        b."validityFrom",
+        b."validityUpto",
+        b."workOrderRequired",
+        b."remarks",
+        b."status",
+        b."returnReason",
+        b."rejectionReason",
+        b."approvedAt",
+        b."rejectedAt",
+        b."qrPdfPath",
+        b."createdAt",
+        b."updatedAt",
         COALESCE(p.person_count, 0) AS "submittedPersonsCount",
         COALESCE(p.vehicle_count, 0) AS "submittedVehiclesCount"
       FROM "bulk_pass_batches" b

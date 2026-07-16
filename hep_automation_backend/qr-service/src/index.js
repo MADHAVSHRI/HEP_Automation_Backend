@@ -10,6 +10,9 @@ const corsConfig = require("../config/corsConfig");
 const app = express();
 app.use(allowCredentials);
 corsConfig(app);
+
+// Disable Express fingerprinting — removes "X-Powered-By: Express" header
+app.disable("x-powered-by");
 // app.use(cors());
 
 

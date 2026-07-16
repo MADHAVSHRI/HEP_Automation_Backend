@@ -43,6 +43,9 @@ const app = express();
  */
 app.set("trust proxy", true);
 
+// Disable Express fingerprinting — removes "X-Powered-By: Express" header
+app.disable("x-powered-by");
+
 /**
  * Allowed Frontend Origins (Browser CORS)
  */

@@ -9,6 +9,9 @@ const routes = require("./routes/index");
 
 const app = express();
 
+// Disable Express fingerprinting — removes "X-Powered-By: Express" header
+app.disable("x-powered-by");
+
 app.use(cors());
 app.use(express.json());
 

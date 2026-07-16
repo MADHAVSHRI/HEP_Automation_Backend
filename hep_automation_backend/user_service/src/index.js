@@ -9,6 +9,9 @@ const initUploadDirs = require("./utils/initUploadDir");
 
 const app = express();
 
+// Disable Express fingerprinting — removes "X-Powered-By: Express" header
+app.disable("x-powered-by");
+
 app.use(
   cors({
     origin: ["http://localhost:3000", "http://14.139.180.41:3000"],
