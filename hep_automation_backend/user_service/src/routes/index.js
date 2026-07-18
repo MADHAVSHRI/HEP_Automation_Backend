@@ -9,6 +9,7 @@ const lockRoutes = require("./lockRoutes");
 const materialPassRoutes = require("./materialPassRoutes");
 const bulkPassRoutes = require("./bulkPassRoutes");
 const chatbotRoutes = require("./chatbotRoutes");
+const ulipRoutes = require("./ulipRoutes");
 
 
 router.use("/agents", agentRoutes);
@@ -20,5 +21,7 @@ router.use("/locks", lockRoutes);
 router.use("/material-pass", materialPassRoutes);
 router.use("/bulk-pass", bulkPassRoutes);
 router.use("/chatbot", chatbotRoutes);
+router.use("/ulip", ulipRoutes);
+
 
 module.exports = router;

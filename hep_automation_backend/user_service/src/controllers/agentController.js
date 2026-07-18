@@ -1,7 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 const axios = require("axios");
-const sendEmailEvent = require("../utils/kafka/producer");
+const {sendEmailEvent, sendSmsEvent} = require("../utils/kafka/producer");
 const { successLogger, errorLogger } = require("../logger/logger");
 const Agent = require("../models/agentRegistrationSchema");
 const captchaService = require("../services/captchaService");
@@ -162,10 +162,24 @@ exports.registerAgent = async (req, res) => {
        (API does not wait for email service)
     */
 
-    sendEmailEvent({
+    // sendEmailEvent({
+    //   email: savedAgent.email,
+    //   name: savedAgent.firstName,
+    //   referenceNumber: savedAgent.referenceNumber,
+    // });
+
+    await sendEmailEvent({
       email: savedAgent.email,
       name: savedAgent.firstName,
       referenceNumber: savedAgent.referenceNumber,
+    });
+
+    await sendSmsEvent({
+      type: "agent-registration-sms",
+      mobileNumber: savedAgent.mobileNo,
+      username: savedAgent.firstName,
+      requestId: savedAgent.referenceNumber,
+      status: savedAgent.status
     });
 
     res.status(201).json({

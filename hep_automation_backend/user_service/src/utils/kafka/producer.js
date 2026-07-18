@@ -50,9 +50,33 @@ const sendEmailEvent = async (payload) => {
 
 };
 
-module.exports = sendEmailEvent;
+const sendSmsEvent = async (payload) => {
 
+  try {
 
+    await connectProducer();
+
+    await producer.send({
+      topic: "appointment-sms",
+      messages: [
+        {
+          value: JSON.stringify(payload)
+        }
+      ]
+    });
+
+  } catch (error) {
+
+    console.error("Kafka Producer Error:", error.message);
+
+  }
+
+};
+
+module.exports = {
+  sendEmailEvent,
+  sendSmsEvent
+};
 
 
 

@@ -21,9 +21,13 @@ const startConsumer = async () => {
     fromBeginning: true,
   });
   await consumer.subscribe({
-  topic: "deptUser-events",
-  fromBeginning: true,
-});
+    topic: "deptUser-events",
+    fromBeginning: true,
+  });
+  await consumer.subscribe({
+    topic: "appointment-sms",
+    fromBeginning: true
+  });
 
   await consumer.run({
 
@@ -44,6 +48,44 @@ const startConsumer = async () => {
       }
 
       console.log("Kafka Email Event Received:", data);
+
+      if (data.type === "agent-registration-sms") {
+
+  try {
+    const url = process.env.EMAIL_SERVICE_URL;
+    if (!url) {
+      console.error("EMAIL_SERVICE_URL not configured");
+      return;
+    }
+    await axios.post(
+      `${url}/api/sms/sendRegistrationSms`,
+      {
+        mobileNumber: data.mobileNumber,
+        username: data.username,
+        requestId: data.requestId,
+        status: data.status,
+        date: new Date().toLocaleDateString()
+      },
+      {
+        headers: {
+          "x-service-name": "EMAIL-SERVICE"
+        }
+      }
+    );
+
+    console.log("Registration SMS sent successfully");
+
+  } catch (smsError) {
+
+    console.error(
+      "SMS sending failed:",
+      smsError.message
+    );
+
+  }
+
+  return;
+}
 
       try {
 
