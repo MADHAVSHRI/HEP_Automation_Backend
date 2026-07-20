@@ -22,6 +22,7 @@ router.post(
   upload.fields([
     { name: "workOrder", maxCount: 1 },
     { name: "requisitionLetter", maxCount: 1 },
+    { name: "licenseDoc", maxCount: 1 },
     { name: "gstinDoc", maxCount: 1 },
     { name: "panDoc", maxCount: 1 },
     { name: "tanDoc", maxCount: 1 },
@@ -69,6 +70,7 @@ router.put(
   upload.fields([
     { name: "workOrder", maxCount: 1 },
     { name: "requisitionLetter", maxCount: 1 },
+    { name: "licenseDoc", maxCount: 1 },
     { name: "gstinDoc", maxCount: 1 },
     { name: "panDoc", maxCount: 1 },
     { name: "tanDoc", maxCount: 1 },

@@ -88,7 +88,7 @@ module.exports = {
       },
 
       {
-        name: "Lounch Operation",
+        name: "Launch Operation",
         document_instruction:
           "Upload License/Proof of Work/Authorization Letter",
       },
@@ -134,7 +134,7 @@ module.exports = {
       },
 
       {
-        name: "Surveyours",
+        name: "Surveyors",
         document_instruction: "Upload Proof of Registration as Surveyor",
       },
 

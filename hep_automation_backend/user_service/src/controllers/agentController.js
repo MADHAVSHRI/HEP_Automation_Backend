@@ -30,14 +30,36 @@ exports.registerAgent = async (req, res) => {
   };
 
   try {
-    // const entityFile = req.files?.entityFile?.[0]?.path || null;
+    const { userTypeName } = req.body;
     const workOrder = req.files?.workOrder?.[0]?.path || null;
     const requisitionLetter = req.files?.requisitionLetter?.[0]?.path || null;
+    const licenseDoc = req.files?.licenseDoc?.[0]?.path || null;
     const gstinDoc = req.files?.gstinDoc?.[0]?.path || null;
     const panDoc = req.files?.panDoc?.[0]?.path || null;
     const tanDoc = req.files?.tanDoc?.[0]?.path || null;
 
-    if (!workOrder || !requisitionLetter || !gstinDoc || !panDoc) {
+    const TRANSPORT_KEYWORDS = [
+      "transport", "truck", "trailer", "logistics",
+      "fleet", "lorry", "carrier", "haulage",
+    ];
+    const isTransportUser = userTypeName && TRANSPORT_KEYWORDS.some((kw) => 
+      String(userTypeName).toLowerCase().includes(kw)
+    );
+    const isGovtUser = userTypeName && (
+      String(userTypeName).toLowerCase().includes("govt") || 
+      String(userTypeName).toLowerCase().includes("government")
+    );
+
+    let isMissingDocs = false;
+    if (isGovtUser) {
+      isMissingDocs = false;
+    } else if (isTransportUser) {
+      isMissingDocs = !requisitionLetter || !panDoc;
+    } else {
+      isMissingDocs = !workOrder || !requisitionLetter || !gstinDoc || !panDoc || !licenseDoc;
+    }
+
+    if (isMissingDocs) {
       deleteFiles();
       return res.status(400).json({
         success: false,
@@ -47,7 +69,6 @@ exports.registerAgent = async (req, res) => {
 
     const {
       userTypeId,
-      userTypeName,
       entityName,
       mobileNo,
       email,
@@ -72,6 +93,12 @@ exports.registerAgent = async (req, res) => {
       captchaValue,
     } = req.body;
 
+    const normalizedGstinNumber = gstinNumber && gstinNumber.trim() !== "" ? gstinNumber.trim() : null;
+    const normalizedPanNumber = panNumber && panNumber.trim() !== "" ? panNumber.trim() : null;
+    const normalizedTanNumber = tanNumber && tanNumber.trim() !== "" ? tanNumber.trim() : null;
+    const normalizedLicenseNumber = licenseNumber && licenseNumber.trim() !== "" ? licenseNumber.trim() : "";
+    const normalizedLicenseValidityDate = licenseValidityDate && licenseValidityDate.trim() !== "" ? licenseValidityDate : null;
+
     /* ===== PERFORMANCE CHANGE =====
        Run captcha verification and duplicate check in parallel
     */
@@ -79,8 +106,8 @@ exports.registerAgent = async (req, res) => {
     const duplicatePromise = Agent.findDuplicate(
       email,
       mobileNo,
-      panNumber,
-      gstinNumber,
+      normalizedPanNumber,
+      normalizedGstinNumber,
     );
 
     const captchaPromise = captchaService.verifyCaptcha(
@@ -135,18 +162,19 @@ exports.registerAgent = async (req, res) => {
       email,
       workOrder,
       requisitionLetter,
-      licenseNumber,
-      licenseValidityDate,
+      licenseNumber: normalizedLicenseNumber,
+      licenseValidityDate: normalizedLicenseValidityDate,
+      licenseDoc,
       addressLine,
       city,
       state,
       pincode,
       country,
-      gstinNumber,
+      gstinNumber: normalizedGstinNumber,
       gstinDoc,
-      panNumber,
+      panNumber: normalizedPanNumber,
       panDoc,
-      tanNumber,
+      tanNumber: normalizedTanNumber,
       tanDoc,
       remark,
       title,
@@ -696,18 +724,38 @@ exports.updateAgentByReference = async (req, res) => {
 
     const workOrder = req.files?.workOrder?.[0]?.path || null;
     const requisitionLetter = req.files?.requisitionLetter?.[0]?.path || null;
+    const licenseDoc = req.files?.licenseDoc?.[0]?.path || null;
     const gstinDoc = req.files?.gstinDoc?.[0]?.path || null;
     const panDoc = req.files?.panDoc?.[0]?.path || null;
     const tanDoc = req.files?.tanDoc?.[0]?.path || null;
+
+    const gstinNumber = req.body.gstinNumber;
+    const panNumber = req.body.panNumber;
+    const tanNumber = req.body.tanNumber;
+    const licenseNumber = req.body.licenseNumber;
+    const licenseValidityDate = req.body.licenseValidityDate;
+
+    const normalizedGstinNumber = gstinNumber !== undefined ? (gstinNumber && gstinNumber.trim() !== "" ? gstinNumber.trim() : null) : undefined;
+    const normalizedPanNumber = panNumber !== undefined ? (panNumber && panNumber.trim() !== "" ? panNumber.trim() : null) : undefined;
+    const normalizedTanNumber = tanNumber !== undefined ? (tanNumber && tanNumber.trim() !== "" ? tanNumber.trim() : null) : undefined;
+    const normalizedLicenseNumber = licenseNumber !== undefined ? (licenseNumber && licenseNumber.trim() !== "" ? licenseNumber.trim() : "") : undefined;
+    const normalizedLicenseValidityDate = licenseValidityDate !== undefined ? (licenseValidityDate && licenseValidityDate.trim() !== "" ? licenseValidityDate : null) : undefined;
 
     const updatePayload = {
       ...req.body,
       workOrder,
       requisitionLetter,
+      licenseDoc,
       gstinDoc,
       panDoc,
       tanDoc,
     };
+
+    if (normalizedGstinNumber !== undefined) updatePayload.gstinNumber = normalizedGstinNumber;
+    if (normalizedPanNumber !== undefined) updatePayload.panNumber = normalizedPanNumber;
+    if (normalizedTanNumber !== undefined) updatePayload.tanNumber = normalizedTanNumber;
+    if (normalizedLicenseNumber !== undefined) updatePayload.licenseNumber = normalizedLicenseNumber;
+    if (normalizedLicenseValidityDate !== undefined) updatePayload.licenseValidityDate = normalizedLicenseValidityDate;
 
     const updated = await Agent.updateAgentByReference(
       referenceNumber,

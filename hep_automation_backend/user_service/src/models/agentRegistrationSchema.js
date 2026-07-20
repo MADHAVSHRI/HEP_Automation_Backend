@@ -71,6 +71,7 @@ const Agent = {
       "tanDoc",
       "licenseNumber",
       "licenseValidityDate",
+      "licenseDoc",
       "requisitionLetter",
       "contactMobile",
       "contactEmail",
@@ -107,6 +108,7 @@ const Agent = {
         "workOrder",
         "licenseNumber",
         "licenseValidityDate",
+        "licenseDoc",
         "requisitionLetter",
         "addressLine",
         "city",
@@ -138,7 +140,7 @@ const Agent = {
         $15, $16,
         $17,
         $18, $19, $20, $21, $22,
-        $23, $24, $25, $26, $27, $28, $29, $30  -- Update to include the new placeholder for updatedAt
+        $23, $24, $25, $26, $27, $28, $29, $30, $31
       )
       RETURNING *
     `;
@@ -152,6 +154,7 @@ const Agent = {
       agentData.workOrder,
       agentData.licenseNumber,
       agentData.licenseValidityDate,
+      agentData.licenseDoc,
       agentData.requisitionLetter,
       agentData.addressLine,
       agentData.city,
@@ -311,14 +314,26 @@ const Agent = {
         "email",
         "city",
         "state",
+        "addressLine",
+        "pincode",
         "gstinNumber",
         "panNumber",
+        "tanNumber",
+        "requisitionLetter",
+        "workOrder",
+        "licenseNumber",
+        "licenseValidityDate",
+        "licenseDoc",
+        "gstinDoc",
+        "panDoc",
+        "tanDoc",
         "referenceNumber",
         "loginId",
         "role",
         "status",
         "isApproved",
         "approvedBy",
+        "rejectedReason",
         "isRefNoSentByEmail",
         "isCredentialSentByEmail",
         "createdAt",
@@ -523,6 +538,9 @@ const Agent = {
       case "requisitionLetter":
         columnName = "requisitionLetter";
         break;
+      case "licenseDoc":
+        columnName = "licenseDoc";
+        break;
       default:
         throw new Error("Invalid document type");
     }
@@ -634,6 +652,7 @@ const Agent = {
       const gstinDoc = replaceFile(agent.gstinDoc, payload.gstinDoc);
       const panDoc = replaceFile(agent.panDoc, payload.panDoc);
       const tanDoc = replaceFile(agent.tanDoc, payload.tanDoc);
+      const licenseDoc = replaceFile(agent.licenseDoc, payload.licenseDoc);
 
       /* =================================
         STEP 5 — Update Query
@@ -670,11 +689,15 @@ const Agent = {
         "panDoc"=$21,
         "tanDoc"=$22,
 
+        "licenseNumber"=$23,
+        "licenseValidityDate"=$24,
+        "licenseDoc"=$25,
+
         "status"='pending',
         "rejectedReason"=NULL,
         "updatedAt"=CURRENT_TIMESTAMP
 
-        WHERE "referenceNumber"=$23
+        WHERE "referenceNumber"=$26
         RETURNING *
       `;
 
@@ -689,9 +712,9 @@ const Agent = {
         payload.pincode || agent.pincode,
         payload.country || agent.country,
 
-        payload.gstinNumber || agent.gstinNumber,
-        payload.panNumber || agent.panNumber,
-        payload.tanNumber || agent.tanNumber,
+        payload.gstinNumber !== undefined ? payload.gstinNumber : agent.gstinNumber,
+        payload.panNumber !== undefined ? payload.panNumber : agent.panNumber,
+        payload.tanNumber !== undefined ? payload.tanNumber : agent.tanNumber,
 
         payload.remark || agent.remark,
         payload.title || agent.title,
@@ -705,6 +728,10 @@ const Agent = {
         gstinDoc,
         panDoc,
         tanDoc,
+
+        payload.licenseNumber !== undefined ? payload.licenseNumber : agent.licenseNumber,
+        payload.licenseValidityDate !== undefined ? payload.licenseValidityDate : agent.licenseValidityDate,
+        licenseDoc,
 
         referenceNumber,
       ];

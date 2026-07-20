@@ -27,6 +27,7 @@ module.exports = (sequelize, DataTypes) => {
       workOrder: DataTypes.STRING,
       licenseNumber: DataTypes.STRING,
       licenseValidityDate: DataTypes.DATE,
+      licenseDoc: DataTypes.STRING,
       requisitionLetter: DataTypes.STRING,
       addressLine: DataTypes.STRING,
       city: DataTypes.STRING,

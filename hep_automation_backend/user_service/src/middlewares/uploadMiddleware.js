@@ -16,6 +16,7 @@ const GST_DIR = path.join(baseDir, "gst");
 const TAN_DIR = path.join(baseDir, "tan");
 const WORK_ORDER_DIR = path.join(baseDir, "workOrder");
 const AGENT_REQUISITION_DIR = path.join(baseDir,"requisitionLetter");
+const LICENSE_DIR = path.join(baseDir, "license");
 // const ENTITY_DIR = path.join(baseDir, "entity");
 
 const AUTH_DIR = path.join(passRequestBaseDir, "authLetters");
@@ -50,7 +51,7 @@ if (!fs.existsSync(VENDOR_WORK_ORDER_DIR)) {
 
 /* ===== ORIGINAL LOGIC (unchanged) ===== */
 
-const folders = ["pan", "gst", "tan", "workOrder", "requisitionLetter"];
+const folders = ["pan", "gst", "tan", "workOrder", "requisitionLetter", "license"];
 const passRequestFolders = [
   "authLetters",
   "personPhotos",
@@ -136,6 +137,10 @@ const storage = multer.diskStorage({
 
       case "requisitionLetter":
         cb(null, AGENT_REQUISITION_DIR);
+        break;
+
+      case "licenseDoc":
+        cb(null, LICENSE_DIR);
         break;
 
       case "authLetter":
@@ -262,6 +267,10 @@ const storage = multer.diskStorage({
 
     else if (fieldPrefix === "requisitionLetter") {
       fileName = `${company}REQUISITIONLETTER${timestamp}.pdf`;
+    }
+
+    else if (fieldPrefix === "licenseDoc") {
+      fileName = `${company}LICENSE${timestamp}.pdf`;
     }
 
     else if (fieldPrefix === "authLetter") {
