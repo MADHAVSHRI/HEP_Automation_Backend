@@ -4,8 +4,13 @@ const router = express.Router();
 
 const paymentController = require("../controllers/paymentController");
 
-router.get(
+router.post(
     "/payment/initiate",
+    paymentController.initiatePayment
+);
+
+router.get(
+    "/payment/test",
     paymentController.initiatePayment
 );
 

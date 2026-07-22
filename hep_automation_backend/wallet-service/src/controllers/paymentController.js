@@ -1,19 +1,42 @@
 const sbiService = require("../services/sbiEpayService");
 const config = require("../config/sbiepayConfig");
+const generateOrderNumber = require("../utils/orderNumber");
+const encryptionService = require("../services/encryptionService");
 
 const initiatePayment = (req, res) => {
 
     try {
 
+        const orderNumber = generateOrderNumber();
+        const {
+
+            amount = "100.00",
+
+            customerId = "CUSTOMER01"
+
+        } = req.body || {};
+
+        // const customerId = "CUSTOMER01";
+
+        // const amount = "100.00";
+
         const response = sbiService.generateEncryptedRequest({
-
-            amount: 100,
-
-            orderNumber: "ORDER1001",
-
-            customerId: "CUSTOMER01"
-
+            amount,
+            orderNumber,
+            customerId
         });
+
+        console.log("========== SBI REQUEST ==========");
+        console.log("Order No :", orderNumber);
+        console.log("Packet   :", response.packet);
+        console.log("Success URL:", config.successUrl);
+        console.log("Failure URL:", config.failureUrl);
+        console.log("Push URL:", config.pushUrl);
+        console.log("Payment URL:", config.paymentUrl);
+        console.log("Merchant:", config.merchantId);
+        console.log("Aggregator:", config.aggregatorId);
+        console.log("Encrypted:", response.encrypted);
+        console.log("=================================");
 
         const html = `
         <!DOCTYPE html>
@@ -27,7 +50,9 @@ const initiatePayment = (req, res) => {
 
         <body>
 
-            <h3>Redirecting to SBI ePay...</h3>
+            <h3>Please wait...</h3>
+
+            <p>Redirecting to SBI ePay Secure Payment Gateway</p>
 
             <form
                 id="sbiForm"
@@ -47,11 +72,19 @@ const initiatePayment = (req, res) => {
                     value="${config.merchantId}"
                 />
 
+                <input
+                    type="hidden"
+                    name="aggIdVal"
+                    value="${config.aggregatorId}"
+                />
+
             </form>
 
             <script>
 
-                document.getElementById("sbiForm").submit();
+                window.onload = function () {
+                    document.getElementById("sbiForm").submit();
+                };
 
             </script>
 
@@ -82,31 +115,124 @@ const initiatePayment = (req, res) => {
 
 const success = (req, res) => {
 
-    console.log("SUCCESS CALLBACK");
+    console.log("\n================ SUCCESS CALLBACK ================\n");
 
     console.log(req.body);
 
-    res.send("SUCCESS CALLBACK RECEIVED");
+    const encryptedData =
+        req.body.encData ||
+        req.body.DecryptTrans ||
+        req.body.EncryptTrans;
+
+    if (encryptedData) {
+
+        try {
+
+            const decrypted =
+                encryptionService.decryptResponse(
+                    encryptedData,
+                    config.merchantKey
+                );
+
+            console.log("\n========== DECRYPTED RESPONSE ==========");
+            console.log(decrypted);
+            console.log("========================================");
+
+        }
+
+        catch(err){
+
+            console.log(err);
+
+        }
+
+    }
+
+    res.send("SUCCESS");
 
 };
 
 const failure = (req, res) => {
 
-    console.log("FAILURE CALLBACK");
+    console.log("\n================ FAILURE CALLBACK ================\n");
 
+    console.log("BODY");
     console.log(req.body);
 
-    res.send("FAILURE CALLBACK RECEIVED");
+    console.log("\nBODY KEYS");
+    console.log(Object.keys(req.body));
+
+    const encryptedData =
+        req.body.encData ||
+        req.body.DecryptTrans ||
+        req.body.EncryptTrans;
+
+    console.log("\nEncrypted Data:");
+    console.log(encryptedData);
+
+    if (!encryptedData) {
+
+        console.log("\nNo encrypted data received from SBI.");
+
+        return res.send("FAILED");
+
+    }
+
+    try {
+
+        const decrypted =
+            encryptionService.decryptResponse(
+                encryptedData,
+                config.merchantKey
+            );
+
+        console.log("\n========== DECRYPTED RESPONSE ==========");
+        console.log(decrypted);
+        console.log("========================================");
+
+    }
+
+    catch(err){
+
+        console.log("\n========== DECRYPT ERROR ==========");
+        console.log(err);
+        console.log("===================================");
+
+    }
+
+    res.send("FAILED");
 
 };
 
 const push = (req, res) => {
 
-    console.log("PUSH CALLBACK");
+    try {
 
-    console.log(req.body);
+        console.log("PUSH CALLBACK");
 
-    res.send("OK");
+        console.log(req.body);
+
+        if (req.body.DecryptTrans) {
+
+            const decrypted = encryptionService.decryptResponse(
+                req.body.DecryptTrans,
+                config.merchantKey
+            );
+
+            console.log("Decrypted Response");
+
+            console.log(decrypted);
+        }
+
+        res.send("OK");
+
+    } catch (err) {
+
+        console.log(err);
+
+        res.status(500).send(err.message);
+
+    }
 
 };
 
