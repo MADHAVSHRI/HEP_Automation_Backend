@@ -17,7 +17,8 @@ const TAN_DIR = path.join(baseDir, "tan");
 const WORK_ORDER_DIR = path.join(baseDir, "workOrder");
 const AGENT_REQUISITION_DIR = path.join(baseDir,"requisitionLetter");
 const LICENSE_DIR = path.join(baseDir, "license");
-// const ENTITY_DIR = path.join(baseDir, "entity");
+const ENTITY_DIR = path.join(baseDir, "entity");
+const ADDRESS_DIR = path.join(baseDir, "address");
 
 const AUTH_DIR = path.join(passRequestBaseDir, "authLetters");
 const PHOTO_DIR = path.join(passRequestBaseDir, "personPhotos");
@@ -51,7 +52,7 @@ if (!fs.existsSync(VENDOR_WORK_ORDER_DIR)) {
 
 /* ===== ORIGINAL LOGIC (unchanged) ===== */
 
-const folders = ["pan", "gst", "tan", "workOrder", "requisitionLetter", "license"];
+const folders = ["pan", "gst", "tan", "workOrder", "requisitionLetter", "license", "entity", "address"];
 const passRequestFolders = [
   "authLetters",
   "personPhotos",
@@ -141,6 +142,14 @@ const storage = multer.diskStorage({
 
       case "licenseDoc":
         cb(null, LICENSE_DIR);
+        break;
+
+      case "entityNameDoc":
+        cb(null, ENTITY_DIR);
+        break;
+
+      case "addressDoc":
+        cb(null, ADDRESS_DIR);
         break;
 
       case "authLetter":
@@ -271,6 +280,14 @@ const storage = multer.diskStorage({
 
     else if (fieldPrefix === "licenseDoc") {
       fileName = `${company}LICENSE${timestamp}.pdf`;
+    }
+
+    else if (fieldPrefix === "entityNameDoc") {
+      fileName = `${company}ENTITYNAME${timestamp}.pdf`;
+    }
+
+    else if (fieldPrefix === "addressDoc") {
+      fileName = `${company}ADDRESSPROOF${timestamp}.pdf`;
     }
 
     else if (fieldPrefix === "authLetter") {
@@ -489,7 +506,7 @@ const upload = multer({
   storage,
   fileFilter,
   limits: {
-    fileSize: 5 * 1024 * 1024,   // 5MB max per file (PDFs + photos can be large)
+    fileSize: 2 * 1024 * 1024,   // 2MB max per file limit
     files: 200                    // realistic max: 10 persons × 11 docs + 10 vehicles × 7 docs
   },
   preservePath: true

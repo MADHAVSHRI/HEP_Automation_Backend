@@ -25,4 +25,11 @@ router.post("/sendBulkPassReturned", emailController.sendBulkPassReturned);
 router.post("/sendBulkPassApproved", emailController.sendBulkPassApproved);
 router.post("/sendBulkPassRejected", emailController.sendBulkPassRejected);
 
+// ── Profile Update & License Expiry Routes ───────────────────────────────────
+router.post("/sendProfileUpdateSubmitted", emailController.sendProfileUpdateSubmitted);
+router.post("/sendProfileUpdateApproved", emailController.sendProfileUpdateApproved);
+router.post("/sendProfileUpdateReverted", emailController.sendProfileUpdateReverted);
+router.post("/sendProfileUpdateRejected", emailController.sendProfileUpdateRejected);
+router.post("/sendLicenseExpiryWarning", emailController.sendLicenseExpiryWarning);
+
 module.exports = router;

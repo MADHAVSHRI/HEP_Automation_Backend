@@ -70,7 +70,7 @@ const Agent = {
       "tanNumber",
       "tanDoc",
       "licenseNumber",
-      "licenseValidityDate",
+      TO_CHAR("licenseValidityDate", 'YYYY-MM-DD') AS "licenseValidityDate",
       "licenseDoc",
       "requisitionLetter",
       "contactMobile",
@@ -426,31 +426,18 @@ const Agent = {
   async getAgentById(agentId) {
     const query = `
     SELECT
-      id,
-      "userTypeName",
-      "entityName",
-      "firstName",
-      "lastName",
-      "email",
-      "mobileNo",
-      "city",
-      "state",
-      "country",
-      "addressLine",
-      "pincode",
-      "gstinNumber",
-      "referenceNumber",
-      "loginId",
-      "role",
-      "status",
-      "createdAt"
+      *,
+      TO_CHAR("licenseValidityDate", 'YYYY-MM-DD') AS "licenseValidityDate",
+      "addressLine" AS address
     FROM "Agents"
     WHERE id = $1
     AND status = 'approved'
   `;
 
     const result = await pool.query(query, [agentId]);
-
+    if (result.rows[0]) {
+      delete result.rows[0].password;
+    }
     return result.rows[0];
   },
 

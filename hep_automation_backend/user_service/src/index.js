@@ -21,11 +21,14 @@ app.use(
   }),
 );
 
+const { startLicenseExpiryNotifierCron } = require("./utils/licenseExpiryNotifier");
+
 initUploadDirs();
 
 app.use(express.json());
 app.use(loggerMiddleware);
 connectDB();
+startLicenseExpiryNotifierCron();
 
 // Serve uploaded files (bulk pass photos, vehicle docs, work orders, etc.).
 // These are loaded directly via <img>/<a> tags which can't send auth headers,

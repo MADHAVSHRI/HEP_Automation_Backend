@@ -170,7 +170,28 @@ const startConsumer = async () => {
               status: data.status
             };
 
-            }else {
+            } else if (data.type === "PROFILE_UPDATE_SUBMITTED" || data.type === "PROFILE_UPDATE_APPROVED") {
+            payload = {
+              email: data.email,
+              name: data.name,
+              referenceNumber: data.referenceNumber,
+            };
+          } else if (data.type === "PROFILE_UPDATE_REVERTED" || data.type === "PROFILE_UPDATE_REJECTED") {
+            payload = {
+              email: data.email,
+              name: data.name,
+              referenceNumber: data.referenceNumber,
+              rejectedReason: data.rejectedReason || data.reason,
+            };
+          } else if (data.type === "LICENSE_EXPIRY_WARNING") {
+            payload = {
+              email: data.email,
+              name: data.name,
+              licenseNumber: data.licenseNumber,
+              licenseValidityDate: data.licenseValidityDate,
+              daysRemaining: data.daysRemaining,
+            };
+          } else {
             // Registration email (existing logic)
             payload = {
               email: data.email,
@@ -225,6 +246,26 @@ const startConsumer = async () => {
     }else if (data.type === "DEPT_USER_DISABLED") {
 
         emailApi = "/api/email/sendDeptUserDisabled";
+
+    }else if (data.type === "PROFILE_UPDATE_SUBMITTED") {
+
+        emailApi = "/api/email/sendProfileUpdateSubmitted";
+
+    }else if (data.type === "PROFILE_UPDATE_APPROVED") {
+
+        emailApi = "/api/email/sendProfileUpdateApproved";
+
+    }else if (data.type === "PROFILE_UPDATE_REVERTED") {
+
+        emailApi = "/api/email/sendProfileUpdateReverted";
+
+    }else if (data.type === "PROFILE_UPDATE_REJECTED") {
+
+        emailApi = "/api/email/sendProfileUpdateRejected";
+
+    }else if (data.type === "LICENSE_EXPIRY_WARNING") {
+
+        emailApi = "/api/email/sendLicenseExpiryWarning";
 
     }else {
 

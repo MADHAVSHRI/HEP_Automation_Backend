@@ -12,7 +12,7 @@ module.exports = {
       },
 
       {
-        name: "Stevedore",
+        name: "Stevedoring and Shore Handling License",
         document_instruction: "Upload Port approval letter",
       },
 
@@ -77,10 +77,6 @@ module.exports = {
         document_instruction: "Upload License/Authorization Letter",
       },
 
-      {
-        name: "Department",
-        document_instruction: "Upload Recommendation/Authorization Letter",
-      },
 
       {
         name: "Labour Licence",

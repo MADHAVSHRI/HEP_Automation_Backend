@@ -260,6 +260,7 @@ const PassRequest = {
         const employFile = getFile("employmentProof", i);
         const chaFile = getFile("chaLicenseCopy", i);
         const passportFile = getFile("passportDoc", i);
+        const cdcFile = getFile("cdcDocument", i);
         const entryAuthFile = getFile("entryAuthorization", i);
 
         if (!masterPersonId) {
@@ -327,6 +328,10 @@ const PassRequest = {
               "passportPath",
               "passportName",
 
+              "cdcNumber",
+              "cdcDocumentPath",
+              "cdcDocumentName",
+
               "createdAt",
               "updatedAt"
             )
@@ -336,6 +341,7 @@ const PassRequest = {
               $11,$12,$13,$14,$15,$16,$17,
               $18,$19,$20,$21,$22,$23,$24,$25,
               $26,$27,$28,$29,$30,$31,$32,$33,
+              $34,$35,$36,
               NOW(),NOW()
             )
             RETURNING id
@@ -344,9 +350,9 @@ const PassRequest = {
                 agentId,
                 person.hepTypeId,
                 person.name,
-                person.aadharNo,
+                person.aadharNo || null,
                 person.mobile,
-                person.email,
+                person.email || '',
                 person.nationality,
                 person.countryId,
                 person.visaNo,
@@ -382,6 +388,10 @@ const PassRequest = {
 
                 passportFile?.path || null,
                 passportFile?.originalname || null,
+
+                person.cdcNumber || null,
+                cdcFile?.path || null,
+                cdcFile?.originalname || null,
               ],
             );
 
@@ -438,6 +448,9 @@ const PassRequest = {
           "chaLicenseName",
           "passportPath",
           "passportName",
+          "cdcNumber",
+          "cdcDocumentPath",
+          "cdcDocumentName",
           "passType",
           "passPeriod",
           "dateFrom",
@@ -454,7 +467,7 @@ const PassRequest = {
           $11,$12,$13,$14,$15,$16,$17,$18,
           $19,$20,$21,$22,$23,$24,$25,$26,
           $27,$28,$29,$30,$31,$32,$33,$34,
-          $35,$36,$37,$38,$39,$40,$41,$42,$43,
+          $35,$36,$37,$38,$39,$40,$41,$42,$43,$44,$45,$46,
           NOW(),NOW()
         )
         `,
@@ -470,9 +483,9 @@ const PassRequest = {
             person.email || mpData.email,
             person.nationality || mpData.nationality,
             person.countryId || mpData.countryId,
-            mpData.visaNo,
+            person.visaNo || mpData.visaNo,
             person.designationId || mpData.designationId,
-            mpData.designationOther,
+            person.designationOther || mpData.designationOther,
             person.cardNumber || mpData.cardNumber,
             person.accessAreaId || mpData.accessAreaId,
             person.withTwoWheeler !== undefined ? person.withTwoWheeler : mpData.withTwoWheeler,
@@ -495,6 +508,9 @@ const PassRequest = {
             chaFile?.originalname || mpData.chaLicenseName,
             passportFile?.path || mpData.passportPath,
             passportFile?.originalname || mpData.passportName,
+            person.cdcNumber || mpData.cdcNumber,
+            cdcFile?.path || mpData.cdcDocumentPath,
+            cdcFile?.originalname || mpData.cdcDocumentName,
             person.passType,
             person.passPeriod,
             person.dateFrom,
@@ -1091,9 +1107,11 @@ const PassRequest = {
       // Build update query dynamically based on provided fields
       // Only include fields that exist in pass_persons table
       const allowedFields = [
-        'name', 'mobile', 'aadharNo', 'hepTypeId', 'passType',
+        'name', 'email', 'mobile', 'aadharNo', 'hepTypeId', 'passType',
+        'designationId', 'designationOther', 'visaNo', 'nationality',
         'passPeriod', 'dateFrom', 'dateTo', 'amount', 'countryId',
-        'idProofType', 'photoFilePath', 'photoFileName',
+        'idProofType', 'idProofNumber', 'withTwoWheeler', 'vehicleNo', 'accessAreaId',
+        'photoFilePath', 'photoFileName',
         'aadharPDFFilePATH', 'aadharPDFFileName',
         'idProofFilePath', 'idProofFileName',
         'driverLicensePath', 'driverLicenseName',
@@ -1102,7 +1120,7 @@ const PassRequest = {
         'chaLicensePath', 'chaLicenseName',
         'passportPath', 'passportName',
         'requisitionLetterPath', 'requisitionLetterName',
-        'cdcDocumentPath', 'cdcDocumentName',
+        'cdcNumber', 'cdcDocumentPath', 'cdcDocumentName',
         'declarationFormPath', 'declarationFormName',
         'entryAuthorizationFilePath', 'entryAuthorizationFileName'
       ];
@@ -1527,10 +1545,11 @@ const getPassRequest = {
               'rejectedReason', pp."rejectedReason",
               'personPassNo', pp."personPassNo",
               'designationId', COALESCE(pp."designationId", mp."designationId"),
+              'designationOther', COALESCE(pp."designationOther", mp."designationOther"),
               'accessAreaId', COALESCE(pp."accessAreaId"::TEXT, mp."accessAreaId"::TEXT),
-              'nationality', mp.nationality,
+              'nationality', COALESCE(pp.nationality::text, mp.nationality::text),
               'countryId', COALESCE(pp."countryId", mp."countryId"),
-              'visaNo', mp."visaNo",
+              'visaNo', COALESCE(pp."visaNo", mp."visaNo"),
               'cardNumber', mp."cardNumber",
               'withTwoWheeler', COALESCE(pp."withTwoWheeler", mp."withTwoWheeler"),
               'vehicleNo', COALESCE(pp."vehicleNo", mp."vehicleNo"),
@@ -1559,6 +1578,9 @@ const getPassRequest = {
 
                'passportPath', COALESCE(pp."passportPath", mp."passportPath"),
               'passportName', COALESCE(pp."passportName", mp."passportName"),
+              'cdcNumber', COALESCE(pp."cdcNumber", mp."cdcNumber"),
+              'cdcDocumentPath', COALESCE(pp."cdcDocumentPath", mp."cdcDocumentPath"),
+              'cdcDocumentName', COALESCE(pp."cdcDocumentName", mp."cdcDocumentName"),
               'entryAuthorizationFilePath', pp."entryAuthorizationFilePath",
               'entryAuthorizationFileName', pp."entryAuthorizationFileName"
             ) ORDER BY pp.id ASC
@@ -2066,14 +2088,18 @@ const getAgentPassRequestsDetails = {
         deptFilter = `
           AND EXISTS (
             SELECT 1 FROM pass_persons pp
-            WHERE pp."passRequestId" = pr.id AND pp."hepTypeId" = 7
+            LEFT JOIN master_persons mp ON mp.id = pp."masterPersonId"
+            WHERE pp."passRequestId" = pr.id
+              AND COALESCE(pp."hepTypeId", mp."hepTypeId") = 3
           )`;
       } else {
         deptFilter = `
           AND (
             EXISTS (
               SELECT 1 FROM pass_persons pp
-              WHERE pp."passRequestId" = pr.id AND pp."hepTypeId" IN (5, 6)
+              LEFT JOIN master_persons mp ON mp.id = pp."masterPersonId"
+              WHERE pp."passRequestId" = pr.id
+                AND (COALESCE(pp."hepTypeId", mp."hepTypeId") IS NULL OR COALESCE(pp."hepTypeId", mp."hepTypeId") != 3)
             )
             OR EXISTS (
               SELECT 1 FROM pass_vehicles pv WHERE pv."passRequestId" = pr.id
@@ -2303,8 +2329,16 @@ const getAgentPassRequestsDetails = {
 
         'passportPath', COALESCE(pp."passportPath", mp."passportPath"),
         'passportName', COALESCE(pp."passportName", mp."passportName"),
+        'cdcNumber', COALESCE(pp."cdcNumber", mp."cdcNumber"),
+        'cdcDocumentPath', COALESCE(pp."cdcDocumentPath", mp."cdcDocumentPath"),
+        'cdcDocumentName', COALESCE(pp."cdcDocumentName", mp."cdcDocumentName"),
 
-        'designationId', d.name,
+        'visaNo', COALESCE(pp."visaNo", mp."visaNo"),
+        'nationality', COALESCE(pp.nationality::text, mp.nationality::text),
+        'countryId', COALESCE(pp."countryId", mp."countryId"),
+
+        'designationId', COALESCE(d.name, pp."designationOther", mp."designationOther", pp."designationId"::text, mp."designationId"::text),
+        'designationOther', COALESCE(pp."designationOther", mp."designationOther"),
         'accessAreaId', COALESCE(pp."accessAreaId"::TEXT, mp."accessAreaId"::TEXT),
         'vehicleNo', COALESCE(pp."vehicleNo", mp."vehicleNo"),
         'withTwoWheeler', COALESCE(pp."withTwoWheeler", mp."withTwoWheeler"),
@@ -2690,6 +2724,7 @@ const viewPassRequestsDocuments = {
         employmentProof: "employmentProofPath",
         chaLicenseCopy: "chaLicensePath",
         passportDoc: "passportPath",
+        cdcDocument: "cdcDocumentPath",
         entryAuthorization: "entryAuthorizationFilePath",
       };
 
@@ -2780,6 +2815,11 @@ const viewPassRequestsDocuments = {
 
       case "passportDoc":
         columnName = "passportPath";
+        tableName = "pass_persons";
+        break;
+
+      case "cdcDocument":
+        columnName = "cdcDocumentPath";
         tableName = "pass_persons";
         break;
 
@@ -2880,6 +2920,7 @@ const viewPassRequestsDocuments = {
       "employmentProof",
       "chaLicenseCopy",
       "passportDoc",
+      "cdcDocument",
       "entryAuthorization",
     ];
 
@@ -2958,6 +2999,7 @@ const viewPassRequestsDocuments = {
       employmentProof: "employmentProofPath",
       chaLicenseCopy: "chaLicensePath",
       passportDoc: "passportPath",
+      cdcDocument: "cdcDocumentPath",
       entryAuthorization: "entryAuthorizationFilePath",
     };
 

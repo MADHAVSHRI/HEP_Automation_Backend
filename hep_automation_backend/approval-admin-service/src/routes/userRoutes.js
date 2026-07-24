@@ -21,6 +21,17 @@ router.get("/agent-users", verifyToken, adminController.getAgentRequests);
 
 router.put("/agent-request", adminController.agentRequestAction);
 
+router.get("/agent-profile-update-requests", verifyToken, adminController.getAgentProfileUpdateRequests);
+router.get("/profile-update-requests", verifyToken, adminController.getAgentProfileUpdateRequests);
+
+router.put("/action-agent-profile-update-request", verifyToken, adminController.actionAgentProfileUpdateRequest);
+router.post("/action-agent-profile-update-request", verifyToken, adminController.actionAgentProfileUpdateRequest);
+router.put("/profile-update-requests/:id/action", verifyToken, adminController.actionAgentProfileUpdateRequest);
+router.post("/profile-update-requests/:id/action", verifyToken, adminController.actionAgentProfileUpdateRequest);
+
+router.get("/view-profile-update-doc", adminController.viewProfileUpdateDocument);
+router.get("/profile-update-requests/document", adminController.viewProfileUpdateDocument);
+
 router.get("/agent/:agentId", verifyToken, adminController.getAgentById);
 
 router.patch(

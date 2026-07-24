@@ -168,6 +168,40 @@ const ReferenceNumber = {
     const year = String(d.getFullYear()).slice(-2);
 
     return `BLK${day}${month}${year}${padded}`;
+  },
+
+  /*
+  ==========================================
+  Generate Profile Update Reference Number
+  ==========================================
+  */
+
+  async generateProfileUpdateReference(client){
+
+    const today = new Date().toISOString().slice(0,10);
+
+    const query = `
+      INSERT INTO daily_pass_counters(date,"profileUpdateCounter")
+      VALUES($1,1)
+      ON CONFLICT(date)
+      DO UPDATE SET "profileUpdateCounter" =
+      COALESCE(daily_pass_counters."profileUpdateCounter", 0) + 1
+      RETURNING "profileUpdateCounter"
+    `;
+
+    const result = await client.query(query,[today]);
+
+    const count = result.rows[0].profileUpdateCounter;
+
+    const padded = String(count).padStart(4,"0");
+
+    const d = new Date(today);
+
+    const day = String(d.getDate()).padStart(2,"0");
+    const month = String(d.getMonth()+1).padStart(2,"0");
+    const year = String(d.getFullYear()).slice(-2);
+
+    return `PUR${day}${month}${year}${padded}`;
   }
 
 };

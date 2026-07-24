@@ -273,6 +273,68 @@ const createPassRequest = async (req, res) => {
 
     /* ===== CHANGE END ===== */
 
+    // 0. Check Agent License Expiry & Duration Lock (Duration-Aware Validation)
+    if (payload.agentId) {
+      const agentRes = await pool.query(
+        'SELECT id, TO_CHAR("licenseValidityDate", \'YYYY-MM-DD\') AS "licenseValidityDate", "entityName" FROM "Agents" WHERE id = $1',
+        [payload.agentId]
+      );
+      if (agentRes.rows.length > 0 && agentRes.rows[0].licenseValidityDate) {
+        const licenseValidityStr = String(agentRes.rows[0].licenseValidityDate).split('T')[0];
+        const [yyyy, mm, dd] = licenseValidityStr.split('-').map(Number);
+
+        if (yyyy && mm && dd) {
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
+
+          const licenseExpEnd = new Date(yyyy, mm - 1, dd, 23, 59, 59, 999);
+          const licenseExpStart = new Date(yyyy, mm - 1, dd, 0, 0, 0, 0);
+
+          const diffMs = licenseExpStart.getTime() - today.getTime();
+          const remainingDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
+          const formattedExpDate = `${String(dd).padStart(2, '0')}/${String(mm).padStart(2, '0')}/${yyyy}`;
+
+          // Calculate max requested pass end date from persons and vehicles
+          let maxRequestedDate = new Date();
+          const allItems = [...(payload.persons || []), ...(payload.vehicles || [])];
+          for (const item of allItems) {
+            let itemTo = null;
+            if (item.toDate) {
+              itemTo = new Date(item.toDate);
+            } else {
+              const start = item.fromDate ? new Date(item.fromDate) : new Date(today);
+              itemTo = new Date(start);
+              const pType = String(item.passType || "").toUpperCase();
+              if (pType === "MONTHLY" || pType === "2") {
+                itemTo.setMonth(itemTo.getMonth() + 1);
+              } else if (pType === "YEARLY" || pType === "ANNUAL" || pType === "3") {
+                itemTo.setFullYear(itemTo.getFullYear() + 1);
+              } else {
+                const p = parseInt(item.passPeriod || 1, 10);
+                itemTo.setDate(itemTo.getDate() + p);
+              }
+            }
+            if (itemTo && itemTo > maxRequestedDate) maxRequestedDate = itemTo;
+          }
+
+          if (today > licenseExpEnd) {
+            return res.status(403).json({
+              success: false,
+              code: "LICENSE_EXPIRED",
+              message: `Your company license expired on ${formattedExpDate}. Pass generation is blocked. Please submit a Profile/License Update Request to update your license.`
+            });
+          }
+
+          if (maxRequestedDate > licenseExpEnd) {
+            return res.status(403).json({
+              success: false,
+              code: "PASS_EXCEEDS_LICENSE",
+              message: `Your company license expires in ${remainingDays} days (on ${formattedExpDate}). You cannot apply for a pass valid beyond your license expiry date. Please update your company license.`
+            });
+          }
+        }
+      }
+    }
 
     // 1. Check Company blacklisting
     if (payload.agentId) {
@@ -1184,7 +1246,29 @@ const updatePassPerson = async (req, res) => {
     attachFile(updateData, "employmentProof", "employmentProofPath", "employmentProofName");
     attachFile(updateData, "chaLicenseCopy", "chaLicensePath", "chaLicenseName");
     attachFile(updateData, "passportDoc", "passportPath", "passportName");
+    attachFile(updateData, "cdcDocument", "cdcDocumentPath", "cdcDocumentName");
     attachFile(updateData, "entryAuthorization", "entryAuthorizationFilePath", "entryAuthorizationFileName");
+
+    if (updateData.designation) {
+      if (updateData.designation === "Crew" || updateData.designation === "Supernumerary" || updateData.designation === "Others") {
+        updateData.designationId = null;
+        updateData.designationOther = updateData.designationOther || updateData.designation;
+      } else {
+        updateData.designationId = parseInt(updateData.designation, 10) || null;
+      }
+    }
+
+    if (updateData.nationality) {
+      if (updateData.nationality === "1" || String(updateData.nationality).toUpperCase().includes("IND")) {
+        updateData.nationality = "INDIAN";
+      } else if (updateData.nationality === "2" || String(updateData.nationality).toUpperCase().includes("FOR")) {
+        updateData.nationality = "FOREIGNER";
+      }
+    }
+
+    if (updateData.withTwoWheeler !== undefined) {
+      updateData.withTwoWheeler = updateData.withTwoWheeler === true || updateData.withTwoWheeler === "true";
+    }
 
     const { PassRequest } = require("../models/passRequestSchema");
 

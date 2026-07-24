@@ -199,6 +199,93 @@ exports.getAgentRequests = async (req, res) => {
   }
 };
 
+exports.getAgentProfileUpdateRequests = async (req, res) => {
+  try {
+    const userServiceUrl = process.env.USER_SERVICE_URL;
+    const config = {
+      headers: {
+        "x-service-name": "APPROVAL-SERVICE",
+        ...(req.headers.authorization ? { authorization: req.headers.authorization } : {}),
+      },
+      params: {
+        ...req.query,
+        userId: req.user ? req.user.userId : req.query.userId || null,
+      },
+    };
+
+    const response = await axios.get(
+      `${userServiceUrl}/api/agents/getProfileUpdateRequests`,
+      config
+    );
+
+    return res.status(200).json(response.data);
+  } catch (error) {
+    console.error("Error fetching agent profile update requests:", error.response?.data || error.message);
+    return res.status(error.response?.status || 500).json(
+      error.response?.data || { success: false, message: "Failed to fetch profile update requests" }
+    );
+  }
+};
+
+exports.actionAgentProfileUpdateRequest = async (req, res) => {
+  try {
+    const userServiceUrl = process.env.USER_SERVICE_URL;
+    const config = {
+      headers: {
+        "x-service-name": "APPROVAL-SERVICE",
+        ...(req.headers.authorization ? { authorization: req.headers.authorization } : {}),
+      },
+    };
+
+    const payload = {
+      ...req.body,
+      requestId: req.body.requestId || req.params.id,
+      decision: req.body.decision || req.body.action,
+      rejectedReason: req.body.rejectedReason || req.body.remarks,
+    };
+
+    const response = await axios.put(
+      `${userServiceUrl}/api/agents/actionProfileUpdateRequest`,
+      payload,
+      config
+    );
+
+    return res.status(200).json(response.data);
+  } catch (error) {
+    console.error("Error actioning agent profile update request:", error.response?.data || error.message);
+    return res.status(error.response?.status || 500).json(
+      error.response?.data || { success: false, message: "Failed to process profile update action" }
+    );
+  }
+};
+
+exports.viewProfileUpdateDocument = async (req, res) => {
+  try {
+    const userServiceUrl = process.env.USER_SERVICE_URL;
+    const response = await axios.get(
+      `${userServiceUrl}/api/agents/viewProfileUpdateDocument`,
+      {
+        params: req.query,
+        responseType: "stream",
+      }
+    );
+
+    if (response.headers["content-type"]) {
+      res.setHeader("Content-Type", response.headers["content-type"]);
+    }
+    res.setHeader("Content-Disposition", "inline");
+
+    response.data.pipe(res);
+  } catch (error) {
+    console.error("Error viewing profile update document:", error.message);
+    const status = error.response?.status || 500;
+    return res.status(status).json({
+      success: false,
+      message: "Failed to stream profile update document",
+    });
+  }
+};
+
 exports.getDeptAdminUsers = async (req, res) => {
 
   try {

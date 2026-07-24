@@ -65,6 +65,7 @@ router.put(
     { name: "employmentProof", maxCount: 1 },
     { name: "chaLicenseCopy", maxCount: 1 },
     { name: "passportDoc", maxCount: 1 },
+    { name: "cdcDocument", maxCount: 1 },
     { name: "entryAuthorization", maxCount: 1 },
   ]),
   passRequestController.updatePassPerson

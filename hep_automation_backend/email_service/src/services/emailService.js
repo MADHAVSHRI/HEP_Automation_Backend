@@ -18,6 +18,11 @@ const bulkPassReturnedTemplate = require("../emailTemplates/bulkPassReturnedTemp
 const bulkPassApprovedTemplate = require("../emailTemplates/bulkPassApprovedTemplate");
 const bulkPassRejectedTemplate = require("../emailTemplates/bulkPassRejectedTemplate");
 const vendorPassSubmittedTemplate = require("../emailTemplates/vendorPassSubmittedTemplate");
+const profileUpdateSubmittedTemplate = require("../emailTemplates/profileUpdateSubmittedTemplate");
+const profileUpdateApprovedTemplate = require("../emailTemplates/profileUpdateApprovedTemplate");
+const profileUpdateRevertedTemplate = require("../emailTemplates/profileUpdateRevertedTemplate");
+const profileUpdateRejectedTemplate = require("../emailTemplates/profileUpdateRejectedTemplate");
+const licenseExpiryWarningTemplate = require("../emailTemplates/licenseExpiryWarningTemplate");
 
 const sendReferenceEmail = async (email, name, referenceNumber) => {
 
@@ -324,11 +329,76 @@ const sendBulkPassRejectedEmail = async (payload) => {
   return transporter.sendMail(mailOptions);
 };
 
-module.exports = { sendReferenceEmail, sendApprovalEmail, 
+const sendProfileUpdateSubmittedEmail = async (payload) => {
+  const html = profileUpdateSubmittedTemplate(payload.name, payload.referenceNumber);
+  const mailOptions = {
+    from: process.env.EMAIL_USER,
+    to: payload.email,
+    subject: `Chennai Port — Profile Update Received (${payload.referenceNumber})`,
+    html,
+  };
+  return transporter.sendMail(mailOptions);
+};
+
+const sendProfileUpdateApprovedEmail = async (payload) => {
+  const html = profileUpdateApprovedTemplate(payload.name, payload.referenceNumber);
+  const mailOptions = {
+    from: process.env.EMAIL_USER,
+    to: payload.email,
+    subject: `✅ Profile Update Approved — Chennai Port (${payload.referenceNumber})`,
+    html,
+  };
+  return transporter.sendMail(mailOptions);
+};
+
+const sendProfileUpdateRevertedEmail = async (payload) => {
+  const html = profileUpdateRevertedTemplate(payload.name, payload.referenceNumber, payload.rejectedReason);
+  const mailOptions = {
+    from: process.env.EMAIL_USER,
+    to: payload.email,
+    subject: `⚠️ Profile Update Reverted — Chennai Port (${payload.referenceNumber})`,
+    html,
+  };
+  return transporter.sendMail(mailOptions);
+};
+
+const sendProfileUpdateRejectedEmail = async (payload) => {
+  const html = profileUpdateRejectedTemplate(payload.name, payload.referenceNumber, payload.rejectedReason);
+  const mailOptions = {
+    from: process.env.EMAIL_USER,
+    to: payload.email,
+    subject: `❌ Profile Update Rejected — Chennai Port (${payload.referenceNumber})`,
+    html,
+  };
+  return transporter.sendMail(mailOptions);
+};
+
+const sendLicenseExpiryWarningEmail = async (payload) => {
+  const html = licenseExpiryWarningTemplate(
+    payload.name,
+    payload.licenseNumber,
+    payload.licenseValidityDate,
+    payload.daysRemaining
+  );
+  const mailOptions = {
+    from: process.env.EMAIL_USER,
+    to: payload.email,
+    subject: `⚠️ URGENT: Chennai Port License Expiring in ${payload.daysRemaining} Days`,
+    html,
+  };
+  return transporter.sendMail(mailOptions);
+};
+
+module.exports = {
+  sendReferenceEmail, sendApprovalEmail, 
   sendRejectionEmail, sendDeptUserCreationEmail, sendDeptUserActivatedEmail, 
   sendDeptUserDisabledEmail, sendUpdatedAfterRevertEmail, sendRevertedAgentRequestEmail,
   sendVendorPassLinkEmail, sendPassRevertedEmail, sendVendorPassApprovedEmail,
   sendVendorPassSubmittedEmail,
   sendForgotPasswordOTPEmail, sendForgotPasswordOtpEmail,
   sendBulkPassInvitationEmail, sendBulkPassSubmittedEmail, sendBulkPassUnderReviewEmail,
-  sendBulkPassReturnedEmail, sendBulkPassApprovedEmail, sendBulkPassRejectedEmail };
+  sendBulkPassReturnedEmail, sendBulkPassApprovedEmail, sendBulkPassRejectedEmail,
+  sendProfileUpdateSubmittedEmail, sendProfileUpdateApprovedEmail,
+  sendProfileUpdateRevertedEmail, sendProfileUpdateRejectedEmail,
+  sendLicenseExpiryWarningEmail
+};

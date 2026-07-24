@@ -5,7 +5,10 @@ const { sendReferenceEmail, sendApprovalEmail, sendRejectionEmail,
   sendVendorPassSubmittedEmail,
   sendForgotPasswordOTPEmail, sendForgotPasswordOtpEmail,
   sendBulkPassInvitationEmail, sendBulkPassSubmittedEmail, sendBulkPassUnderReviewEmail,
-  sendBulkPassReturnedEmail, sendBulkPassApprovedEmail, sendBulkPassRejectedEmail } = require("../services/emailService");
+  sendBulkPassReturnedEmail, sendBulkPassApprovedEmail, sendBulkPassRejectedEmail,
+  sendProfileUpdateSubmittedEmail, sendProfileUpdateApprovedEmail,
+  sendProfileUpdateRevertedEmail, sendProfileUpdateRejectedEmail,
+  sendLicenseExpiryWarningEmail } = require("../services/emailService");
 
 exports.sendReference = async (req, res) => {
 
@@ -522,6 +525,56 @@ exports.sendBulkPassRejected = async (req, res) => {
     return res.json({ success: true, message: "Bulk pass rejected email sent" });
   } catch (error) {
     console.error("[EMAIL-CTRL] sendBulkPassRejected error:", error);
+    res.status(500).json({ success: false, message: "Email sending failed" });
+  }
+};
+
+exports.sendProfileUpdateSubmitted = async (req, res) => {
+  try {
+    await sendProfileUpdateSubmittedEmail(req.body);
+    return res.json({ success: true, message: "Profile update submission email sent" });
+  } catch (error) {
+    console.error("[EMAIL-CTRL] sendProfileUpdateSubmitted error:", error);
+    res.status(500).json({ success: false, message: "Email sending failed" });
+  }
+};
+
+exports.sendProfileUpdateApproved = async (req, res) => {
+  try {
+    await sendProfileUpdateApprovedEmail(req.body);
+    return res.json({ success: true, message: "Profile update approval email sent" });
+  } catch (error) {
+    console.error("[EMAIL-CTRL] sendProfileUpdateApproved error:", error);
+    res.status(500).json({ success: false, message: "Email sending failed" });
+  }
+};
+
+exports.sendProfileUpdateReverted = async (req, res) => {
+  try {
+    await sendProfileUpdateRevertedEmail(req.body);
+    return res.json({ success: true, message: "Profile update revert email sent" });
+  } catch (error) {
+    console.error("[EMAIL-CTRL] sendProfileUpdateReverted error:", error);
+    res.status(500).json({ success: false, message: "Email sending failed" });
+  }
+};
+
+exports.sendProfileUpdateRejected = async (req, res) => {
+  try {
+    await sendProfileUpdateRejectedEmail(req.body);
+    return res.json({ success: true, message: "Profile update rejection email sent" });
+  } catch (error) {
+    console.error("[EMAIL-CTRL] sendProfileUpdateRejected error:", error);
+    res.status(500).json({ success: false, message: "Email sending failed" });
+  }
+};
+
+exports.sendLicenseExpiryWarning = async (req, res) => {
+  try {
+    await sendLicenseExpiryWarningEmail(req.body);
+    return res.json({ success: true, message: "License expiry warning email sent" });
+  } catch (error) {
+    console.error("[EMAIL-CTRL] sendLicenseExpiryWarning error:", error);
     res.status(500).json({ success: false, message: "Email sending failed" });
   }
 };

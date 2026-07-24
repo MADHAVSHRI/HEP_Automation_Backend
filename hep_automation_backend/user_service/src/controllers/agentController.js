@@ -1,7 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 const axios = require("axios");
-const {sendEmailEvent, sendSmsEvent} = require("../utils/kafka/producer");
+const { sendEmailEvent, sendSmsEvent } = require("../utils/kafka/producer");
 const { successLogger, errorLogger } = require("../logger/logger");
 const Agent = require("../models/agentRegistrationSchema");
 const captchaService = require("../services/captchaService");
@@ -42,11 +42,11 @@ exports.registerAgent = async (req, res) => {
       "transport", "truck", "trailer", "logistics",
       "fleet", "lorry", "carrier", "haulage",
     ];
-    const isTransportUser = userTypeName && TRANSPORT_KEYWORDS.some((kw) => 
+    const isTransportUser = userTypeName && TRANSPORT_KEYWORDS.some((kw) =>
       String(userTypeName).toLowerCase().includes(kw)
     );
     const isGovtUser = userTypeName && (
-      String(userTypeName).toLowerCase().includes("govt") || 
+      String(userTypeName).toLowerCase().includes("govt") ||
       String(userTypeName).toLowerCase().includes("government")
     );
 
@@ -862,34 +862,34 @@ exports.sendForgotPasswordOtp = async (req, res) => {
     }
 
     if (
-  !(await canSendOtp(
-    user.loginId
-  ))
-) {
+      !(await canSendOtp(
+        user.loginId
+      ))
+    ) {
 
-  return res.status(429).json({
-    success: false,
-    message:
-      "Please wait 60 seconds before requesting another OTP"
-  });
+      return res.status(429).json({
+        success: false,
+        message:
+          "Please wait 60 seconds before requesting another OTP"
+      });
 
-}
+    }
 
-  if (
-  !(await canSendOtp(
-    user.loginId
-  ))
-) {
+    if (
+      !(await canSendOtp(
+        user.loginId
+      ))
+    ) {
 
-  return res.status(429).json({
-    success: false,
-    message:
-      "Please wait 60 seconds before requesting another OTP"
-  });
+      return res.status(429).json({
+        success: false,
+        message:
+          "Please wait 60 seconds before requesting another OTP"
+      });
 
-}
+    }
 
-  const otp = generateOtp();
+    const otp = generateOtp();
 
     await saveOtp(
       user.loginId,
@@ -1142,4 +1142,475 @@ exports.resetForgotPassword = async (req, res) => {
 
   }
 
+};
+
+/*
+=====================================================
+COMPANY PROFILE & LICENSE UPDATE CONTROLLERS
+=====================================================
+*/
+const AgentProfileUpdateRequest = require("../models/agentProfileUpdateRequestSchema");
+
+exports.submitProfileUpdateRequest = async (req, res) => {
+  try {
+    const agentId = req.user?.userId || req.user?.agentId || req.user?.id || req.body.agentId;
+
+    if (!agentId) {
+      return res.status(400).json({
+        success: false,
+        message: "Agent identity missing. Please re-login.",
+      });
+    }
+
+    // Check if there is already a pending request
+    const existingPending = await AgentProfileUpdateRequest.getPendingRequestByAgentId(agentId);
+    if (existingPending) {
+      return res.status(400).json({
+        success: false,
+        message: "You already have a pending profile update request under review by the Traffic Pass Section.",
+        data: existingPending,
+      });
+    }
+
+    // Current agent details
+    const currentAgent = await Agent.getAgentDetailsById(agentId);
+    if (!currentAgent) {
+      return res.status(404).json({
+        success: false,
+        message: "Agent profile not found",
+      });
+    }
+
+    const {
+      entityName,
+      authorizedPersonName,
+      mobileNo,
+      email,
+      address,
+      addressLine: rawAddressLine,
+      city,
+      state,
+      pincode,
+      licenseNumber,
+      licenseValidityDate,
+      gstinNumber,
+      panNumber,
+      tanNumber,
+      remarks,
+    } = req.body;
+
+    const addressLine = rawAddressLine || address;
+
+    const files = req.files || {};
+
+    // Helper to get relative uploaded file path
+    const getFilePath = (fieldName) => {
+      if (files[fieldName] && files[fieldName][0]) {
+        return files[fieldName][0].path.replace(/\\/g, "/");
+      }
+      return null;
+    };
+
+    const entityNameDoc = getFilePath("entityNameDoc");
+    const addressDoc = getFilePath("addressDoc");
+    const licenseDoc = getFilePath("licenseDoc");
+    const gstinDoc = getFilePath("gstinDoc");
+    const panDoc = getFilePath("panDoc");
+    const tanDoc = getFilePath("tanDoc");
+
+    // Normalization helpers
+    const normStr = (s) => (s ? String(s).trim() : "");
+    const normDate = (d) => (d ? String(d).substring(0, 10) : "");
+
+    // ── Supporting Document Validations & Change Detection ─────────────────
+    const isLicNumChanged = licenseNumber && normStr(licenseNumber) !== normStr(currentAgent.licenseNumber);
+    const isLicDateChanged = licenseValidityDate && normDate(licenseValidityDate) !== normDate(currentAgent.licenseValidityDate);
+    const isEntityNameChanged = entityName && normStr(entityName) !== normStr(currentAgent.entityName);
+    const isAuthPersonChanged = authorizedPersonName && normStr(authorizedPersonName) !== normStr(currentAgent.authorizedPersonName);
+    const isMobileChanged = mobileNo && normStr(mobileNo) !== normStr(currentAgent.mobileNo);
+    const isEmailChanged = email && normStr(email) !== normStr(currentAgent.email);
+    const isGstinChanged = gstinNumber && normStr(gstinNumber) !== normStr(currentAgent.gstinNumber);
+    const isPanChanged = panNumber && normStr(panNumber) !== normStr(currentAgent.panNumber);
+    const isTanChanged = tanNumber && normStr(tanNumber) !== normStr(currentAgent.tanNumber);
+
+    const currentAddressStr = normStr(currentAgent.addressLine || currentAgent.address);
+    const isAddressChanged =
+      (addressLine && normStr(addressLine) !== currentAddressStr) ||
+      (city && normStr(city) !== normStr(currentAgent.city)) ||
+      (state && normStr(state) !== normStr(currentAgent.state)) ||
+      (pincode && normStr(pincode) !== normStr(currentAgent.pincode));
+
+    const hasAnyChange =
+      isLicNumChanged ||
+      isLicDateChanged ||
+      isEntityNameChanged ||
+      isAuthPersonChanged ||
+      isMobileChanged ||
+      isEmailChanged ||
+      isAddressChanged ||
+      isGstinChanged ||
+      isPanChanged ||
+      isTanChanged ||
+      !!licenseDoc ||
+      !!entityNameDoc ||
+      !!addressDoc ||
+      !!gstinDoc ||
+      !!panDoc ||
+      !!tanDoc;
+
+    if (!hasAnyChange) {
+      return res.status(400).json({
+        success: false,
+        message: "No changes detected in your profile details. Please update at least one detail or upload a document before submitting.",
+      });
+    }
+
+    // 1. License changes require License Copy
+    if ((isLicNumChanged || isLicDateChanged) && !licenseDoc && !currentAgent.licenseDoc) {
+      return res.status(400).json({
+        success: false,
+        message: "Please upload your new License Copy PDF to update license details.",
+      });
+    }
+
+    // 2. Company Name change requires entityNameDoc
+    if (isEntityNameChanged && !entityNameDoc) {
+      return res.status(400).json({
+        success: false,
+        message: "Please upload Certificate of Incorporation / Official Proof to change Company Name.",
+      });
+    }
+
+    // 3. Address change requires addressDoc
+    if (isAddressChanged && !addressDoc) {
+      return res.status(400).json({
+        success: false,
+        message: "Please upload Proof of Address PDF to update company address details.",
+      });
+    }
+
+    // 4. GSTIN change requires gstinDoc
+    if (isGstinChanged && !gstinDoc) {
+      return res.status(400).json({
+        success: false,
+        message: "Please upload your GST Certificate PDF to update GSTIN Number.",
+      });
+    }
+
+    // 5. PAN change requires panDoc
+    if (isPanChanged && !panDoc) {
+      return res.status(400).json({
+        success: false,
+        message: "Please upload your PAN Card Copy PDF to update PAN Number.",
+      });
+    }
+
+    const payload = {
+      agentId,
+      userTypeName: currentAgent.userTypeName,
+      entityName: isEntityNameChanged ? entityName : null,
+      entityNameDoc: entityNameDoc || null,
+      authorizedPersonName: isAuthPersonChanged ? authorizedPersonName : null,
+      mobileNo: isMobileChanged ? mobileNo : null,
+      email: isEmailChanged ? email : null,
+      addressLine: isAddressChanged ? addressLine : null,
+      city: isAddressChanged ? city : null,
+      state: isAddressChanged ? state : null,
+      pincode: isAddressChanged ? pincode : null,
+      addressDoc: addressDoc || null,
+      licenseNumber: isLicNumChanged ? licenseNumber : null,
+      licenseValidityDate: isLicDateChanged ? normDate(licenseValidityDate) : null,
+      licenseDoc: licenseDoc || null,
+      gstinNumber: isGstinChanged ? gstinNumber : null,
+      gstinDoc: gstinDoc || null,
+      panNumber: isPanChanged ? panNumber : null,
+      panDoc: panDoc || null,
+      tanNumber: isTanChanged ? tanNumber : null,
+      tanDoc: tanDoc || null,
+      remarks: remarks || null,
+    };
+
+    const newRequest = await AgentProfileUpdateRequest.createRequest(payload);
+
+    // Trigger Kafka email event for submission confirmation
+    setImmediate(() => {
+      sendEmailEvent({
+        type: "PROFILE_UPDATE_SUBMITTED",
+        email: currentAgent.email,
+        name: currentAgent.entityName,
+        referenceNumber: newRequest.referenceNumber,
+      }).catch((err) => {
+        console.error("Kafka Email Event Failed (PROFILE_UPDATE_SUBMITTED):", err.message);
+      });
+    });
+
+    return res.status(201).json({
+      success: true,
+      message: "Profile & License update request submitted successfully. Sent to Traffic Pass Section for verification.",
+      data: newRequest,
+    });
+  } catch (error) {
+    console.error("Profile update request error:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Failed to submit profile update request",
+    });
+  }
+};
+
+exports.getProfileUpdateRequestStatus = async (req, res) => {
+  try {
+    const agentId = req.user?.userId || req.user?.agentId || req.user?.id || req.query.agentId;
+    if (!agentId) {
+      return res.status(400).json({
+        success: false,
+        message: "Agent ID required",
+      });
+    }
+
+    const pending = await AgentProfileUpdateRequest.getPendingRequestByAgentId(agentId);
+    const latest = await AgentProfileUpdateRequest.getLatestRequestByAgentId(agentId);
+
+    const list = latest ? [latest] : [];
+
+    return res.status(200).json({
+      success: true,
+      data: list,
+      pending,
+      latest,
+    });
+  } catch (error) {
+    console.error("Fetch profile update status error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch profile update status",
+    });
+  }
+};
+
+exports.getProfileUpdateRequests = async (req, res) => {
+  try {
+    const { isApproved, search, status, processedByMe, userId, page, limit } = req.query;
+
+    const { getPagination, buildPaginatedResponse } = require("../utils/pagination");
+    const pag = getPagination(req.query);
+
+    const paginationParams = {
+      ...pag,
+      isApproved,
+      status,
+      search: search || undefined,
+      processedByMe: processedByMe === "true" || processedByMe === true,
+      userId: userId || req.user?.userId || null,
+    };
+
+    const result = await AgentProfileUpdateRequest.getAllRequests(paginationParams);
+
+    let totalRecordsForTab = result.counts.total;
+    if (status === "pending") {
+      totalRecordsForTab = result.counts.pending;
+    } else if (status === "processed") {
+      totalRecordsForTab = result.counts.total - result.counts.pending;
+    } else if (status === "approved" || status === "rejected" || status === "reverted") {
+      totalRecordsForTab = result.counts[status] || 0;
+    }
+
+    return res.status(200).json(
+      buildPaginatedResponse(
+        result.data,
+        result.counts,
+        totalRecordsForTab,
+        pag.page,
+        pag.limit
+      )
+    );
+  } catch (error) {
+    console.error("Fetch profile update requests error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch profile update requests",
+    });
+  }
+};
+
+exports.getProfileUpdateRequestById = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const requestData = await AgentProfileUpdateRequest.getRequestById(id);
+
+    if (!requestData) {
+      return res.status(404).json({
+        success: false,
+        message: "Profile update request not found",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: requestData,
+    });
+  } catch (error) {
+    console.error("Fetch profile update request by ID error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch request details",
+    });
+  }
+};
+
+exports.actionProfileUpdateRequest = async (req, res) => {
+  try {
+    const requestId = req.body.requestId || req.params.id;
+    const decision = req.body.decision || req.body.action;
+    const rejectedReason = req.body.rejectedReason || req.body.remarks;
+    const processedBy = req.user?.userName || req.user?.username || "Traffic Approver";
+
+    if (!requestId || !decision) {
+      return res.status(400).json({
+        success: false,
+        message: "requestId and decision are required",
+      });
+    }
+
+    if ((decision === "rejected" || decision === "reverted") && !rejectedReason) {
+      return res.status(400).json({
+        success: false,
+        message: `Remarks / Reason required when ${decision} a request`,
+      });
+    }
+
+    const updatedRequest = await AgentProfileUpdateRequest.processAction(
+      requestId,
+      decision,
+      rejectedReason,
+      processedBy
+    );
+
+    // Get current agent details for email
+    const agent = await Agent.getAgentDetailsById(updatedRequest.agentId);
+
+    // Trigger Kafka email event
+    const d = String(decision).toLowerCase();
+    const eventType =
+      d === "approve" || d === "approved"
+        ? "PROFILE_UPDATE_APPROVED"
+        : d === "revert" || d === "reverted"
+          ? "PROFILE_UPDATE_REVERTED"
+          : "PROFILE_UPDATE_REJECTED";
+
+    setImmediate(() => {
+      sendEmailEvent({
+        type: eventType,
+        email: agent ? agent.email : updatedRequest.email,
+        name: agent ? agent.entityName : updatedRequest.entityName,
+        referenceNumber: updatedRequest.referenceNumber,
+        rejectedReason: rejectedReason || null,
+      }).catch((err) => {
+        console.error("Kafka email event failed for profile update action:", err.message);
+      });
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: `Profile update request ${decision} successfully`,
+      data: updatedRequest,
+    });
+  } catch (error) {
+    console.error("Action profile update request error:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Failed to process request action",
+    });
+  }
+};
+
+exports.viewProfileUpdateDocument = async (req, res) => {
+  try {
+    const { filePath, requestId, documentType } = req.query;
+
+    let targetFilePath = filePath;
+
+    if (!targetFilePath) {
+      if (!requestId || !documentType) {
+        return res.status(400).json({
+          success: false,
+          message: "filePath OR (requestId and documentType) required",
+        });
+      }
+
+      const requestData = await AgentProfileUpdateRequest.getRequestById(requestId);
+      if (!requestData) {
+        return res.status(404).json({
+          success: false,
+          message: "Profile update request not found",
+        });
+      }
+
+      const docMap = {
+        licenseDoc: requestData.licenseDoc || requestData.currentLicenseDoc,
+        entityNameDoc: requestData.entityNameDoc,
+        addressDoc: requestData.addressDoc,
+        gstinDoc: requestData.gstinDoc || requestData.currentGstinDoc,
+        panDoc: requestData.panDoc || requestData.currentPanDoc,
+        tanDoc: requestData.tanDoc || requestData.currentTanDoc,
+      };
+
+      targetFilePath = docMap[documentType];
+    }
+
+    if (!targetFilePath) {
+      return res.status(404).json({
+        success: false,
+        message: "File path not found for this document",
+      });
+    }
+
+    const safePath = path.normalize(targetFilePath).replace(/^(\.\.[\/\\])+/, "");
+    const absolutePath = path.isAbsolute(safePath) ? safePath : path.join(process.cwd(), safePath);
+
+    if (!fs.existsSync(absolutePath)) {
+      return res.status(404).json({
+        success: false,
+        message: "File missing on server",
+      });
+    }
+
+    let contentType = "application/octet-stream";
+    try {
+      const fd = fs.openSync(absolutePath, "r");
+      const buffer = Buffer.alloc(4);
+      fs.readSync(fd, buffer, 0, 4, 0);
+      fs.closeSync(fd);
+
+      if (buffer[0] === 0x25 && buffer[1] === 0x50 && buffer[2] === 0x44 && buffer[3] === 0x46) {
+        contentType = "application/pdf";
+      } else if (buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4e && buffer[3] === 0x47) {
+        contentType = "image/png";
+      } else if (buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) {
+        contentType = "image/jpeg";
+      } else {
+        const ext = path.extname(absolutePath).toLowerCase();
+        if (ext === ".pdf") contentType = "application/pdf";
+        else if (ext === ".jpg" || ext === ".jpeg") contentType = "image/jpeg";
+        else if (ext === ".png") contentType = "image/png";
+      }
+    } catch {
+      const ext = path.extname(absolutePath).toLowerCase();
+      if (ext === ".pdf") contentType = "application/pdf";
+      else if (ext === ".jpg" || ext === ".jpeg") contentType = "image/jpeg";
+      else if (ext === ".png") contentType = "image/png";
+    }
+
+    res.setHeader("Content-Type", contentType);
+    res.setHeader("Content-Disposition", "inline");
+
+    const fileStream = fs.createReadStream(absolutePath);
+    fileStream.pipe(res);
+  } catch (error) {
+    console.error("View profile update document error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to load document",
+    });
+  }
 };
