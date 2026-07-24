@@ -73,6 +73,47 @@ exports.validateQr = async (
   }
 };
 
+exports.generateMaterialPassQr = async (req, res) => {
+  try {
+    const { passRequestId } = req.params;
+    const { type, passId } = req.query;
+
+    if (!passRequestId) {
+      return res.status(400).json({
+        success: false,
+        message: "passRequestId required",
+      });
+    }
+
+    const token = req.headers.authorization;
+
+    const pdfBuffer =
+      await passQrService.generateMaterialPass(
+        passRequestId,
+        token,
+        type,
+        passId
+      );
+
+    res.setHeader("Content-Type", "application/pdf");
+
+    return res.send(pdfBuffer);
+  } catch (error) {
+
+    if (error.message === "Approved material pass not found") {
+      return res.status(404).json({
+        success:false,
+        message:error.message,
+      });
+    }
+
+    return res.status(500).json({
+      success:false,
+      message:error.message,
+    });
+  }
+};
+
 
 // const passQrService = require("../services/passQrService");
 

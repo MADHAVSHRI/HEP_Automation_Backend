@@ -10,6 +10,7 @@ const {
   getPdfPath,
   ensureDirectory,
   fileExists,
+  getMaterialPdfPath,
 } = require("../utils/pdfStorage");
 const { encryptToken } = require("../utils/cryptoUtils");
 const LOGO_PATH       = path.join(__dirname, "../assets/PortTrustLogo.jpeg");
@@ -71,6 +72,45 @@ exports.generatePass = async (
 );
 
 return pdfBuffer;
+};
+
+exports.generateMaterialPass = async (
+    passRequestId,
+    token,
+    type,
+    passId
+) => {
+
+    const response = await axios.get(
+        `${USER_SERVICE}/api/material-pass/qr-data/${passRequestId}`,
+        {
+            params:{
+                type,
+                passId,
+            },
+            headers:{
+                Authorization:token,
+                "x-service-name":"QR Service",
+            },
+        }
+    );
+
+    const data = response.data;
+
+    if(!data.pass){
+        throw new Error("Approved material pass not found");
+    }
+
+    if (!data.pass.qrUuid) {
+        throw new Error("Approved material pass is missing a QR identifier");
+    }
+
+    return await handleMaterialPdfStorage(
+        data,
+        token,
+        type,
+        passId
+    );
 };
 
 // exports.generatePass = async (passRequestId, token) => {
@@ -251,6 +291,61 @@ async function handlePdfStorage(
 );
 
   return pdfBuffer;
+}
+
+async function handleMaterialPdfStorage(
+    data,
+    token,
+    type,
+    passId
+){
+
+    const pass = data.pass;
+
+    if(!pass){
+        throw new Error("Approved material pass not found");
+    }
+
+    const {
+        folderPath,
+        filePath,
+    } = getMaterialPdfPath({
+        passReferenceNo:data.referenceNo,
+        type,
+        passNo:pass.materialPassNo,
+    });
+
+    const exists = await fileExists(filePath);
+
+    if(exists){
+        return fs.promises.readFile(filePath);
+    }
+
+    await ensureDirectory(folderPath);
+
+    const pdfBuffer =
+        await generateMaterialPdf(data);
+
+    await fs.promises.writeFile(
+        filePath,
+        pdfBuffer
+    );
+
+    await axios.post(
+        `${USER_SERVICE}/api/material-pass/save-qr-pdf-path`,
+        {
+            passId,
+            qrPdfPath:filePath,
+        },
+        {
+           headers:{
+                Authorization:token,
+                "x-service-name":"QR Service",
+            },
+        }
+    );
+
+    return pdfBuffer;
 }
 
 async function generatePDF(data) {
@@ -434,6 +529,189 @@ async function generatePDF(data) {
     doc.on("end", () => resolve(Buffer.concat(buffers)));
   });
 }
+
+async function generateMaterialPdf(data) {
+  const PAGE_W = 595;
+  const PAGE_H = 842; // A4 — table length is unpredictable, so no fixed short card height
+  const HEADER_H = 62;
+  const MARGIN = 30;
+  const ROW_H = 20;
+  const BOTTOM_MARGIN = 40;
+
+  const pass = data.pass;
+
+  if (!pass) {
+    throw new Error("Approved material pass not found");
+  }
+
+  // The qr-data endpoint should echo back which pass type this is for —
+  // adjust this fallback chain to whatever field it actually returns.
+  const passType = data.type || pass.type || "returnable";
+  const passTypeLabel =
+    passType === "returnable"
+      ? "RETURNABLE MATERIAL PASS"
+      : "NON-RETURNABLE MATERIAL PASS";
+
+  const materials = pass.materials || [];
+
+  const doc = new PDFDocument({
+    size: [PAGE_W, PAGE_H],
+    margins: { top: 0, bottom: 0, left: 0, right: 0 },
+  });
+
+  doc.registerFont("Noto", FONT_REGULAR);
+
+  const buffers = [];
+  doc.on("data", buffers.push.bind(buffers));
+
+  // ── Header (repeated on every page, incl. table-overflow pages) ──
+  const drawHeader = () => {
+    doc.rect(0, 0, PAGE_W, HEADER_H).fill("#E87722");
+
+    const LOGO_SIZE = 48, LOGO_X = 10;
+    const LOGO_Y = (HEADER_H - LOGO_SIZE) / 2;
+    doc.save();
+    doc.circle(LOGO_X + LOGO_SIZE / 2, LOGO_Y + LOGO_SIZE / 2, LOGO_SIZE / 2).clip();
+    doc.image(LOGO_PATH, LOGO_X, LOGO_Y, { width: LOGO_SIZE, height: LOGO_SIZE });
+    doc.restore();
+
+    const TX = LOGO_X + LOGO_SIZE + 6;
+    const TW = PAGE_W - TX - 10;
+    doc.fillColor("white").font("Noto").fontSize(9)
+      .text("चेन्नई पत्तन न्यास", TX, 10, { width: TW, align: "center" });
+    doc.fillColor("white").font("Helvetica-Bold").fontSize(14)
+      .text("CHENNAI PORT AUTHORITY", TX, 24, { width: TW, align: "center" });
+    doc.fillColor("white").font("Helvetica").fontSize(9)
+      .text(passTypeLabel, TX, 44, { width: TW, align: "center" });
+  };
+
+  // ── Secure QR — same token pattern as person/vehicle passes ──
+  const secureQrToken = generateSecureQrToken({
+    entityId: pass.id,
+    passRequestId: data.passRequestId || pass.passRequestId,
+    qrUuid: pass.qrUuid,
+    type: passType,
+  });
+  const qr = await generateQR(secureQrToken);
+
+  drawHeader();
+
+  const LEFT_X = MARGIN;
+  const QR_W = 85;
+  const QR_X = PAGE_W - QR_W - MARGIN;
+  const INFO_W = QR_X - LEFT_X - 20;
+
+  let y = HEADER_H + 16;
+
+  // ── Basic info block ──
+  doc.fillColor("black").font("Helvetica-Bold").fontSize(16)
+    .text(`Pass No: ${pass.materialPassNo || "-"}`, LEFT_X, y, { width: INFO_W });
+  y += 22;
+
+  const field = (label, value) => {
+    doc.font("Helvetica-Bold").fontSize(8).fillColor("#555555")
+      .text(label, LEFT_X, y, { continued: true, width: INFO_W });
+    doc.font("Helvetica").fillColor("black").fontSize(9)
+      .text(` ${value ?? "-"}`);
+    y += 14;
+  };
+
+  field("REFERENCE NO.:", data.referenceNo);
+  field("COMPANY:", data.companyName || pass.companyName);
+  field("MOVEMENT:", pass.movement);
+  field("DEPARTMENT:", data.concernedDepartment || pass.concernedDepartment);
+  field(
+    "LOCATION:",
+    data.locationOther || data.locationFrom || data.locationTo
+  );
+  field("VALID FROM:", pass.validFrom || data.entryDate);
+  field("VALID TO:", pass.validTo || data.expiryDate);
+  field("TOTAL ITEMS:", String(materials.length));
+
+  // ── QR block (right side, aligned with info block) ──
+  const QR_Y = HEADER_H + 16;
+  doc.image(qr, QR_X, QR_Y, { fit: [QR_W, QR_W] });
+  doc.fillColor("black").font("Helvetica").fontSize(7)
+    .text("AUTHORIZED BY", QR_X - 4, QR_Y + QR_W + 5, { width: QR_W + 8, align: "center" })
+    .text("TRAFFIC MANAGER", QR_X - 4, QR_Y + QR_W + 15, { width: QR_W + 8, align: "center" });
+
+  y = Math.max(y, QR_Y + QR_W + 30) + 10;
+
+  // ── Materials table (paginates if it overflows the page) ──
+  const TABLE_W = PAGE_W - 2 * MARGIN;
+  const COL = {
+    sno: LEFT_X + 4,
+    item: LEFT_X + 44,
+    qty: LEFT_X + 320,
+    unit: LEFT_X + 410,
+  };
+
+  const drawTableHeader = (yPos) => {
+    doc.rect(LEFT_X, yPos, TABLE_W, 22).fill("#0a1e4d");
+    doc.fillColor("white").font("Helvetica-Bold").fontSize(9);
+    doc.text("S.NO.", COL.sno, yPos + 6);
+    doc.text("ITEM", COL.item, yPos + 6);
+    doc.text("QUANTITY", COL.qty, yPos + 6);
+    doc.text("UNIT", COL.unit, yPos + 6);
+    return yPos + 22;
+  };
+
+  y = drawTableHeader(y);
+
+  if (materials.length === 0) {
+    doc.rect(LEFT_X, y, TABLE_W, ROW_H).fill("#ffffff");
+    doc.fillColor("#999999").font("Helvetica-Oblique").fontSize(8.5)
+      .text("No materials listed.", LEFT_X + 4, y + 5, { width: TABLE_W - 8, align: "center" });
+    y += ROW_H;
+  } else {
+    materials.forEach((m, idx) => {
+      if (y + ROW_H > PAGE_H - BOTTOM_MARGIN) {
+        doc.addPage();
+        drawHeader();
+        y = HEADER_H + 16;
+        y = drawTableHeader(y);
+      }
+
+      const rowColor = idx % 2 === 0 ? "#f8fafc" : "#ffffff";
+      doc.rect(LEFT_X, y, TABLE_W, ROW_H).fill(rowColor);
+      doc.fillColor("black").font("Helvetica").fontSize(8.5);
+      doc.text(String(idx + 1), COL.sno, y + 5);
+      doc.text(m.name || "-", COL.item, y + 5, { width: 270 });
+      doc.text(String(m.quantity ?? "-"), COL.qty, y + 5);
+      doc.text(m.unit || "-", COL.unit, y + 5);
+      y += ROW_H;
+    });
+  }
+
+  // ── Total row ──
+  if (y + ROW_H > PAGE_H - BOTTOM_MARGIN) {
+    doc.addPage();
+    drawHeader();
+    y = HEADER_H + 16;
+  }
+  doc.rect(LEFT_X, y, TABLE_W, ROW_H).fill("#eef2f7");
+  doc.fillColor("black").font("Helvetica-Bold").fontSize(9)
+    .text(`TOTAL ITEMS: ${materials.length}`, LEFT_X + 4, y + 5);
+  y += ROW_H;
+
+  // ── Footer note on the last page ──
+  doc.moveTo(MARGIN, PAGE_H - 30).lineTo(PAGE_W - MARGIN, PAGE_H - 30)
+    .strokeColor("#dddddd").lineWidth(0.5).stroke();
+  doc.fillColor("#888888").font("Helvetica").fontSize(7)
+    .text(
+      "This is a system generated material movement pass. Present this QR at the gate for verification.",
+      MARGIN,
+      PAGE_H - 24,
+      { width: PAGE_W - 2 * MARGIN, align: "center" }
+    );
+
+  doc.end();
+
+  return new Promise((resolve) => {
+    doc.on("end", () => resolve(Buffer.concat(buffers)));
+  });
+}
+
 
 // exports.validateQr = async (
 //   qrToken

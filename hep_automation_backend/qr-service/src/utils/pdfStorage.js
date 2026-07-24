@@ -3,6 +3,12 @@ const path = require("path");
 
 const BASE_DIR = path.join(process.cwd(), "uploads", "qr-passes");
 
+const MATERIAL_BASE_DIR = path.join(
+    process.cwd(),
+    "uploads",
+    "material-passes"
+);
+
 function getPdfPath({
   passReferenceNo,
   type,
@@ -30,6 +36,34 @@ function getPdfPath({
   };
 }
 
+function getMaterialPdfPath({
+    passReferenceNo,
+    type,
+    passNo,
+}){
+
+    const folderName =
+        type === "returnable"
+            ? "returnable"
+            : "non-returnable";
+
+    const folderPath = path.join(
+        MATERIAL_BASE_DIR,
+        passReferenceNo,
+        folderName
+    );
+
+    const filePath = path.join(
+        folderPath,
+        `${passNo}.pdf`
+    );
+
+    return {
+        folderPath,
+        filePath,
+    };
+}
+
 async function ensureDirectory(folderPath) {
   await fs.promises.mkdir(folderPath, {
     recursive: true,
@@ -49,4 +83,5 @@ module.exports = {
   getPdfPath,
   ensureDirectory,
   fileExists,
+  getMaterialPdfPath,
 };

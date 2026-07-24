@@ -10,6 +10,12 @@ router.get(
   passQrController.generatePassQR
 );
 
+router.get(
+  "/generate-material-pass/:passRequestId",
+  verifyToken,
+  passQrController.generateMaterialPassQr
+);
+
 router.post(
   "/validate",
   passQrController.validateQr

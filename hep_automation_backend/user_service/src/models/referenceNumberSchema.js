@@ -202,7 +202,177 @@ const ReferenceNumber = {
     const year = String(d.getFullYear()).slice(-2);
 
     return `PUR${day}${month}${year}${padded}`;
-  }
+  },
+
+  /*
+  ==========================================
+  Generate Material Pass Reference Number
+  ==========================================
+  */
+
+  async generateMaterialPassReference(client) {
+
+      const today = new Date().toISOString().slice(0, 10);
+
+      const query = `
+          INSERT INTO daily_pass_counters(date,"materialPassRequestCounter")
+          VALUES($1,1)
+          ON CONFLICT(date)
+          DO UPDATE SET "materialPassRequestCounter" =
+          daily_pass_counters."materialPassRequestCounter" + 1
+          RETURNING "materialPassRequestCounter"
+      `;
+
+      const result = await client.query(query, [today]);
+
+      const count = result.rows[0].materialPassRequestCounter;
+
+      const padded = String(count).padStart(4, "0");
+
+      const d = new Date(today);
+
+      const day = String(d.getDate()).padStart(2, "0");
+      const month = String(d.getMonth() + 1).padStart(2, "0");
+      const year = String(d.getFullYear()).slice(-2);
+
+      return `MAT${day}${month}${year}${padded}`;
+  },
+
+  /*
+  ==========================================
+  Generate Returnable Pass Number
+  ==========================================
+  */
+
+  async generateReturnablePassNo(client) {
+
+      const today = new Date().toISOString().slice(0, 10);
+
+      const query = `
+          INSERT INTO daily_pass_counters(date,"returnableCounter")
+          VALUES($1,1)
+          ON CONFLICT(date)
+          DO UPDATE SET "returnableCounter" =
+          daily_pass_counters."returnableCounter" + 1
+          RETURNING "returnableCounter"
+      `;
+
+      const result = await client.query(query, [today]);
+
+      const count = result.rows[0].returnableCounter;
+
+      const padded = String(count).padStart(4, "0");
+
+      const d = new Date(today);
+
+      const day = String(d.getDate()).padStart(2, "0");
+      const month = String(d.getMonth() + 1).padStart(2, "0");
+      const year = String(d.getFullYear()).slice(-2);
+
+      return `RET${day}${month}${year}${padded}`;
+  },
+
+  /*
+  ==========================================
+  Generate Non-Returnable Pass Number
+  ==========================================
+  */
+
+  async generateNonReturnablePassNo(client) {
+
+      const today = new Date().toISOString().slice(0, 10);
+
+      const query = `
+          INSERT INTO daily_pass_counters(date,"nonReturnableCounter")
+          VALUES($1,1)
+          ON CONFLICT(date)
+          DO UPDATE SET "nonReturnableCounter" =
+          daily_pass_counters."nonReturnableCounter" + 1
+          RETURNING "nonReturnableCounter"
+      `;
+
+      const result = await client.query(query, [today]);
+
+      const count = result.rows[0].nonReturnableCounter;
+
+      const padded = String(count).padStart(4, "0");
+
+      const d = new Date(today);
+
+      const day = String(d.getDate()).padStart(2, "0");
+      const month = String(d.getMonth() + 1).padStart(2, "0");
+      const year = String(d.getFullYear()).slice(-2);
+
+      return `NRT${day}${month}${year}${padded}`;
+  },
+
+  /*
+  ==========================================
+  Generate Surplus Pass Number
+  ==========================================
+  */
+
+  async generateSurplusPassNo(client) {
+
+      const today = new Date().toISOString().slice(0, 10);
+
+      const query = `
+          INSERT INTO daily_pass_counters(date,"surplusCounter")
+          VALUES($1,1)
+          ON CONFLICT(date)
+          DO UPDATE SET "surplusCounter" =
+          daily_pass_counters."surplusCounter" + 1
+          RETURNING "surplusCounter"
+      `;
+
+      const result = await client.query(query, [today]);
+
+      const count = result.rows[0].surplusCounter;
+
+      const padded = String(count).padStart(4, "0");
+
+      const d = new Date(today);
+
+      const day = String(d.getDate()).padStart(2, "0");
+      const month = String(d.getMonth() + 1).padStart(2, "0");
+      const year = String(d.getFullYear()).slice(-2);
+
+      return `SUR${day}${month}${year}${padded}`;
+  },
+
+  /*
+  ==========================================
+  Generate Debris Pass Number
+  ==========================================
+  */
+
+  async generateDebrisPassNo(client) {
+
+      const today = new Date().toISOString().slice(0, 10);
+
+      const query = `
+          INSERT INTO daily_pass_counters(date,"debrisCounter")
+          VALUES($1,1)
+          ON CONFLICT(date)
+          DO UPDATE SET "debrisCounter" =
+          daily_pass_counters."debrisCounter" + 1
+          RETURNING "debrisCounter"
+      `;
+
+      const result = await client.query(query, [today]);
+
+      const count = result.rows[0].debrisCounter;
+
+      const padded = String(count).padStart(4, "0");
+
+      const d = new Date(today);
+
+      const day = String(d.getDate()).padStart(2, "0");
+      const month = String(d.getMonth() + 1).padStart(2, "0");
+      const year = String(d.getFullYear()).slice(-2);
+
+      return `DEB${day}${month}${year}${padded}`;
+  },
 
 };
 
