@@ -36,6 +36,10 @@ router.get("/list", blacklistController.getBlacklistEntries);
 router.get("/my-blacklist", blacklistController.getMyBlacklistEntries);
 router.get("/stats", blacklistController.getBlacklistStats);
 router.get("/check", blacklistController.checkBlacklisted);
+router.get("/reports", blacklistController.getReports);
+router.get("/penalty-config", blacklistController.getPenaltyConfig);
+router.put("/penalty-config/:reasonCode", blacklistController.updatePenaltyConfig);
+router.post("/share-penalty-link", blacklistController.sharePenaltyLink);
 router.get("/:id", blacklistController.getBlacklistById);
 
 // Workflow transitions

@@ -32,4 +32,7 @@ router.post("/sendProfileUpdateReverted", emailController.sendProfileUpdateRever
 router.post("/sendProfileUpdateRejected", emailController.sendProfileUpdateRejected);
 router.post("/sendLicenseExpiryWarning", emailController.sendLicenseExpiryWarning);
 
+// ── Overstay Charges Email Route ──────────────────────────────────────────────
+router.post("/sendOverstayReminder", emailController.sendOverstayReminder);
+
 module.exports = router;

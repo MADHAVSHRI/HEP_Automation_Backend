@@ -499,6 +499,119 @@ const Blacklist = {
     const result = await pool.query(query, [vehicleNo.toUpperCase().trim()]);
     return result.rows[0] || null;
   },
+
+  /**
+   * Initialise the blacklist_penalty_config table (idempotent — safe to call on startup).
+   */
+  async initPenaltyConfigTable() {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS blacklist_penalty_config (
+        reason_code   VARCHAR(3)     PRIMARY KEY,
+        reason_label  TEXT           NOT NULL,
+        default_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
+        is_mandatory  BOOLEAN        DEFAULT false,
+        min_amount    NUMERIC(12,2)  DEFAULT 0,
+        updated_by    INT,
+        "updatedAt"   TIMESTAMPTZ    DEFAULT NOW()
+      )
+    `);
+    await pool.query(`
+      INSERT INTO blacklist_penalty_config
+        (reason_code, reason_label, default_amount, is_mandatory, min_amount)
+      VALUES
+        ('001', 'Unauthorized Parking',                   500.00, false,    0),
+        ('002', 'Tampering of Documents',                1000.00, false,    0),
+        ('003', 'Misbehaviour with Port Officials',       750.00, false,    0),
+        ('004', 'Criminal Offense Inside Port',          2000.00, false,    0),
+        ('005', 'Unauthorized Entry Without Passes',     1025.00, true,  1025),
+        ('006', 'Traffic Violation',                      500.00, false,    0),
+        ('007', 'Others',                                   0.00, false,    0)
+      ON CONFLICT (reason_code) DO NOTHING
+    `);
+  },
+
+  /**
+   * Get all penalty config rows.
+   */
+  async getPenaltyConfig() {
+    const result = await pool.query(
+      `SELECT * FROM blacklist_penalty_config ORDER BY reason_code`
+    );
+    return result.rows;
+  },
+
+  /**
+   * Update (upsert) a single reason-code penalty config.
+   */
+  async upsertPenaltyConfig(reasonCode, defaultAmount, isMandatory, minAmount, updatedBy) {
+    const labels = {
+      '001': 'Unauthorized Parking',
+      '002': 'Tampering of Documents',
+      '003': 'Misbehaviour with Port Officials',
+      '004': 'Criminal Offense Inside Port',
+      '005': 'Unauthorized Entry Without Passes',
+      '006': 'Traffic Violation',
+      '007': 'Others',
+    };
+    const label = labels[reasonCode] || 'Others';
+    const safeBy = parseInt(updatedBy, 10) || null;
+
+    const result = await pool.query(
+      `INSERT INTO blacklist_penalty_config
+         (reason_code, reason_label, default_amount, is_mandatory, min_amount, updated_by, "updatedAt")
+       VALUES ($1, $2, $3, $4, $5, $6, NOW())
+       ON CONFLICT (reason_code) DO UPDATE
+         SET default_amount = EXCLUDED.default_amount,
+             is_mandatory   = EXCLUDED.is_mandatory,
+             min_amount     = EXCLUDED.min_amount,
+             updated_by     = EXCLUDED.updated_by,
+             "updatedAt"    = NOW()
+       RETURNING *`,
+      [reasonCode, label, defaultAmount, isMandatory || false, minAmount || 0, safeBy]
+    );
+
+    return result.rows[0];
+  },
+
+  /**
+   * Get a filtered report for export.
+   */
+  async getReports({ from_date, to_date, entity_type, status, page = 1, limit = 200 } = {}) {
+    const conditions = [];
+    const params = [];
+    let paramIndex = 1;
+    if (from_date) { conditions.push(`b.blacklisted_at >= $${paramIndex++}`); params.push(from_date); }
+    if (to_date) { conditions.push(`b.blacklisted_at <= $${paramIndex++}`); params.push(to_date); }
+    if (entity_type) { conditions.push(`b.entity_type = $${paramIndex++}`); params.push(entity_type.toUpperCase()); }
+    if (status) { conditions.push(`b.status = $${paramIndex++}`); params.push(status); }
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    const offset = (page - 1) * limit;
+    const countResult = await pool.query(`SELECT COUNT(*) FROM blacklist_entries b ${whereClause}`, params);
+    const total = parseInt(countResult.rows[0].count, 10);
+    const dataQuery = `
+      SELECT
+        b.id, b.entity_type, b.identifier, b.entity_name,
+        b.reason_code, b.reason, b.authorizing_officer,
+        b.status, b.has_penalty, b.penalty_amount, b.penalty_status,
+        b.payment_method, b.transaction_id,
+        b.geotag_latitude, b.geotag_longitude,
+        b.supporting_document_path,
+        b.blacklisted_at, b.unblacklisted_at,
+        b.permit_one_gate_out, b.gate_out_used,
+        b.compliance_notes, b.reinstatement_justification,
+        u1."userName" AS blacklisted_by_name,
+        u2."userName" AS unblacklisted_by_name
+      FROM blacklist_entries b
+      LEFT JOIN "users" u1 ON b.blacklisted_by = u1.id
+      LEFT JOIN "users" u2 ON b.unblacklisted_by = u2.id
+      ${whereClause}
+      ORDER BY b.blacklisted_at DESC
+      LIMIT $${paramIndex++} OFFSET $${paramIndex}
+    `;
+    params.push(limit, offset);
+    const dataResult = await pool.query(dataQuery, params);
+    return { data: dataResult.rows, total, page, limit, totalPages: Math.ceil(total / limit) };
+  },
 };
 
 module.exports = Blacklist;

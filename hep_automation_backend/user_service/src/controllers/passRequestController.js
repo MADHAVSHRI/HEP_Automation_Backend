@@ -336,6 +336,57 @@ const createPassRequest = async (req, res) => {
       }
     }
 
+    // 0. Check Overstay Charges — block pass if agent has any PENDING or EXCEPTION_REJECTED charges
+    if (payload.agentId) {
+      const overstayBlock = await pool.query(
+        `SELECT id, identifier, total_amount, status
+         FROM overstay_charges
+         WHERE agent_id = $1 AND status IN ('PENDING','EXCEPTION_REJECTED')
+         LIMIT 5`,
+        [payload.agentId]
+      );
+      if (overstayBlock.rows.length > 0) {
+        return res.status(403).json({
+          success: false,
+          message: "You have unpaid overstay charges. Please clear them before applying for a new pass.",
+          overstay_charges: overstayBlock.rows,
+        });
+      }
+    }
+
+    // Auto-backdate persons/vehicles that cleared overstay charges (§5.6.7)
+    if (payload.agentId) {
+      const cleared = await pool.query(
+        `SELECT identifier, entity_type, date_to FROM overstay_charges
+         WHERE agent_id = $1 AND status IN ('PAID','EXCEPTION_APPROVED','WAIVED')
+         ORDER BY date_to DESC`,
+        [payload.agentId]
+      );
+      if (cleared.rows.length > 0) {
+        const today = new Date().toISOString().slice(0, 10);
+        const clearedMap = {};
+        for (const row of cleared.rows) {
+          const key = row.identifier.toUpperCase().replace(/[\s-]/g, '');
+          if (!clearedMap[key]) {
+            const dt = row.date_to;
+            clearedMap[key] = dt instanceof Date ? dt.toISOString().slice(0, 10) : String(dt).slice(0, 10);
+          }
+        }
+        if (payload.persons) {
+          for (const p of payload.persons) {
+            const key = (p.aadharNo || '').toUpperCase().replace(/[\s-]/g, '');
+            if (clearedMap[key]) { p.dateFrom = clearedMap[key]; p.dateTo = today; }
+          }
+        }
+        if (payload.vehicles) {
+          for (const v of payload.vehicles) {
+            const key = (v.registrationNo || '').toUpperCase().replace(/[\s-]/g, '');
+            if (clearedMap[key]) { v.dateFrom = clearedMap[key]; v.dateTo = today; }
+          }
+        }
+      }
+    }
+
     // 1. Check Company blacklisting
     if (payload.agentId) {
       const agentRes = await pool.query('SELECT id, "loginId" FROM "Agents" WHERE id = $1', [payload.agentId]);

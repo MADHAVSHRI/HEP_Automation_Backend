@@ -162,7 +162,7 @@ const startConsumer = async () => {
               status: data.status
             };
 
-          }else if (data.type === "DEPT_USER_DISABLED") {
+          } else if (data.type === "DEPT_USER_DISABLED") {
 
             payload = {
               email: data.email,
@@ -170,20 +170,25 @@ const startConsumer = async () => {
               status: data.status
             };
 
-            } else if (data.type === "PROFILE_UPDATE_SUBMITTED" || data.type === "PROFILE_UPDATE_APPROVED") {
+          } else if (data.type === "PROFILE_UPDATE_SUBMITTED" || data.type === "PROFILE_UPDATE_APPROVED") {
+
             payload = {
               email: data.email,
               name: data.name,
               referenceNumber: data.referenceNumber,
             };
+
           } else if (data.type === "PROFILE_UPDATE_REVERTED" || data.type === "PROFILE_UPDATE_REJECTED") {
+
             payload = {
               email: data.email,
               name: data.name,
               referenceNumber: data.referenceNumber,
               rejectedReason: data.rejectedReason || data.reason,
             };
+
           } else if (data.type === "LICENSE_EXPIRY_WARNING") {
+
             payload = {
               email: data.email,
               name: data.name,
@@ -191,6 +196,21 @@ const startConsumer = async () => {
               licenseValidityDate: data.licenseValidityDate,
               daysRemaining: data.daysRemaining,
             };
+
+          } else if (data.type === "OVERSTAY_REMINDER") {
+
+            payload = {
+              email: data.email,
+              company_name: data.company_name,
+              identifier: data.identifier,
+              entity_type: data.entity_type,
+              pass_no: data.pass_no,
+              date_to: data.date_to,
+              overstay_days: data.overstay_days,
+              total_amount: data.total_amount,
+              charge_id: data.charge_id
+            };
+
           } else {
             // Registration email (existing logic)
             payload = {
@@ -266,6 +286,10 @@ const startConsumer = async () => {
     }else if (data.type === "LICENSE_EXPIRY_WARNING") {
 
         emailApi = "/api/email/sendLicenseExpiryWarning";
+
+    }else if (data.type === "OVERSTAY_REMINDER") {
+
+        emailApi = "/api/email/sendOverstayReminder";
 
     }else {
 

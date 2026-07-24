@@ -23,6 +23,18 @@ const profileUpdateApprovedTemplate = require("../emailTemplates/profileUpdateAp
 const profileUpdateRevertedTemplate = require("../emailTemplates/profileUpdateRevertedTemplate");
 const profileUpdateRejectedTemplate = require("../emailTemplates/profileUpdateRejectedTemplate");
 const licenseExpiryWarningTemplate = require("../emailTemplates/licenseExpiryWarningTemplate");
+const overstayReminderTemplate = require("../emailTemplates/overstayReminderTemplate");
+
+const sendOverstayReminderEmail = async (data) => {
+  const html = overstayReminderTemplate(data);
+  const mailOptions = {
+    from: process.env.EMAIL_USER,
+    to: data.email,
+    subject: "Notice: Pending Overstay Charge — Chennai Port APACS",
+    html
+  };
+  return transporter.sendMail(mailOptions);
+};
 
 const sendReferenceEmail = async (email, name, referenceNumber) => {
 
@@ -394,7 +406,7 @@ module.exports = {
   sendRejectionEmail, sendDeptUserCreationEmail, sendDeptUserActivatedEmail, 
   sendDeptUserDisabledEmail, sendUpdatedAfterRevertEmail, sendRevertedAgentRequestEmail,
   sendVendorPassLinkEmail, sendPassRevertedEmail, sendVendorPassApprovedEmail,
-  sendVendorPassSubmittedEmail,
+  sendVendorPassSubmittedEmail, sendOverstayReminderEmail,
   sendForgotPasswordOTPEmail, sendForgotPasswordOtpEmail,
   sendBulkPassInvitationEmail, sendBulkPassSubmittedEmail, sendBulkPassUnderReviewEmail,
   sendBulkPassReturnedEmail, sendBulkPassApprovedEmail, sendBulkPassRejectedEmail,

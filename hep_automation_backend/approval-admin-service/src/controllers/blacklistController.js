@@ -1130,3 +1130,162 @@ exports.rejectBlacklist = async (req, res) => {
   }
 };
 
+/**
+ * GET /blacklist/penalty-config
+ * Returns all reason codes with configured penalty amounts.
+ */
+exports.getPenaltyConfig = async (req, res) => {
+  try {
+    const config = await Blacklist.getPenaltyConfig();
+    return res.json({ success: true, data: config });
+  } catch (error) {
+    console.error("getPenaltyConfig error:", error);
+    return res.status(500).json({ success: false, message: "Failed to fetch penalty config" });
+  }
+};
+
+/**
+ * PUT /blacklist/penalty-config/:reasonCode
+ * Body: { default_amount, is_mandatory, min_amount }
+ * Admin / ATM only.
+ */
+exports.updatePenaltyConfig = async (req, res) => {
+  try {
+    const { reasonCode } = req.params;
+    const { default_amount, is_mandatory, min_amount } = req.body;
+
+    if (!['001','002','003','004','005','006','007'].includes(reasonCode)) {
+      return res.status(400).json({ success: false, message: "Invalid reason code" });
+    }
+    if (default_amount === undefined || isNaN(parseFloat(default_amount))) {
+      return res.status(400).json({ success: false, message: "default_amount must be a number" });
+    }
+
+    const updated = await Blacklist.upsertPenaltyConfig(
+      reasonCode,
+      parseFloat(default_amount),
+      is_mandatory || false,
+      parseFloat(min_amount) || 0,
+      req.user?.userId || req.user?.id || null
+    );
+
+    return res.json({
+      success: true,
+      message: `Penalty config for code ${reasonCode} updated`,
+      data: updated,
+    });
+  } catch (error) {
+    console.error("updatePenaltyConfig error:", error);
+    return res.status(500).json({ success: false, message: "Failed to update penalty config" });
+  }
+};
+
+/**
+ * GET /blacklist/reports
+ * Query: { from_date, to_date, entity_type, status, page, limit }
+ * ATM / Traffic Approval access.
+ */
+exports.getReports = async (req, res) => {
+  try {
+    const { from_date, to_date, entity_type, status, page, limit } = req.query;
+
+    const result = await Blacklist.getReports({
+      from_date: from_date || null,
+      to_date: to_date ? `${to_date} 23:59:59` : null,
+      entity_type: entity_type || null,
+      status: status || null,
+      page: page ? parseInt(page, 10) : 1,
+      limit: limit ? parseInt(limit, 10) : 200,
+    });
+
+    return res.json({ success: true, ...result });
+  } catch (error) {
+    console.error("getReports error:", error);
+    return res.status(500).json({ success: false, message: "Failed to fetch report data" });
+  }
+};
+
+/**
+ * POST /blacklist/share-penalty-link
+ * Body: { blacklist_id }
+ * Sends the penalty payment link to the associated company/person email.
+ */
+exports.sharePenaltyLink = async (req, res) => {
+  try {
+    const { blacklist_id } = req.body;
+    if (!blacklist_id) {
+      return res.status(400).json({ success: false, message: "blacklist_id is required" });
+    }
+
+    const entry = await Blacklist.getById(blacklist_id);
+    if (!entry) {
+      return res.status(404).json({ success: false, message: "Blacklist entry not found" });
+    }
+    if (!entry.has_penalty || entry.penalty_status === 'PAID') {
+      return res.status(400).json({
+        success: false,
+        message: entry.penalty_status === 'PAID'
+          ? "Penalty is already paid"
+          : "This entry does not have a pending penalty",
+      });
+    }
+
+    let targetEmail = null;
+    let targetName = entry.entity_name || entry.identifier;
+
+    try {
+      if (entry.entity_type === 'COMPANY') {
+        const r = await pool.query('SELECT email, "userName" FROM users WHERE "userName" = $1 OR id::text = $1', [entry.identifier]);
+        if (r.rows.length > 0) { targetEmail = r.rows[0].email; targetName = r.rows[0].userName; }
+      } else if (entry.entity_type === 'VEHICLE') {
+        const r = await pool.query(`
+          SELECT u.email, u."userName"
+          FROM pass_vehicles pv
+          JOIN pass_requests pr ON pv."passRequestId" = pr.id
+          JOIN users u ON pr."agentId" = u.id
+          WHERE UPPER(TRIM(pv."registrationNo")) = UPPER(TRIM($1))
+          ORDER BY pv."createdAt" DESC LIMIT 1`, [entry.identifier]);
+        if (r.rows.length > 0) { targetEmail = r.rows[0].email; targetName = r.rows[0].userName; }
+      } else if (entry.entity_type === 'PERSON' || entry.entity_type === 'DRIVER') {
+        const r = await pool.query('SELECT email, name FROM pass_persons WHERE "aadharNo" = $1 OR "idProofNumber" = $1 LIMIT 1', [entry.identifier]);
+        if (r.rows.length > 0) { targetEmail = r.rows[0].email; targetName = r.rows[0].name; }
+      }
+    } catch (dbErr) {
+      console.error("Failed to lookup email for share-penalty-link:", dbErr);
+    }
+
+    const paymentLink = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/dashboard/blacklist_penalties`;
+
+    console.log(`\n==================================================`);
+    console.log(`[SHARE PENALTY LINK] To: ${targetEmail || 'NOT FOUND'} | Name: ${targetName}`);
+    console.log(`Amount: ₹${entry.penalty_amount} | Blacklist ID: ${entry.id}`);
+    console.log(`Payment Link: ${paymentLink}`);
+    console.log(`==================================================\n`);
+
+    try {
+      const sendEmailEvent = require("../utils/kafka/producer");
+      await sendEmailEvent({
+        type: "PENALTY_LINK",
+        email: targetEmail,
+        name: targetName,
+        identifier: entry.identifier,
+        penalty_amount: entry.penalty_amount,
+        payment_link: paymentLink,
+        blacklist_id: entry.id,
+      });
+    } catch (kErr) {
+      console.warn("Kafka produce share-penalty-link warning:", kErr.message);
+    }
+
+    return res.json({
+      success: true,
+      message: targetEmail
+        ? `Penalty payment link sent to ${targetEmail}`
+        : "No email found — link logged to console",
+      data: { targetEmail, targetName, amount: entry.penalty_amount, payment_link: paymentLink },
+    });
+  } catch (error) {
+    console.error("sharePenaltyLink error:", error);
+    return res.status(500).json({ success: false, message: "Failed to share penalty link" });
+  }
+};

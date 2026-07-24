@@ -2,13 +2,23 @@ const { sendReferenceEmail, sendApprovalEmail, sendRejectionEmail,
   sendDeptUserCreationEmail, sendDeptUserActivatedEmail, sendDeptUserDisabledEmail,
   sendRevertedAgentRequestEmail,sendUpdatedAfterRevertEmail,
   sendVendorPassLinkEmail, sendPassRevertedEmail, sendVendorPassApprovedEmail,
-  sendVendorPassSubmittedEmail,
+  sendVendorPassSubmittedEmail, sendOverstayReminderEmail,
   sendForgotPasswordOTPEmail, sendForgotPasswordOtpEmail,
   sendBulkPassInvitationEmail, sendBulkPassSubmittedEmail, sendBulkPassUnderReviewEmail,
   sendBulkPassReturnedEmail, sendBulkPassApprovedEmail, sendBulkPassRejectedEmail,
   sendProfileUpdateSubmittedEmail, sendProfileUpdateApprovedEmail,
   sendProfileUpdateRevertedEmail, sendProfileUpdateRejectedEmail,
   sendLicenseExpiryWarningEmail } = require("../services/emailService");
+
+exports.sendOverstayReminder = async (req, res) => {
+  try {
+    await sendOverstayReminderEmail(req.body);
+    return res.json({ success: true, message: "Overstay reminder email sent" });
+  } catch (error) {
+    console.error("sendOverstayReminder error:", error);
+    res.status(500).json({ success: false, message: "Email sending failed" });
+  }
+};
 
 exports.sendReference = async (req, res) => {
 
