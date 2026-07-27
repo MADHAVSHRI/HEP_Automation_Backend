@@ -405,7 +405,8 @@ exports.getPublicByToken = async (req, res) => {
         .json({ success: false, message: "Invalid or expired link" });
     }
 
-    if (intake.status !== "LINK_SENT") {
+    const allowedStatuses = ["LINK_SENT", "REVERTED", "VENDOR_SUBMITTED", "PARTIALLY_APPROVED"];
+    if (!allowedStatuses.includes(intake.status)) {
       return res.status(410).json({
         success: false,
         message: "This link is no longer active",
@@ -425,6 +426,16 @@ exports.getPublicByToken = async (req, res) => {
         .status(410)
         .json({ success: false, message: "This link has expired" });
     }
+
+    // Fetch existing persons and vehicles if any (e.g. reverted requests)
+    const personsRes = await pool.query(
+      `SELECT * FROM "vendor_pass_persons" WHERE "vendorPassRequestId" = $1 ORDER BY id ASC`,
+      [intake.id]
+    );
+    const vehiclesRes = await pool.query(
+      `SELECT * FROM "vendor_pass_vehicles" WHERE "vendorPassRequestId" = $1 ORDER BY id ASC`,
+      [intake.id]
+    );
 
     return res.status(200).json({
       success: true,
@@ -457,6 +468,8 @@ exports.getPublicByToken = async (req, res) => {
             ? "FREE"
             : "CASH",
         status: intake.status,
+        persons: personsRes.rows,
+        vehicles: vehiclesRes.rows,
       },
     });
   } catch (error) {

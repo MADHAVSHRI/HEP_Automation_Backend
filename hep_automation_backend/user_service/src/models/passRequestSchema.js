@@ -331,6 +331,7 @@ const PassRequest = {
               "cdcNumber",
               "cdcDocumentPath",
               "cdcDocumentName",
+              "dob",
 
               "createdAt",
               "updatedAt"
@@ -341,7 +342,7 @@ const PassRequest = {
               $11,$12,$13,$14,$15,$16,$17,
               $18,$19,$20,$21,$22,$23,$24,$25,
               $26,$27,$28,$29,$30,$31,$32,$33,
-              $34,$35,$36,
+              $34,$35,$36,$37,
               NOW(),NOW()
             )
             RETURNING id
@@ -392,6 +393,7 @@ const PassRequest = {
                 person.cdcNumber || null,
                 cdcFile?.path || null,
                 cdcFile?.originalname || null,
+                person.dob || null,
               ],
             );
 
@@ -407,6 +409,37 @@ const PassRequest = {
         const mpData = masterPersonRes.rows[0];
 
         const personPassNo = await ReferenceNumber.generatePersonPassNo(client);
+
+        // Check age and designation for auto-rejection rule
+        const personDob = person.dob || mpData?.dob || null;
+        let initialPersonStatus = 'pending';
+        let initialRejectedReason = null;
+
+        if (personDob) {
+          const dobDate = new Date(personDob);
+          if (!isNaN(dobDate.getTime())) {
+            const today = new Date();
+            let age = today.getFullYear() - dobDate.getFullYear();
+            const monthDiff = today.getMonth() - dobDate.getMonth();
+            if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < dobDate.getDate())) {
+              age--;
+            }
+
+            let desigName = '';
+            const desigIdToFetch = person.designationId || mpData?.designationId;
+            if (desigIdToFetch) {
+              const desigRes = await client.query(`SELECT name FROM designations WHERE id = $1`, [desigIdToFetch]);
+              desigName = desigRes.rows[0]?.name || '';
+            }
+            const desigStr = String(desigName || person.designation || person.designationOther || mpData?.designationOther || '').trim().toLowerCase();
+            const isVisitor = desigStr.includes('visitor');
+
+            if (age < 18 && !isVisitor) {
+              initialPersonStatus = 'rejected';
+              initialRejectedReason = 'Automatically rejected: Person is below 18 years of age and designation is not Visitor.';
+            }
+          }
+        }
 
         await client.query(
           `
@@ -458,6 +491,9 @@ const PassRequest = {
           "amount",
           "entryAuthorizationFilePath",
           "entryAuthorizationFileName",
+          "dob",
+          "status",
+          "rejectedReason",
           "createdAt",
           "updatedAt"
         )
@@ -467,7 +503,7 @@ const PassRequest = {
           $11,$12,$13,$14,$15,$16,$17,$18,
           $19,$20,$21,$22,$23,$24,$25,$26,
           $27,$28,$29,$30,$31,$32,$33,$34,
-          $35,$36,$37,$38,$39,$40,$41,$42,$43,$44,$45,$46,
+          $35,$36,$37,$38,$39,$40,$41,$42,$43,$44,$45,$46,$47,$48,$49,
           NOW(),NOW()
         )
         `,
@@ -518,6 +554,9 @@ const PassRequest = {
             person.amount,
             entryAuthFile?.path || null,
             entryAuthFile?.originalname || null,
+            personDob,
+            initialPersonStatus,
+            initialRejectedReason,
           ],
         );
       }
@@ -1108,7 +1147,7 @@ const PassRequest = {
       // Only include fields that exist in pass_persons table
       const allowedFields = [
         'name', 'email', 'mobile', 'aadharNo', 'hepTypeId', 'passType',
-        'designationId', 'designationOther', 'visaNo', 'nationality',
+        'designationId', 'designationOther', 'visaNo', 'nationality', 'dob',
         'passPeriod', 'dateFrom', 'dateTo', 'amount', 'countryId',
         'idProofType', 'idProofNumber', 'withTwoWheeler', 'vehicleNo', 'accessAreaId',
         'photoFilePath', 'photoFileName',
@@ -1516,7 +1555,8 @@ const getPassRequest = {
         pr."grossTotal",
         pr."gstAmount",
         pr."netAmount",
-        pr."createdAt",
+        pr."authLetterFilePath",
+        pr."authLetterFileName",
         pr."requisitionLetterFilePath",
         pr."requisitionLetterFileName",
 
@@ -1548,6 +1588,7 @@ const getPassRequest = {
               'designationOther', COALESCE(pp."designationOther", mp."designationOther"),
               'accessAreaId', COALESCE(pp."accessAreaId"::TEXT, mp."accessAreaId"::TEXT),
               'nationality', COALESCE(pp.nationality::text, mp.nationality::text),
+              'dob', COALESCE(pp."dob"::text, mp."dob"::text),
               'countryId', COALESCE(pp."countryId", mp."countryId"),
               'visaNo', COALESCE(pp."visaNo", mp."visaNo"),
               'cardNumber', mp."cardNumber",
@@ -2270,6 +2311,10 @@ const getAgentPassRequestsDetails = {
           pr."approvedBy",
           pr."workflowState",
           pr."isOilDock",
+          pr."authLetterFilePath",
+          pr."authLetterFileName",
+          pr."requisitionLetterFilePath",
+          pr."requisitionLetterFileName",
 
           a."entityName",
           a."email",
@@ -2335,6 +2380,7 @@ const getAgentPassRequestsDetails = {
 
         'visaNo', COALESCE(pp."visaNo", mp."visaNo"),
         'nationality', COALESCE(pp.nationality::text, mp.nationality::text),
+        'dob', COALESCE(pp."dob"::text, mp."dob"::text),
         'countryId', COALESCE(pp."countryId", mp."countryId"),
 
         'designationId', COALESCE(d.name, pp."designationOther", mp."designationOther", pp."designationId"::text, mp."designationId"::text),
@@ -2875,11 +2921,13 @@ const viewPassRequestsDocuments = {
         break;
 
       case "authLetter":
+      case "contractDoc":
         columnName = "authLetterFilePath";
         tableName = "pass_requests";
         break;
 
       case "passRequisitionLetter":
+      case "requisitionLetter":
         columnName = "requisitionLetterFilePath";
         tableName = "pass_requests";
         break;
@@ -2894,7 +2942,9 @@ const viewPassRequestsDocuments = {
 
     if (
       documentType === "authLetter" ||
-      documentType === "passRequisitionLetter"
+      documentType === "contractDoc" ||
+      documentType === "passRequisitionLetter" ||
+      documentType === "requisitionLetter"
     ) {
       const query = `
           SELECT "${columnName}" 
