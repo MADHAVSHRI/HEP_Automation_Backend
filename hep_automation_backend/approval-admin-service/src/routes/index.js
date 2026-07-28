@@ -8,6 +8,7 @@ const materialPassRoutes = require("./materialPassRoutes");
 const overstayRoutes = require("./overstayRoutes");
 const passFeeMasterRoutes = require("./passFeeMasterRoutes");
 const hepRateRoutes = require("./hepRateRoutes");
+const vvipPassRoutes = require("./vvipPassRoutes");
 
 router.use("/user", userRoutes);
 router.use("/pass-request", passRequestRoutes);
@@ -17,5 +18,6 @@ router.use("/material-pass", materialPassRoutes);
 router.use("/overstay", overstayRoutes);
 router.use("/pass-fee-master", passFeeMasterRoutes);
 router.use("/hep-rate", hepRateRoutes);
+router.use("/vvip-pass", vvipPassRoutes);
 
 module.exports = router;

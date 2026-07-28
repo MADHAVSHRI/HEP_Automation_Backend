@@ -23,6 +23,7 @@ const FRONTEND_BASE_URL = process.env.FRONTEND_BASE_URL || "";
 // Directory for generated bulk pass PDFs (absolute path so user_service can
 // resolve and serve the same file via GET /api/bulk-pass/:id/pdf).
 const BULK_PDF_DIR = path.join(process.cwd(), "uploads", "bulk_pass_pdfs");
+const VVIP_PDF_DIR = path.join(process.cwd(), "uploads", "vvip_pass_pdfs");
 
 exports.generatePass = async (
   passRequestId,
@@ -1110,6 +1111,205 @@ async function generateBulkPassPDF(batch, persons) {
     doc.fillColor("#555555").font("Helvetica").fontSize(7)
       .text("SCAN TO VIEW VEHICLE", QR_X - 4, VQR_Y + QR_W + 4, { width: QR_W + 8, align: "center" });
 
+    drawFooter();
+  }
+
+  doc.end();
+
+  return new Promise((resolve) => {
+    doc.on("end", () => resolve(Buffer.concat(buffers)));
+  });
+}
+
+/*
+============================================
+VVIP PASS QR / PDF GENERATION
+============================================
+*/
+
+function formatPassDate(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  const pad = (number) => String(number).padStart(2, "0");
+  return `${pad(date.getDate())}/${pad(date.getMonth() + 1)}/${date.getFullYear()} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+exports.generateVvipPass = async (requestId) => {
+  const response = await axios.get(
+    `${USER_SERVICE}/api/vvip-pass/${requestId}/qr-data`,
+    { headers: { "x-service-name": "QR Service" } }
+  );
+
+  const request = response.data?.data;
+  if (!request) {
+    throw new Error("VVIP pass not found");
+  }
+
+  const pdfBuffer = await generateVvipPassPDF(request);
+
+  await ensureDirectory(VVIP_PDF_DIR);
+  const fileName = `${request.referenceNo || `VVIP_${request.id}`}.pdf`;
+  const filePath = path.join(VVIP_PDF_DIR, fileName);
+  await fs.promises.writeFile(filePath, pdfBuffer);
+
+  return { pdfBuffer, filePath, request };
+};
+
+async function generateVvipPassPDF(request) {
+  const PAGE_W = 595;
+  const PAGE_H = 360;
+  const HEADER_H = 70;
+  const LEFT_X = 22;
+  const LABEL_W = 135;
+
+  const doc = new PDFDocument({
+    size: [PAGE_W, PAGE_H],
+    margins: { top: 0, bottom: 0, left: 0, right: 0 },
+  });
+  doc.registerFont("Noto", FONT_REGULAR);
+
+  const buffers = [];
+  doc.on("data", buffers.push.bind(buffers));
+
+  const hasValue = (value) =>
+    value !== null && value !== undefined && String(value).trim() !== "";
+
+  const drawHeader = (subtitle) => {
+    doc.rect(0, 0, PAGE_W, HEADER_H).fill("#E87722");
+
+    const LOGO_SIZE = 52;
+    const LOGO_X = 12;
+    const LOGO_Y = (HEADER_H - LOGO_SIZE) / 2;
+    doc.save();
+    doc.circle(LOGO_X + LOGO_SIZE / 2, LOGO_Y + LOGO_SIZE / 2, LOGO_SIZE / 2).clip();
+    doc.image(LOGO_PATH, LOGO_X, LOGO_Y, { width: LOGO_SIZE, height: LOGO_SIZE });
+    doc.restore();
+
+    const TX = LOGO_X + LOGO_SIZE + 8;
+    const TW = PAGE_W - TX - 12;
+    doc.fillColor("white").font("Noto").fontSize(10)
+      .text("चेन्नई पत्तन न्यास", TX, 12, { width: TW, align: "center" });
+    doc.fillColor("white").font("Helvetica-Bold").fontSize(15)
+      .text("CHENNAI PORT AUTHORITY", TX, 28, { width: TW, align: "center" });
+    doc.fillColor("white").font("Helvetica").fontSize(9)
+      .text(subtitle, TX, 50, { width: TW, align: "center" });
+  };
+
+  const drawFooter = () => {
+    doc.moveTo(12, PAGE_H - 22).lineTo(PAGE_W - 12, PAGE_H - 22)
+      .strokeColor("#dddddd").lineWidth(0.5).stroke();
+    doc.fillColor("#999999").font("Helvetica").fontSize(7)
+      .text("Authorized by Traffic Manager — Chennai Port Authority",
+        12, PAGE_H - 16, { width: PAGE_W - 24, align: "center" });
+  };
+
+  const row = (label, value, y) => {
+    doc.font("Helvetica-Bold").fontSize(9).fillColor("#555555")
+      .text(label, LEFT_X, y, { width: LABEL_W });
+    doc.font("Helvetica").fontSize(10).fillColor("black")
+      .text(String(value), LEFT_X + LABEL_W, y, {
+        width: PAGE_W - LEFT_X - LABEL_W - 160,
+      });
+  };
+
+  const optionalRow = (label, value, y) => {
+    if (!hasValue(value)) return y;
+    row(label, value, y);
+    return y + 20;
+  };
+
+  const drawQr = async (payload, label, y = HEADER_H + 18) => {
+    const qr = await generateQR(payload);
+    const QR_W = 120;
+    const QR_X = PAGE_W - QR_W - 24;
+    doc.image(qr, QR_X, y, { fit: [QR_W, QR_W] });
+    doc.fillColor("#555555").font("Helvetica").fontSize(7)
+      .text(label, QR_X - 4, y + QR_W + 4, {
+        width: QR_W + 8,
+        align: "center",
+      });
+  };
+
+  const validFrom = formatPassDate(request.validityFrom);
+  const validTo = formatPassDate(request.validityTo);
+
+  drawHeader("VVIP PASS — REQUEST SUMMARY");
+  let y = HEADER_H + 18;
+  doc.fillColor("black").font("Helvetica-Bold").fontSize(17)
+    .text(request.referenceNo || "VVIP PASS", LEFT_X, y, {
+      width: PAGE_W - LEFT_X - 160,
+    });
+  y += 30;
+  y = optionalRow("Department:", request.departmentName, y);
+  y = optionalRow("Visit Purpose:", request.visitPurpose, y);
+  y = optionalRow("No. of Passes:", request.noOfPasses, y);
+  y = optionalRow("Persons:", (request.persons || []).length, y);
+  y = optionalRow("Vehicles:", (request.vehicles || []).length, y);
+  y = optionalRow("Valid From:", validFrom, y);
+  y = optionalRow("Valid Upto:", validTo, y);
+  optionalRow("Remarks:", request.remarks, y);
+  drawFooter();
+
+  for (let index = 0; index < (request.persons || []).length; index += 1) {
+    const person = request.persons[index];
+    doc.addPage();
+    drawHeader("VVIP PASS — PERSON");
+    let py = HEADER_H + 18;
+    doc.fillColor("black").font("Helvetica-Bold").fontSize(18)
+      .text(person.name || "VVIP Visitor", LEFT_X, py, {
+        width: PAGE_W - LEFT_X - 160,
+      });
+    py += 32;
+    py = optionalRow("Reference No.:", request.referenceNo, py);
+    py = optionalRow("Designation:", person.designation, py);
+    py = optionalRow("Mobile:", person.mobile, py);
+    py = optionalRow("ID Proof:", [person.idProofType, person.idProofNo].filter(Boolean).join(" - "), py);
+    py = optionalRow("Department:", request.departmentName, py);
+    py = optionalRow("Valid From:", validFrom, py);
+    optionalRow("Valid Upto:", validTo, py);
+
+    await drawQr(
+      JSON.stringify({
+        module: "VVIP_PASS",
+        scope: "PERSON",
+        requestId: request.id,
+        referenceNo: request.referenceNo,
+        personId: person.id,
+      }),
+      "SCAN VVIP PERSON",
+    );
+    drawFooter();
+  }
+
+  for (let index = 0; index < (request.vehicles || []).length; index += 1) {
+    const vehicle = request.vehicles[index];
+    doc.addPage();
+    drawHeader("VVIP PASS — VEHICLE");
+    let vy = HEADER_H + 18;
+    doc.fillColor("black").font("Helvetica-Bold").fontSize(18)
+      .text(vehicle.vehicleNo || "VVIP Vehicle", LEFT_X, vy, {
+        width: PAGE_W - LEFT_X - 160,
+      });
+    vy += 32;
+    vy = optionalRow("Reference No.:", request.referenceNo, vy);
+    vy = optionalRow("Vehicle Type:", vehicle.vehicleType, vy);
+    vy = optionalRow("Driver:", vehicle.driverName, vy);
+    vy = optionalRow("Driver Mobile:", vehicle.driverMobile, vy);
+    vy = optionalRow("Department:", request.departmentName, vy);
+    vy = optionalRow("Valid From:", validFrom, vy);
+    optionalRow("Valid Upto:", validTo, vy);
+
+    await drawQr(
+      JSON.stringify({
+        module: "VVIP_PASS",
+        scope: "VEHICLE",
+        requestId: request.id,
+        referenceNo: request.referenceNo,
+        vehicleId: vehicle.id,
+      }),
+      "SCAN VVIP VEHICLE",
+    );
     drawFooter();
   }
 

@@ -7,7 +7,7 @@
     "test": "jest --testPathPattern='__tests__' --runInBand --forceExit",
     "test:bulk": "jest --testPathPattern='bulkPass' --runInBand --forceExit --verbose",
     "start": "node src/index.js",
-    "dev": "nodemon src/index.js"
+    "dev": "nodemon --watch src --ext js,json --ignore uploads --ignore logs --ignore node_modules --ignore \"node_modules*\" src/index.js"
   },
   "jest": {
     "testEnvironment": "node",

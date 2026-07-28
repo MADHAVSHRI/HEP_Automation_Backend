@@ -52,4 +52,11 @@ router.post(
 // Intentionally public — anyone with the link can view their approved pass.
 router.get("/bulk-pass-view/:batchId", passQrController.viewBulkPass);
 
+// VVIP Pass QR PDF generation (internal — called by approval-admin-service)
+router.post(
+  "/vvip-pass/:requestId",
+  verifyService,
+  passQrController.generateVvipQr
+);
+
 module.exports = router;

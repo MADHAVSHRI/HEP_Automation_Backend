@@ -267,3 +267,26 @@ exports.viewBulkPass = async (req, res) => {
     return res.status(500).json({ success: false, message: error.message });
   }
 };
+
+// POST /api/qr/vvip-pass/:requestId
+// Internal — called by approval-admin-service at Traffic approval time.
+exports.generateVvipQr = async (req, res) => {
+  try {
+    const { requestId } = req.params;
+    if (!requestId) {
+      return res.status(400).json({ success: false, message: "requestId required" });
+    }
+
+    const { pdfBuffer, filePath } = await passQrService.generateVvipPass(requestId);
+
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("X-Pdf-Path", filePath);
+    res.setHeader("Access-Control-Expose-Headers", "X-Pdf-Path");
+    return res.send(pdfBuffer);
+  } catch (error) {
+    if (error.message === "VVIP pass not found") {
+      return res.status(404).json({ success: false, message: error.message });
+    }
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};

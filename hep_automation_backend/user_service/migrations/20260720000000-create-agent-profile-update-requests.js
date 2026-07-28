@@ -37,6 +37,10 @@ module.exports = {
         type: Sequelize.STRING(500),
         allowNull: true,
       },
+      authorizedPersonName: {
+        type: Sequelize.STRING(255),
+        allowNull: true,
+      },
       mobileNo: {
         type: Sequelize.STRING(20),
         allowNull: true,
@@ -107,6 +111,10 @@ module.exports = {
       },
       tanDoc: {
         type: Sequelize.STRING(500),
+        allowNull: true,
+      },
+      remarks: {
+        type: Sequelize.TEXT,
         allowNull: true,
       },
       status: {

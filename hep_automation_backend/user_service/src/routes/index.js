@@ -10,6 +10,8 @@ const materialPassRoutes = require("./materialPassRoutes");
 const bulkPassRoutes = require("./bulkPassRoutes");
 const chatbotRoutes = require("./chatbotRoutes");
 const ulipRoutes = require("./ulipRoutes");
+const reportRoutes = require("./reportRoutes");
+const vvipPassRoutes = require("./vvipPassRoutes");
 
 
 router.use("/agents", agentRoutes);
@@ -22,6 +24,7 @@ router.use("/material-pass", materialPassRoutes);
 router.use("/bulk-pass", bulkPassRoutes);
 router.use("/chatbot", chatbotRoutes);
 router.use("/ulip", ulipRoutes);
-
+router.use("/reports", reportRoutes);
+router.use("/vvip-pass", vvipPassRoutes);
 
 module.exports = router;
