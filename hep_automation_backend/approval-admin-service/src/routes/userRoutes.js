@@ -4,6 +4,8 @@ const adminController = require("../controllers/userCreationController");
 const verifyService = require("../middlewares/verifyService");
 const verifyToken = require( "../middlewares/verifyToken" );
 const authorizeToken = require( "../middlewares/authorizeToken" );
+// VAPT fix: Vuln #8 – rate-limit password reset to prevent OTP flooding
+const forgotPasswordLimiter = require("../middlewares/forgotPasswordLimiter");
 
 router.post("/create-user",verifyService,verifyToken,authorizeToken("Admin"), adminController.createUser);
 
@@ -39,7 +41,7 @@ router.patch(
   adminController.updateUserApproval
 );
 
-router.post("/forgot-password", verifyService, adminController.forgotPassword);
+router.post("/forgot-password", forgotPasswordLimiter, verifyService, adminController.forgotPassword);
 router.post("/verify-otp", verifyService, adminController.verifyOtp);
 router.post("/reset-password", verifyService, adminController.resetPassword);
 router.post("/change-password", verifyToken, adminController.changePassword);

@@ -185,7 +185,36 @@ exports.getAgentRequests = async (req, res) => {
       config
     );
 
-    return res.status(200).json(response.data);
+    // VAPT fix: Vuln #5 – strip excessive PII before forwarding to the frontend.
+    // Only fields genuinely required for the listing/approval UI are kept.
+    // Full PII (PAN, GST, TAN, mobile, email, address, file paths, etc.) is
+    // only needed on the individual agent-detail page which has its own
+    // authenticated endpoint.
+    const PII_FIELDS = [
+      "panNumber", "panDoc",
+      "gstinNumber", "gstinDoc",
+      "tanNumber", "tanDoc",
+      "mobileNo",
+      "email",
+      "addressLine", "city", "state", "pincode",
+      "requisitionLetter", "workOrder", "licenseDoc",
+      "loginId",
+      "approvedBy",
+    ];
+
+    const stripPii = (agent) => {
+      const safe = { ...agent };
+      PII_FIELDS.forEach((f) => delete safe[f]);
+      return safe;
+    };
+
+    // Preserve the original paginated response shape, stripping PII from data[]
+    const body = response.data;
+    if (body && Array.isArray(body.data)) {
+      body.data = body.data.map(stripPii);
+    }
+
+    return res.status(200).json(body);
 
   } catch (error) {
 
@@ -524,32 +553,34 @@ exports.forgotPassword = async (req, res) => {
       return res.status(400).json({ success: false, message: "Email ID is required" });
     }
 
+    // VAPT fix: Vuln #9 – prevent user enumeration via forgot-password response.
+    // Always return 200 with the same generic message regardless of whether the
+    // account exists.  The OTP email is dispatched in the background only when
+    // the account is found, so an attacker cannot distinguish valid vs invalid
+    // email addresses from the HTTP response.
     const user = await User.findUserByEmail(loginId);
-    if (!user) {
-      return res.status(404).json({ success: false, message: "Departmental user not found with this email" });
+
+    if (user) {
+      const otp = String(Math.floor(100000 + Math.random() * 900000));
+      await redisClient.set(`otp:user:${loginId}`, otp, { EX: 300 });
+
+      // Dispatch email asynchronously in background to prevent HTTP request block
+      axios.post(`${process.env.EMAIL_SERVICE_URL}/api/email/sendForgotPasswordOTP`, {
+        email: user.email,
+        name: user.userName,
+        otp
+      }, {
+        headers: { "x-service-name": "APPROVAL-ADMIN-SERVICE" }
+      })
+      .then(() => console.log(`[email] Sent forgot password OTP to ${user.email}`))
+      .catch((emailErr) => {
+        console.error("Email service error:", emailErr.response?.data || emailErr.message);
+      });
     }
-
-    const otp = String(Math.floor(100000 + Math.random() * 900000));
-    await redisClient.set(`otp:user:${loginId}`, otp, { EX: 300 });
-
-    // Dispatch email asynchronously in background to prevent HTTP request block
-    axios.post(`${process.env.EMAIL_SERVICE_URL}/api/email/sendForgotPasswordOTP`, {
-      email: user.email,
-      name: user.userName,
-      otp
-    }, {
-      headers: { "x-service-name": "APPROVAL-ADMIN-SERVICE" }
-    })
-    .then(() => console.log(`[email] Sent forgot password OTP to ${user.email}`))
-    .catch((emailErr) => {
-      console.error("Email service error:", emailErr.response?.data || emailErr.message);
-    });
-
+    // Always respond the same way — do not reveal whether the account exists
     return res.status(200).json({
       success: true,
-      message: "OTP sent successfully to your email ID",
-      loginId,
-      userName: user.userName
+      message: "If an account with that email exists, an OTP has been sent.",
     });
   } catch (error) {
     console.error("Forgot password error:", error);

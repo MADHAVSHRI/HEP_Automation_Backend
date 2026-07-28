@@ -983,14 +983,16 @@ exports.login = async (req, res) => {
       sessionId,
     });
 
+    // SECURITY: role, departmentName, departmentId are embedded in the signed JWT
+    // and must NOT be returned in the response body. Returning them here allows
+    // a client (e.g. Burp Suite) to manipulate the value and trick client-side
+    // routing into granting elevated access.  The frontend must always decode
+    // the accessToken via jwtDecode() to read authoritative role/dept values.
     return res.json({
       success: true,
       accessToken,
       refreshToken,
-      role: user.role,
       isPasswordChanged: user.isPasswordChanged,
-      departmentName: user.departmentName || null,
-      departmentId: user.departmentId || null,
     });
   } catch (error) {
     log.error(TAG, "Unhandled login error", error);
