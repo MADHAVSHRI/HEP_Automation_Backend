@@ -1012,6 +1012,9 @@ async function generateBulkPassPDF(batch, persons) {
   const vehicles = (persons || []).filter(
     (p) => p.vehicleNumber && String(p.vehicleNumber).trim() !== ""
   );
+  const approvedPersonsOnly = (persons || []).filter(
+    (p) => !p.vehicleNumber || String(p.vehicleNumber).trim() === ""
+  );
 
   // ── GROUP SUMMARY PAGE ─────────────────────────────────────
   drawHeader("BULK PASS — GROUP SUMMARY");
@@ -1038,7 +1041,7 @@ async function generateBulkPassPDF(batch, persons) {
   row("Reference No.:", batch.refNo);
   row("Department:", batch.departmentName);
   row("Visitor Type:", batch.visitorType);
-  row("No. of Persons:", persons.length);
+  row("No. of Persons (Approved):", approvedPersonsOnly.length);
   row("No. of Vehicles:", vehicles.length);
   row("Valid From:", fmtDate(batch.validityFrom));
   row("Valid Upto:", fmtDate(batch.validityUpto));

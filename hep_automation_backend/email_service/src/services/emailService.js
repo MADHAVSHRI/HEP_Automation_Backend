@@ -17,6 +17,7 @@ const bulkPassUnderReviewTemplate = require("../emailTemplates/bulkPassUnderRevi
 const bulkPassReturnedTemplate = require("../emailTemplates/bulkPassReturnedTemplate");
 const bulkPassApprovedTemplate = require("../emailTemplates/bulkPassApprovedTemplate");
 const bulkPassRejectedTemplate = require("../emailTemplates/bulkPassRejectedTemplate");
+const bulkPassRejectedPersonsTemplate = require("../emailTemplates/bulkPassRejectedPersonsTemplate");
 const vendorPassSubmittedTemplate = require("../emailTemplates/vendorPassSubmittedTemplate");
 const profileUpdateSubmittedTemplate = require("../emailTemplates/profileUpdateSubmittedTemplate");
 const profileUpdateApprovedTemplate = require("../emailTemplates/profileUpdateApprovedTemplate");
@@ -341,6 +342,17 @@ const sendBulkPassRejectedEmail = async (payload) => {
   return transporter.sendMail(mailOptions);
 };
 
+const sendBulkPassRejectedPersonsEmail = async (payload) => {
+  const html = bulkPassRejectedPersonsTemplate(payload);
+  const mailOptions = {
+    from: process.env.EMAIL_USER,
+    to: payload.email,
+    subject: `⚠️ Some Persons Not Approved — Bulk Pass (${payload.refNo})`,
+    html,
+  };
+  return transporter.sendMail(mailOptions);
+};
+
 const sendProfileUpdateSubmittedEmail = async (payload) => {
   const html = profileUpdateSubmittedTemplate(payload.name, payload.referenceNumber);
   const mailOptions = {
@@ -410,6 +422,7 @@ module.exports = {
   sendForgotPasswordOTPEmail, sendForgotPasswordOtpEmail,
   sendBulkPassInvitationEmail, sendBulkPassSubmittedEmail, sendBulkPassUnderReviewEmail,
   sendBulkPassReturnedEmail, sendBulkPassApprovedEmail, sendBulkPassRejectedEmail,
+  sendBulkPassRejectedPersonsEmail,
   sendProfileUpdateSubmittedEmail, sendProfileUpdateApprovedEmail,
   sendProfileUpdateRevertedEmail, sendProfileUpdateRejectedEmail,
   sendLicenseExpiryWarningEmail

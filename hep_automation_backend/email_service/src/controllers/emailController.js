@@ -6,6 +6,7 @@ const { sendReferenceEmail, sendApprovalEmail, sendRejectionEmail,
   sendForgotPasswordOTPEmail, sendForgotPasswordOtpEmail,
   sendBulkPassInvitationEmail, sendBulkPassSubmittedEmail, sendBulkPassUnderReviewEmail,
   sendBulkPassReturnedEmail, sendBulkPassApprovedEmail, sendBulkPassRejectedEmail,
+  sendBulkPassRejectedPersonsEmail,
   sendProfileUpdateSubmittedEmail, sendProfileUpdateApprovedEmail,
   sendProfileUpdateRevertedEmail, sendProfileUpdateRejectedEmail,
   sendLicenseExpiryWarningEmail } = require("../services/emailService");
@@ -535,6 +536,20 @@ exports.sendBulkPassRejected = async (req, res) => {
     return res.json({ success: true, message: "Bulk pass rejected email sent" });
   } catch (error) {
     console.error("[EMAIL-CTRL] sendBulkPassRejected error:", error);
+    res.status(500).json({ success: false, message: "Email sending failed" });
+  }
+};
+
+exports.sendBulkPassRejectedPersons = async (req, res) => {
+  try {
+    const { email, refNo } = req.body;
+    if (!email || !refNo) {
+      return res.status(400).json({ success: false, message: "email and refNo are required" });
+    }
+    await sendBulkPassRejectedPersonsEmail(req.body);
+    return res.json({ success: true, message: "Bulk pass rejected persons email sent" });
+  } catch (error) {
+    console.error("[EMAIL-CTRL] sendBulkPassRejectedPersons error:", error);
     res.status(500).json({ success: false, message: "Email sending failed" });
   }
 };

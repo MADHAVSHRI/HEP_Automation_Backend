@@ -24,6 +24,7 @@ router.post("/sendBulkPassUnderReview", emailController.sendBulkPassUnderReview)
 router.post("/sendBulkPassReturned", emailController.sendBulkPassReturned);
 router.post("/sendBulkPassApproved", emailController.sendBulkPassApproved);
 router.post("/sendBulkPassRejected", emailController.sendBulkPassRejected);
+router.post("/sendBulkPassRejectedPersons", emailController.sendBulkPassRejectedPersons);
 
 // ── Profile Update & License Expiry Routes ───────────────────────────────────
 router.post("/sendProfileUpdateSubmitted", emailController.sendProfileUpdateSubmitted);

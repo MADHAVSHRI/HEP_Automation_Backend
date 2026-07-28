@@ -173,8 +173,6 @@ const BulkPassSchema = {
         b."status",
         b."returnReason",
         b."rejectionReason",
-        b."approvedAt",
-        b."rejectedAt",
         b."qrPdfPath",
         b."createdAt",
         b."updatedAt",
@@ -224,8 +222,6 @@ const BulkPassSchema = {
         b."status",
         b."returnReason",
         b."rejectionReason",
-        b."approvedAt",
-        b."rejectedAt",
         b."qrPdfPath",
         b."createdAt",
         b."updatedAt",
@@ -461,6 +457,80 @@ const BulkPassSchema = {
     const result = await pool.query(
       `SELECT * FROM "bulk_pass_persons"
        WHERE "batchId" = $1
+       ORDER BY "fileName" ASC, "rowNumber" ASC`,
+      [batchId]
+    );
+    return result.rows;
+  },
+
+  /*
+  ==========================================
+  Get a single person by id
+  ==========================================
+  */
+  async getPersonById(personId) {
+    const result = await pool.query(
+      `SELECT * FROM "bulk_pass_persons" WHERE id = $1`,
+      [personId]
+    );
+    return result.rows[0] || null;
+  },
+
+  /*
+  ==========================================
+  Set approval status for a single person
+  ==========================================
+  */
+  async setPersonApprovalStatus(personId, approvalStatus, approvalReason, approvedBy) {
+    const result = await pool.query(
+      `UPDATE "bulk_pass_persons"
+       SET "approvalStatus" = $2,
+           "approvalReason" = $3,
+           "approvedBy"     = $4,
+           "approvedAt"     = NOW()
+       WHERE id = $1
+       RETURNING *`,
+      [personId, approvalStatus, approvalReason || null, approvedBy || null]
+    );
+    return result.rows[0] || null;
+  },
+
+  /*
+  ==========================================
+  Count persons by approvalStatus for a batch
+  Returns { total, pending, approved, rejected }
+  ==========================================
+  */
+  async getPersonApprovalSummary(batchId) {
+    const result = await pool.query(
+      `SELECT
+         COUNT(*)                                                                              AS total,
+         COUNT(*) FILTER (WHERE COALESCE("approvalStatus", 'PENDING') = 'PENDING')            AS pending,
+         COUNT(*) FILTER (WHERE "approvalStatus" = 'APPROVED')                                AS approved,
+         COUNT(*) FILTER (WHERE "approvalStatus" = 'REJECTED')                                AS rejected
+       FROM "bulk_pass_persons"
+       WHERE "batchId" = $1 AND "vehicleNumber" IS NULL`,
+      [batchId]
+    );
+    const row = result.rows[0];
+    return {
+      total:    Number(row.total),
+      pending:  Number(row.pending),
+      approved: Number(row.approved),
+      rejected: Number(row.rejected),
+    };
+  },
+
+  /*
+  ==========================================
+  Get only APPROVED persons for a batch
+  (used by QR/PDF generation)
+  ==========================================
+  */
+  async getApprovedPersonsByBatch(batchId) {
+    const result = await pool.query(
+      `SELECT * FROM "bulk_pass_persons"
+       WHERE "batchId" = $1 AND "approvalStatus" = 'APPROVED'
        ORDER BY "fileName" ASC, "rowNumber" ASC`,
       [batchId]
     );

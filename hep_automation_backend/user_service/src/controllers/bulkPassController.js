@@ -49,6 +49,13 @@ const getResolvedToken = (tokenOrHash) => {
   return decrypted || tokenOrHash;
 };
 
+// Returns true when a batch's upload link should be treated as expired.
+// A link is expired when the tokenActive flag has been cleared (e.g. after
+// submission) OR when the time-based expiry window has passed.
+const isLinkExpired = (batch) =>
+  !batch.tokenActive ||
+  (batch.tokenExpiresAt && new Date(batch.tokenExpiresAt).getTime() < Date.now());
+
 // Resolve an encrypted-or-numeric id param to a Number (NaN if unresolvable).
 const resolveId = (idOrHash) => {
   if (!idOrHash) return NaN;
@@ -362,8 +369,15 @@ exports.resendInvitation = async (req, res) => {
       return res.status(400).json({ success: false, message: "Invitation can only be resent for DRAFT or RETURNED batches" });
     }
 
-    if (!batch.tokenActive) {
-      return res.status(400).json({ success: false, message: "Upload link is no longer active" });
+    // Allow resend if tokenActive is true OR if the link has simply expired by time
+    // (admin wants to issue a fresh window). If tokenActive is false because the
+    // applicant already submitted, the batch status would be UNDER_REVIEW/COMPLETED
+    // which is caught by the status check above — so reaching here with
+    // tokenActive=false means the link timed out and a resend is appropriate.
+    const expiredByTime =
+      batch.tokenExpiresAt && new Date(batch.tokenExpiresAt).getTime() < Date.now();
+    if (!batch.tokenActive && !expiredByTime) {
+      return res.status(400).json({ success: false, message: "Upload link is no longer active. Use Return to Applicant to issue a new link." });
     }
 
     // Refresh the link's validity window so the applicant gets a fresh
@@ -388,10 +402,12 @@ exports.resendInvitation = async (req, res) => {
       return res.status(500).json({ success: false, message: "Failed to send email. Please try again." });
     }
 
-    // Update lastEmailSentAt and refresh the link expiry
+    // Update lastEmailSentAt, refresh the link expiry window, and reactivate
+    // the token if it expired by time (so the new expiry window is honoured).
     await BulkPassSchema.setStatus(batch.id, batch.status, {
       lastEmailSentAt: new Date().toISOString(),
       tokenExpiresAt: newExpiry,
+      tokenActive: true,
     });
 
     return res.status(200).json({
@@ -819,7 +835,7 @@ exports.uploadFiles = async (req, res) => {
     if (!batch) {
       return res.status(404).json({ success: false, message: "Invalid link" });
     }
-    if (!batch.tokenActive) {
+    if (isLinkExpired(batch)) {
       return res.status(403).json({ success: false, message: "Link expired or inactive" });
     }
 
@@ -854,7 +870,7 @@ exports.previewParsed = async (req, res) => {
     if (!batch) {
       return res.status(404).json({ success: false, message: "Invalid link" });
     }
-    if (!batch.tokenActive) {
+    if (isLinkExpired(batch)) {
       return res.status(403).json({ success: false, message: "Link expired or inactive" });
     }
 
@@ -912,7 +928,7 @@ exports.submitBatch = async (req, res) => {
     if (!batch) {
       return res.status(404).json({ success: false, message: "Invalid link" });
     }
-    if (!batch.tokenActive) {
+    if (isLinkExpired(batch)) {
       return res.status(403).json({ success: false, message: "Link expired or inactive" });
     }
 
@@ -1100,6 +1116,34 @@ exports.downloadPdf = async (req, res) => {
 };
 
 /**
+ * POST /api/bulk-pass/:id/update-pdf-path  (internal — called by approval-admin-service)
+ * Updates qrPdfPath on an already-COMPLETED batch (e.g. after on-demand PDF regeneration).
+ */
+exports.updatePdfPath = async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!id || isNaN(id)) return res.status(400).json({ success: false, message: "Invalid batch ID" });
+
+    const { qrPdfPath } = req.body;
+    if (!qrPdfPath || typeof qrPdfPath !== "string") {
+      return res.status(400).json({ success: false, message: "qrPdfPath is required" });
+    }
+
+    const batch = await BulkPassSchema.getById(id);
+    if (!batch) return res.status(404).json({ success: false, message: "Batch not found" });
+    if (batch.status !== "COMPLETED") {
+      return res.status(400).json({ success: false, message: "Only COMPLETED batches can have their PDF path updated" });
+    }
+
+    await BulkPassSchema.setStatus(id, "COMPLETED", { qrPdfPath });
+    return res.status(200).json({ success: true, message: "PDF path updated" });
+  } catch (err) {
+    console.error("[bulkPass] updatePdfPath error:", err.message);
+    return res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
+/**
  * GET /api/bulk-pass/approval-queue  (internal — called by approval-admin-service)
  * Returns all UNDER_REVIEW batches ordered oldest-first.
  * Requirements: 8.1
@@ -1116,8 +1160,10 @@ exports.getApprovalQueue = async (req, res) => {
 
 /**
  * GET /api/bulk-pass/:id/qr-data  (internal — called by qr-service, no user auth)
- * Returns { batch, persons } for QR/PDF generation. Mirrors the vendor
- * pass `vendor-qr-data` endpoint so the QR service can fetch without a JWT.
+ * Returns { batch, persons } for QR/PDF generation. Only APPROVED persons are
+ * included so that rejected persons never appear in the generated pass.
+ * Mirrors the vendor pass `vendor-qr-data` endpoint so the QR service can
+ * fetch without a JWT.
  */
 exports.getBatchQrData = async (req, res) => {
   try {
@@ -1125,7 +1171,8 @@ exports.getBatchQrData = async (req, res) => {
     if (!id || isNaN(id)) return res.status(400).json({ success: false, message: "Invalid batch ID" });
     const batch = await BulkPassSchema.getById(id);
     if (!batch) return res.status(404).json({ success: false, message: "Batch not found" });
-    const persons = await BulkPassSchema.getPersonsByBatch(id);
+    // Return only APPROVED persons so QR generation never includes rejected ones.
+    const persons = await BulkPassSchema.getApprovedPersonsByBatch(id);
     return res.status(200).json({ success: true, data: { batch, persons } });
   } catch (err) {
     console.error("[bulkPass] getBatchQrData error:", err.message);
@@ -1152,6 +1199,19 @@ exports.getPublicScanData = async (req, res) => {
       return res.status(403).json({ success: false, message: "This pass is not available for viewing" });
     }
 
+    // Check if the pass validity period has passed.
+    if (batch.validityUpto && new Date(batch.validityUpto).getTime() < Date.now()) {
+      return res.status(403).json({
+        success: false,
+        message: "This pass has expired.",
+        data: {
+          expired: true,
+          refNo: batch.refNo,
+          validityUpto: batch.validityUpto,
+        },
+      });
+    }
+
     const rawPersons = await BulkPassSchema.getPersonsByBatch(id);
 
     // Mask Aadhaar (show last 4 digits only) for public display.
@@ -1160,16 +1220,26 @@ exports.getPublicScanData = async (req, res) => {
       return s.length >= 4 ? `XXXX XXXX ${s.slice(-4)}` : (s || null);
     };
 
-    const persons = (rawPersons || []).map((p) => ({
-      id: p.id,
-      name: p.name,
-      aadhaar: maskAadhaar(p.aadhaar),
-      dob: p.dob,
-      mobile: p.mobile,
-      vehicleNumber: p.vehicleNumber || null,
-      vehicleType: p.vehicleType || null,
-      inCharge: p.inCharge === true,
-    }));
+    // Only show APPROVED persons and vehicles in the public pass view.
+    // Rejected persons should not be visible to the gate or the applicant.
+    const persons = (rawPersons || [])
+      .filter((p) => {
+        // Vehicles (rows with vehicleNumber) don't go through individual approval —
+        // include them as long as the batch itself is COMPLETED.
+        if (p.vehicleNumber && String(p.vehicleNumber).trim() !== "") return true;
+        // Persons must be explicitly APPROVED.
+        return p.approvalStatus === "APPROVED";
+      })
+      .map((p) => ({
+        id: p.id,
+        name: p.name,
+        aadhaar: maskAadhaar(p.aadhaar),
+        dob: p.dob,
+        mobile: p.mobile,
+        vehicleNumber: p.vehicleNumber || null,
+        vehicleType: p.vehicleType || null,
+        inCharge: p.inCharge === true,
+      }));
 
     const vehicles = persons
       .filter((p) => p.vehicleNumber && String(p.vehicleNumber).trim() !== "")
@@ -1181,6 +1251,11 @@ exports.getPublicScanData = async (req, res) => {
         mobile: p.mobile,
       }));
 
+    // Use actual approved counts so the view page shows accurate numbers,
+    // not the originally declared estimates.
+    const approvedPersonCount = persons.filter((p) => !p.vehicleNumber).length;
+    const approvedVehicleCount = vehicles.length;
+
     return res.status(200).json({
       success: true,
       data: {
@@ -1191,8 +1266,8 @@ exports.getPublicScanData = async (req, res) => {
           visitorType: batch.visitorType,
           companyName: batch.companyName,
           applicantMobile: batch.applicantMobile,
-          noOfPersons: batch.noOfPersons,
-          noOfVehicles: batch.noOfVehicles,
+          noOfPersons: approvedPersonCount,
+          noOfVehicles: approvedVehicleCount,
           purpose: batch.purpose,
           validityFrom: batch.validityFrom,
           validityUpto: batch.validityUpto,
@@ -1212,26 +1287,121 @@ exports.getPublicScanData = async (req, res) => {
 };
 
 /**
- * POST /api/bulk-pass/:id/approve  (called from approval-admin-service via internal call)
- * Allows approval-admin-service to set COMPLETED + store qrPdfPath.
- * Requirements: 8.2, 11.2
+ * POST /api/bulk-pass/:batchId/persons/:personId/approve  (internal — called by approval-admin-service)
+ * Approve a single person within a bulk batch.
  */
-exports.approveBatch = async (req, res) => {
+exports.approvePersonInBatch = async (req, res) => {
+  try {
+    const batchId = Number(req.params.batchId);
+    const personId = Number(req.params.personId);
+    if (!batchId || isNaN(batchId)) return res.status(400).json({ success: false, message: "Invalid batch ID" });
+    if (!personId || isNaN(personId)) return res.status(400).json({ success: false, message: "Invalid person ID" });
+
+    const { approvedBy } = req.body;
+
+    const batch = await BulkPassSchema.getById(batchId);
+    if (!batch) return res.status(404).json({ success: false, message: "Batch not found" });
+    if (batch.status !== "UNDER_REVIEW") {
+      return res.status(400).json({ success: false, message: "Batch is not under review" });
+    }
+
+    const person = await BulkPassSchema.getPersonById(personId);
+    if (!person || person.batchId !== batchId) {
+      return res.status(404).json({ success: false, message: "Person not found in this batch" });
+    }
+    if (person.approvalStatus !== "PENDING") {
+      return res.status(400).json({ success: false, message: `Person is already ${person.approvalStatus.toLowerCase()}` });
+    }
+
+    const updated = await BulkPassSchema.setPersonApprovalStatus(personId, "APPROVED", null, approvedBy || null);
+    return res.status(200).json({ success: true, data: updated });
+  } catch (err) {
+    console.error("[bulkPass] approvePersonInBatch error:", err.message);
+    return res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
+/**
+ * POST /api/bulk-pass/:batchId/persons/:personId/reject  (internal — called by approval-admin-service)
+ * Reject a single person within a bulk batch.
+ */
+exports.rejectPersonInBatch = async (req, res) => {
+  try {
+    const batchId = Number(req.params.batchId);
+    const personId = Number(req.params.personId);
+    if (!batchId || isNaN(batchId)) return res.status(400).json({ success: false, message: "Invalid batch ID" });
+    if (!personId || isNaN(personId)) return res.status(400).json({ success: false, message: "Invalid person ID" });
+
+    const { rejectionReason, rejectedBy } = req.body;
+    if (!rejectionReason || !String(rejectionReason).trim()) {
+      return res.status(400).json({ success: false, message: "rejectionReason is required" });
+    }
+
+    const batch = await BulkPassSchema.getById(batchId);
+    if (!batch) return res.status(404).json({ success: false, message: "Batch not found" });
+    if (batch.status !== "UNDER_REVIEW") {
+      return res.status(400).json({ success: false, message: "Batch is not under review" });
+    }
+
+    const person = await BulkPassSchema.getPersonById(personId);
+    if (!person || person.batchId !== batchId) {
+      return res.status(404).json({ success: false, message: "Person not found in this batch" });
+    }
+    if (person.approvalStatus !== "PENDING") {
+      return res.status(400).json({ success: false, message: `Person is already ${person.approvalStatus.toLowerCase()}` });
+    }
+
+    const updated = await BulkPassSchema.setPersonApprovalStatus(personId, "REJECTED", rejectionReason.trim(), rejectedBy || null);
+    return res.status(200).json({ success: true, data: updated });
+  } catch (err) {
+    console.error("[bulkPass] rejectPersonInBatch error:", err.message);
+    return res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
+/**
+ * POST /api/bulk-pass/:id/finalize  (internal — called by approval-admin-service)
+ * Finalize a batch after all persons have been individually approved/rejected.
+ * - All persons must have been actioned (no PENDING remaining).
+ * - At least one person must be APPROVED.
+ * - Triggers QR/PDF generation for approved persons only.
+ * - Sets batch status to COMPLETED.
+ */
+exports.finalizeBatch = async (req, res) => {
   try {
     const id = Number(req.params.id);
     if (!id || isNaN(id)) return res.status(400).json({ success: false, message: "Invalid batch ID" });
-    const { qrPdfPath, approvedBy } = req.body;
+
+    const { qrPdfPath, finalizedBy } = req.body;
 
     const batch = await BulkPassSchema.getById(id);
-    if (!batch) {
-      return res.status(404).json({ success: false, message: "Batch not found" });
-    }
+    if (!batch) return res.status(404).json({ success: false, message: "Batch not found" });
     if (batch.status !== "UNDER_REVIEW") {
-      return res.status(400).json({ success: false, message: "Only UNDER_REVIEW batches can be approved" });
+      return res.status(400).json({ success: false, message: "Only UNDER_REVIEW batches can be finalized" });
+    }
+
+    // Check all persons have been actioned
+    const summary = await BulkPassSchema.getPersonApprovalSummary(id);
+    if (summary.pending > 0) {
+      return res.status(400).json({
+        success: false,
+        message: `${summary.pending} person(s) still have PENDING status. All must be approved or rejected before finalizing.`,
+        data: summary,
+      });
+    }
+    if (summary.approved === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "At least one person must be approved to finalize the batch.",
+        data: summary,
+      });
     }
 
     const updated = await BulkPassSchema.setStatus(id, "COMPLETED", { qrPdfPath: qrPdfPath || null });
-    await BulkPassSchema.logTransition(id, "COMPLETED", approvedBy || null, "Approved by Traffic Officer");
+    await BulkPassSchema.logTransition(
+      id, "COMPLETED", finalizedBy || null,
+      `Finalized: ${summary.approved} approved, ${summary.rejected} rejected out of ${summary.total} total`
+    );
 
     sendEmail("sendBulkPassApproved", {
       email: batch.applicantEmail,
@@ -1240,19 +1410,46 @@ exports.approveBatch = async (req, res) => {
       validityFrom: batch.validityFrom,
       validityUpto: batch.validityUpto,
       departmentName: batch.departmentName,
-      // Email links to the approved-pass page; the QR itself opens bulk_pass_view.
+      approvedCount: summary.approved,
+      rejectedCount: summary.rejected,
       qrLink: FRONTEND_BASE ? `${FRONTEND_BASE}/bulk_pass_approved/${encryptToken(batch.id)}` : null,
     }).catch(() => {});
 
-    return res.status(200).json({ success: true, data: updated });
+    // If some persons were rejected, send a separate email listing each
+    // rejected person with the officer's rejection reason.
+    if (summary.rejected > 0) {
+      pool.query(
+        `SELECT name, aadhaar, "approvalReason" AS "rejectionReason"
+         FROM "bulk_pass_persons"
+         WHERE "batchId" = $1 AND "approvalStatus" = 'REJECTED' AND "vehicleNumber" IS NULL
+         ORDER BY id`,
+        [id]
+      ).then((result) => {
+        const rejectedPersons = result.rows || [];
+        if (!rejectedPersons.length) return;
+        return sendEmail("sendBulkPassRejectedPersons", {
+          email: batch.applicantEmail,
+          refNo: batch.refNo,
+          companyName: batch.companyName,
+          rejectedPersons,
+        });
+      }).catch(() => {});
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: updated,
+      summary,
+    });
   } catch (err) {
-    console.error("[bulkPass] approveBatch error:", err.message);
+    console.error("[bulkPass] finalizeBatch error:", err.message);
     return res.status(500).json({ success: false, message: "Internal server error" });
   }
 };
 
 /**
- * POST /api/bulk-pass/:id/reject  (called from approval-admin-service via internal call)
+ * POST /api/bulk-pass/:id/reject  (kept for backward compat — rejects ALL pending persons)
+ * Called when the traffic officer wants to reject the entire batch at once.
  * Requirements: 8.3
  */
 exports.rejectBatch = async (req, res) => {
@@ -1272,6 +1469,17 @@ exports.rejectBatch = async (req, res) => {
     if (batch.status !== "UNDER_REVIEW") {
       return res.status(400).json({ success: false, message: "Only UNDER_REVIEW batches can be rejected" });
     }
+
+    // Mark all PENDING persons as REJECTED
+    await pool.query(
+      `UPDATE "bulk_pass_persons"
+       SET "approvalStatus" = 'REJECTED',
+           "approvalReason" = $2,
+           "approvedBy"     = $3,
+           "approvedAt"     = NOW()
+       WHERE "batchId" = $1 AND "approvalStatus" = 'PENDING'`,
+      [id, rejectionReason.trim(), rejectedBy || null]
+    );
 
     const updated = await BulkPassSchema.setStatus(id, "REJECTED", { rejectionReason: rejectionReason.trim() });
     await BulkPassSchema.logTransition(id, "REJECTED", rejectedBy || null, rejectionReason.trim());
@@ -1299,7 +1507,7 @@ exports.parseExcelOnly = async (req, res) => {
   try {
     const batch = await BulkPassSchema.getByToken(getResolvedToken(req.params.token));
     if (!batch) return res.status(404).json({ success: false, message: "Invalid link" });
-    if (!batch.tokenActive) return res.status(403).json({ success: false, message: "Link expired or inactive" });
+    if (isLinkExpired(batch)) return res.status(403).json({ success: false, message: "Link expired or inactive" });
 
     const { filePaths, fileNames } = req.body;
     if (!Array.isArray(filePaths) || !filePaths.length) {
@@ -1331,7 +1539,7 @@ exports.uploadZipPhotos = async (req, res) => {
   try {
     const batch = await BulkPassSchema.getByToken(getResolvedToken(req.params.token));
     if (!batch) return res.status(404).json({ success: false, message: "Invalid link" });
-    if (!batch.tokenActive) return res.status(403).json({ success: false, message: "Link expired or inactive" });
+    if (isLinkExpired(batch)) return res.status(403).json({ success: false, message: "Link expired or inactive" });
 
     const zipFile = req.file;
     if (!zipFile) return res.status(400).json({ success: false, message: "No zip file uploaded" });
@@ -1402,7 +1610,7 @@ exports.submitRowsDirectly = async (req, res) => {
   try {
     const batch = await BulkPassSchema.getByToken(getResolvedToken(req.params.token));
     if (!batch) return res.status(404).json({ success: false, message: "Invalid link" });
-    if (!batch.tokenActive) return res.status(403).json({ success: false, message: "Link expired or inactive" });
+    if (isLinkExpired(batch)) return res.status(403).json({ success: false, message: "Link expired or inactive" });
 
     if (!["DRAFT", "RETURNED_TO_APPLICANT"].includes(batch.status)) {
       return res.status(400).json({ success: false, message: "Batch is not in a submittable state" });
@@ -1482,26 +1690,15 @@ exports.submitRowsDirectly = async (req, res) => {
       if (!photoRes.valid) { errors.push({ index: i, message: `${rowLabel}: ${photoRes.error}` }); continue; }
     }
 
-    // ── In-charge validation: exactly 2 persons must be marked in-charge, and
-    //    each must have an Aadhaar card document uploaded ──────────────────────
-    const inChargeIndexes = rows
-      .map((r, i) => (r.inCharge ? i : -1))
-      .filter((i) => i !== -1);
-
-    if (inChargeIndexes.length !== 2) {
-      errors.push({
-        index: -1,
-        message: `Exactly 2 persons must be marked as in-charge (currently ${inChargeIndexes.length}).`,
-      });
-    } else {
-      for (const i of inChargeIndexes) {
-        const uploaded = req.files && req.files[`person_${i}_aadhaarCard`] && req.files[`person_${i}_aadhaarCard`][0];
-        if (!uploaded) {
-          errors.push({
-            index: i,
-            message: `Row ${i + 1}: Aadhaar card is required for in-charge persons`,
-          });
-        }
+    // ── Aadhaar card mandatory for EVERY person ──────────────────────────────
+    // Each person must have an Aadhaar card document uploaded.
+    for (let i = 0; i < rows.length; i++) {
+      const uploaded = req.files && req.files[`person_${i}_aadhaarCard`] && req.files[`person_${i}_aadhaarCard`][0];
+      if (!uploaded) {
+        errors.push({
+          index: i,
+          message: `Row ${i + 1}: Aadhaar card document is required for every person`,
+        });
       }
     }
 
@@ -1536,6 +1733,17 @@ exports.submitRowsDirectly = async (req, res) => {
     for (let i = 0; i < vehicleMeta.length; i++) {
       const v = vehicleMeta[i];
       if (!v.regNo) continue;
+
+      // Require driver Aadhaar card document for every vehicle
+      const driverAadhaarUploaded = req.files && req.files[`vehicle_${i}_driverAadhaarCard`] && req.files[`vehicle_${i}_driverAadhaarCard`][0];
+      if (!driverAadhaarUploaded) {
+        // Clean up any already-uploaded files before rejecting
+        return res.status(400).json({
+          success: false,
+          message: `Vehicle ${i + 1} (${v.regNo}): Driver Aadhaar card document is required`,
+        });
+      }
+
       const normReg = v.regNo.replace(/[\s\-]/g, "").toUpperCase();
       const blRes = await pool.query(
         `SELECT id, reason, status FROM blacklist_entries
@@ -1573,20 +1781,18 @@ exports.submitRowsDirectly = async (req, res) => {
       const photoPath = path.join(uploadDir, photoFileName);
       fs.writeFileSync(photoPath, compressed);
 
-      // In-charge person: persist the uploaded Aadhaar card document.
+      // ALL persons: persist the uploaded Aadhaar card document.
       let aadhaarCardPath = null;
-      if (row.inCharge) {
-        const uploaded = req.files && req.files[`person_${i}_aadhaarCard`] && req.files[`person_${i}_aadhaarCard`][0];
-        if (uploaded) {
-          fs.mkdirSync(personDocsDir, { recursive: true });
-          const destName = `${String(row.aadhaar).replace(/\s+/g, "")}_${i}_aadhaar${path.extname(uploaded.originalname)}`;
-          const destPath = path.join(personDocsDir, destName);
-          // copy+unlink — temp dir may be on a different filesystem (EXDEV on rename)
-          fs.copyFileSync(uploaded.path, destPath);
-          try { fs.unlinkSync(uploaded.path); } catch {}
-          const compResult = await compressDocumentFile(destPath);
-          aadhaarCardPath = compResult.path;
-        }
+      const aadhaarUploaded = req.files && req.files[`person_${i}_aadhaarCard`] && req.files[`person_${i}_aadhaarCard`][0];
+      if (aadhaarUploaded) {
+        fs.mkdirSync(personDocsDir, { recursive: true });
+        const destName = `${String(row.aadhaar).replace(/\s+/g, "")}_${i}_aadhaar${path.extname(aadhaarUploaded.originalname)}`;
+        const destPath = path.join(personDocsDir, destName);
+        // copy+unlink — temp dir may be on a different filesystem (EXDEV on rename)
+        fs.copyFileSync(aadhaarUploaded.path, destPath);
+        try { fs.unlinkSync(aadhaarUploaded.path); } catch {}
+        const compResult = await compressDocumentFile(destPath);
+        aadhaarCardPath = compResult.path;
       }
 
       personRows.push({
@@ -1621,7 +1827,7 @@ exports.submitRowsDirectly = async (req, res) => {
       if (!v.regNo) continue;
 
       // Move uploaded doc files to permanent location and compress to ≤ 5 MB
-      const docFields = ["rc", "insurance", "fitness", "permit", "roadTax", "emission"];
+      const docFields = ["rc", "insurance", "fitness", "permit", "roadTax", "emission", "driverAadhaarCard"];
       const docPaths = {};
       for (const field of docFields) {
         const fileKey = `vehicle_${i}_${field}`;

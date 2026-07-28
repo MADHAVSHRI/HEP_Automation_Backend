@@ -441,20 +441,25 @@ function verifyFileMagicBytes(filePath, fieldname) {
     fs.readSync(fd, buf, 0, 8, 0);
     fs.closeSync(fd);
 
-    const fieldPrefix = fieldname.replace(/_\d+$/, "");
+    // Aadhaar card fields (person_N_aadhaarCard, vehicle_N_driverAadhaarCard) and
+    // photo fields accept JPEG, PNG, or PDF — check any of the three magic bytes.
+    const fnLower = fieldname.toLowerCase();
+    const isPhotoOrAadhaar = fnLower === "personphoto" ||
+                             fnLower.includes("aadhaar") ||
+                             fnLower.endsWith("photo");
 
-    // personPhoto is the only field that accepts images; everything else must be PDF
-    if (fieldPrefix === "personPhoto") {
+    if (isPhotoOrAadhaar) {
       return (
-        buf.slice(0, JPEG_MAGIC.length).equals(JPEG_MAGIC) ||
-        buf.slice(0, PNG_MAGIC.length).equals(PNG_MAGIC)
+        buf.subarray(0, JPEG_MAGIC.length).equals(JPEG_MAGIC) ||
+        buf.subarray(0, PNG_MAGIC.length).equals(PNG_MAGIC)  ||
+        buf.subarray(0, PDF_MAGIC.length).equals(PDF_MAGIC)
       );
     }
 
-    // All other fields expect a real PDF
-    return buf.slice(0, PDF_MAGIC.length).equals(PDF_MAGIC);
+    // All other fields (vehicle docs, work orders, etc.) must be genuine PDFs.
+    return buf.subarray(0, PDF_MAGIC.length).equals(PDF_MAGIC);
   } catch {
-    // Cannot read → treat as invalid
+    // Cannot read file → treat as invalid to be safe
     return false;
   }
 }
@@ -491,7 +496,7 @@ function validateUploadedFileTypes(req, res, next) {
       }
       return res.status(400).json({
         success: false,
-        message: "Invalid file content. Only genuine PDF documents are allowed for document uploads.",
+        message: "Invalid file content. Aadhaar cards must be PDF, JPG or PNG. Other documents must be genuine PDFs.",
       });
     }
   }

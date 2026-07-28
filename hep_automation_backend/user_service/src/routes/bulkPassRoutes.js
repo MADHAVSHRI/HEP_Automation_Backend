@@ -150,11 +150,11 @@ router.post(
 router.post(
   "/public/:token/submit-rows",
   (req, res, next) => {
-    // Accept any field name for vehicle docs + in-charge person Aadhaar cards.
+    // Accept any field name for vehicle docs + Aadhaar cards for all persons.
     // Vehicles: up to 20 × 6 docs = 120 files. Persons: up to 200 Aadhaar cards.
     const fields = [];
     for (let i = 0; i < 20; i++) {
-      ["rc", "insurance", "fitness", "permit", "roadTax", "emission"].forEach((doc) => {
+      ["rc", "insurance", "fitness", "permit", "roadTax", "emission", "driverAadhaarCard"].forEach((doc) => {
         fields.push({ name: `vehicle_${i}_${doc}`, maxCount: 1 });
       });
     }
@@ -169,7 +169,7 @@ router.post(
       },
       filename: (_req, file, cb) => cb(null, Date.now() + "_" + file.originalname.replace(/[^a-zA-Z0-9._-]/g, "_")),
     });
-    multer({ storage: docStorage, limits: { fileSize: 10 * 1024 * 1024, files: 320 } })
+    multer({ storage: docStorage, limits: { fileSize: 10 * 1024 * 1024, files: 340 } })
       .fields(fields)(req, res, (err) => {
         if (err) return res.status(400).json({ success: false, message: err.message || "File upload error" });
         next();
@@ -220,6 +220,17 @@ router.get("/scan/:id", bulkPassController.getPublicScanData);
 
 // ── Wildcard :id routes — keep these LAST among GET/POST on /:id ───────────
 
+// Internal per-person approve / reject — declared BEFORE /:id to prevent
+// "persons" being swallowed by a hypothetical /:id/persons pattern
+router.post("/:batchId/persons/:personId/approve", bulkPassController.approvePersonInBatch);
+router.post("/:batchId/persons/:personId/reject",  bulkPassController.rejectPersonInBatch);
+
+// Internal finalize — called after all persons have been individually actioned
+router.post("/:id/finalize", bulkPassController.finalizeBatch);
+
+// Internal batch-level reject (reject all pending persons at once)
+router.post("/:id/reject", bulkPassController.rejectBatch);
+
 // Get batch detail
 router.get("/:id", verifyToken, bulkPassController.getBatchDetail);
 
@@ -241,8 +252,7 @@ router.post("/:id/resubmit", verifyToken, bulkPassController.resubmitBatch);
 // Download QR PDF (COMPLETED batches)
 router.get("/:id/pdf", verifyToken, bulkPassController.downloadPdf);
 
-// Internal approve / reject called by approval-admin-service
-router.post("/:id/approve", bulkPassController.approveBatch);
-router.post("/:id/reject", bulkPassController.rejectBatch);
+// Internal: update qrPdfPath on a COMPLETED batch (called by approval-admin after on-demand regen)
+router.post("/:id/update-pdf-path", bulkPassController.updatePdfPath);
 
 module.exports = router;
