@@ -23,6 +23,7 @@ async function checkAndNotifyLicenseExpirations() {
         WHERE
           "licenseValidityDate" IS NOT NULL
           AND status = 'approved'
+          AND ("isLifetimeLicense" IS NOT TRUE)
           AND ("licenseValidityDate"::date - CURRENT_DATE) = $1;
       `;
 

@@ -37,21 +37,22 @@ const AgentProfileUpdateRequest = {
             "pincode" = $10,
             "addressDoc" = COALESCE($11, "addressDoc"),
             "licenseNumber" = $12,
-            "licenseValidityDate" = $13,
-            "licenseDoc" = COALESCE($14, "licenseDoc"),
-            "gstinNumber" = $15,
-            "gstinDoc" = COALESCE($16, "gstinDoc"),
-            "panNumber" = $17,
-            "panDoc" = COALESCE($18, "panDoc"),
-            "tanNumber" = $19,
-            "tanDoc" = COALESCE($20, "tanDoc"),
-            "remarks" = $21,
+            "isLifetimeLicense" = $13,
+            "licenseValidityDate" = $14,
+            "licenseDoc" = COALESCE($15, "licenseDoc"),
+            "gstinNumber" = $16,
+            "gstinDoc" = COALESCE($17, "gstinDoc"),
+            "panNumber" = $18,
+            "panDoc" = COALESCE($19, "panDoc"),
+            "tanNumber" = $20,
+            "tanDoc" = COALESCE($21, "tanDoc"),
+            "remarks" = $22,
             "status" = 'pending',
             "rejectedReason" = NULL,
             "processedBy" = NULL,
             "processedAt" = NULL,
             "updatedAt" = CURRENT_TIMESTAMP
-          WHERE id = $22
+          WHERE id = $23
           RETURNING *;
         `;
         const updateValues = [
@@ -67,6 +68,7 @@ const AgentProfileUpdateRequest = {
           payload.pincode || null,
           payload.addressDoc || null,
           payload.licenseNumber || null,
+          Boolean(payload.isLifetimeLicense),
           payload.licenseValidityDate || null,
           payload.licenseDoc || null,
           payload.gstinNumber || null,
@@ -102,6 +104,7 @@ const AgentProfileUpdateRequest = {
           "pincode",
           "addressDoc",
           "licenseNumber",
+          "isLifetimeLicense",
           "licenseValidityDate",
           "licenseDoc",
           "gstinNumber",
@@ -116,7 +119,7 @@ const AgentProfileUpdateRequest = {
         VALUES (
           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
           $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
-          $21, $22, $23, 'pending'
+          $21, $22, $23, $24, 'pending'
         )
         RETURNING *;
       `;
@@ -136,6 +139,7 @@ const AgentProfileUpdateRequest = {
         payload.pincode || null,
         payload.addressDoc || null,
         payload.licenseNumber || null,
+        Boolean(payload.isLifetimeLicense),
         payload.licenseValidityDate || null,
         payload.licenseDoc || null,
         payload.gstinNumber || null,
@@ -301,6 +305,7 @@ const AgentProfileUpdateRequest = {
         r."pincode",
         r."addressDoc",
         r."licenseNumber",
+        r."isLifetimeLicense",
         TO_CHAR(r."licenseValidityDate", 'YYYY-MM-DD') AS "licenseValidityDate",
         r."licenseDoc",
         r."gstinNumber",
@@ -326,6 +331,7 @@ const AgentProfileUpdateRequest = {
         a."state" AS "currentState",
         a."pincode" AS "currentPincode",
         a."licenseNumber" AS "currentLicenseNumber",
+        a."isLifetimeLicense" AS "currentIsLifetimeLicense",
         TO_CHAR(a."licenseValidityDate", 'YYYY-MM-DD') AS "currentLicenseValidityDate",
         a."licenseDoc" AS "currentLicenseDoc",
         a."gstinNumber" AS "currentGstinNumber",
@@ -468,6 +474,13 @@ const AgentProfileUpdateRequest = {
           tanNumber: "tanNumber",
           tanDoc: "tanDoc",
         };
+
+        if (reqData.isLifetimeLicense) {
+          updateFields.push(`"isLifetimeLicense" = true`);
+          updateFields.push(`"licenseValidityDate" = NULL`);
+        } else {
+          updateFields.push(`"isLifetimeLicense" = false`);
+        }
 
         for (const [reqKey, agentCol] of Object.entries(fieldMap)) {
           if (reqData[reqKey] !== null && reqData[reqKey] !== undefined && String(reqData[reqKey]).trim() !== "") {

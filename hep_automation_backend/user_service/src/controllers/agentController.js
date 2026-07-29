@@ -73,6 +73,7 @@ exports.registerAgent = async (req, res) => {
       mobileNo,
       email,
       licenseNumber,
+      isLifetimeLicense,
       licenseValidityDate,
       addressLine,
       city,
@@ -96,8 +97,9 @@ exports.registerAgent = async (req, res) => {
     const normalizedGstinNumber = gstinNumber && gstinNumber.trim() !== "" ? gstinNumber.trim() : null;
     const normalizedPanNumber = panNumber && panNumber.trim() !== "" ? panNumber.trim() : null;
     const normalizedTanNumber = tanNumber && tanNumber.trim() !== "" ? tanNumber.trim() : null;
+    const isLifetime = isLifetimeLicense === "true" || isLifetimeLicense === true;
     const normalizedLicenseNumber = licenseNumber && licenseNumber.trim() !== "" ? licenseNumber.trim() : "";
-    const normalizedLicenseValidityDate = licenseValidityDate && licenseValidityDate.trim() !== "" ? licenseValidityDate : null;
+    const normalizedLicenseValidityDate = !isLifetime && licenseValidityDate && licenseValidityDate.trim() !== "" ? licenseValidityDate : null;
 
     /* ===== PERFORMANCE CHANGE =====
        Run captcha verification and duplicate check in parallel
@@ -163,6 +165,7 @@ exports.registerAgent = async (req, res) => {
       workOrder,
       requisitionLetter,
       licenseNumber: normalizedLicenseNumber,
+      isLifetimeLicense: isLifetime,
       licenseValidityDate: normalizedLicenseValidityDate,
       licenseDoc,
       addressLine,
@@ -202,13 +205,13 @@ exports.registerAgent = async (req, res) => {
       referenceNumber: savedAgent.referenceNumber,
     });
 
-    await sendSmsEvent({
+    sendSmsEvent({
       type: "agent-registration-sms",
       mobileNumber: savedAgent.mobileNo,
       username: savedAgent.firstName,
       requestId: savedAgent.referenceNumber,
       status: savedAgent.status
-    });
+    }).catch((err) => console.error("SMS Event Error:", err.message));
 
     res.status(201).json({
       success: true,
@@ -1192,6 +1195,7 @@ exports.submitProfileUpdateRequest = async (req, res) => {
       state,
       pincode,
       licenseNumber,
+      isLifetimeLicense,
       licenseValidityDate,
       gstinNumber,
       panNumber,
@@ -1224,7 +1228,9 @@ exports.submitProfileUpdateRequest = async (req, res) => {
 
     // ── Supporting Document Validations & Change Detection ─────────────────
     const isLicNumChanged = licenseNumber && normStr(licenseNumber) !== normStr(currentAgent.licenseNumber);
-    const isLicDateChanged = licenseValidityDate && normDate(licenseValidityDate) !== normDate(currentAgent.licenseValidityDate);
+    const isLifetimeReq = isLifetimeLicense === "true" || isLifetimeLicense === true;
+    const isLifetimeChanged = req.body.isLifetimeLicense !== undefined && isLifetimeReq !== Boolean(currentAgent.isLifetimeLicense);
+    const isLicDateChanged = isLifetimeChanged || (licenseValidityDate && normDate(licenseValidityDate) !== normDate(currentAgent.licenseValidityDate));
     const isEntityNameChanged = entityName && normStr(entityName) !== normStr(currentAgent.entityName);
     const isAuthPersonChanged = authorizedPersonName && normStr(authorizedPersonName) !== normStr(currentAgent.authorizedPersonName);
     const isMobileChanged = mobileNo && normStr(mobileNo) !== normStr(currentAgent.mobileNo);
@@ -1319,7 +1325,8 @@ exports.submitProfileUpdateRequest = async (req, res) => {
       pincode: isAddressChanged ? pincode : null,
       addressDoc: addressDoc || null,
       licenseNumber: isLicNumChanged ? licenseNumber : null,
-      licenseValidityDate: isLicDateChanged ? normDate(licenseValidityDate) : null,
+      isLifetimeLicense: isLicDateChanged || isLifetimeChanged ? isLifetimeReq : Boolean(currentAgent.isLifetimeLicense),
+      licenseValidityDate: isLicDateChanged ? (isLifetimeReq ? null : normDate(licenseValidityDate)) : null,
       licenseDoc: licenseDoc || null,
       gstinNumber: isGstinChanged ? gstinNumber : null,
       gstinDoc: gstinDoc || null,

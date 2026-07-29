@@ -70,6 +70,7 @@ const Agent = {
       "tanNumber",
       "tanDoc",
       "licenseNumber",
+      "isLifetimeLicense",
       TO_CHAR("licenseValidityDate", 'YYYY-MM-DD') AS "licenseValidityDate",
       "licenseDoc",
       "requisitionLetter",
@@ -107,6 +108,7 @@ const Agent = {
         "email",
         "workOrder",
         "licenseNumber",
+        "isLifetimeLicense",
         "licenseValidityDate",
         "licenseDoc",
         "requisitionLetter",
@@ -134,13 +136,13 @@ const Agent = {
       )
       VALUES (
         $1, $2, $3, $4, $5,
-        $6, $7, $8, $9, $10,
-        $11, $12,
-        $13, $14,
-        $15, $16,
-        $17,
-        $18, $19, $20, $21, $22,
-        $23, $24, $25, $26, $27, $28, $29, $30, $31
+        $6, $7, $8, $9, $10, $11,
+        $12, $13,
+        $14, $15,
+        $16, $17,
+        $18,
+        $19, $20, $21, $22, $23,
+        $24, $25, $26, $27, $28, $29, $30, $31, $32
       )
       RETURNING *
     `;
@@ -153,6 +155,7 @@ const Agent = {
       agentData.email,
       agentData.workOrder,
       agentData.licenseNumber,
+      Boolean(agentData.isLifetimeLicense),
       agentData.licenseValidityDate,
       agentData.licenseDoc,
       agentData.requisitionLetter,

@@ -276,10 +276,10 @@ const createPassRequest = async (req, res) => {
     // 0. Check Agent License Expiry & Duration Lock (Duration-Aware Validation)
     if (payload.agentId) {
       const agentRes = await pool.query(
-        'SELECT id, TO_CHAR("licenseValidityDate", \'YYYY-MM-DD\') AS "licenseValidityDate", "entityName" FROM "Agents" WHERE id = $1',
+        'SELECT id, "isLifetimeLicense", TO_CHAR("licenseValidityDate", \'YYYY-MM-DD\') AS "licenseValidityDate", "entityName" FROM "Agents" WHERE id = $1',
         [payload.agentId]
       );
-      if (agentRes.rows.length > 0 && agentRes.rows[0].licenseValidityDate) {
+      if (agentRes.rows.length > 0 && !agentRes.rows[0].isLifetimeLicense && agentRes.rows[0].licenseValidityDate) {
         const licenseValidityStr = String(agentRes.rows[0].licenseValidityDate).split('T')[0];
         const [yyyy, mm, dd] = licenseValidityStr.split('-').map(Number);
 
