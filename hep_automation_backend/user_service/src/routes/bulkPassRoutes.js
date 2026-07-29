@@ -19,6 +19,8 @@ const fs = require("fs");
 const multer = require("multer");
 
 const verifyToken = require("../middlewares/verifyToken");
+// C-03 fix: service-key guard for all internal service-to-service routes
+const verifyService = require("../middlewares/verifyService");
 const upload = require("../middlewares/uploadMiddleware");
 const { validateUploadedFileTypes } = require("../middlewares/uploadMiddleware");
 const bulkPassController = require("../controllers/bulkPassController");
@@ -107,6 +109,10 @@ router.get("/public/:token", bulkPassController.getPublicByToken);
 // Real-time blacklist check for the public upload form (no auth needed)
 // GET /public/blacklist-check?entity_type=PERSON&identifier=123456789012
 router.get("/public/blacklist-check", bulkPassController.publicBlacklistCheck);
+
+// ULIP vehicle validity check for the public upload form (no auth needed)
+// POST /public/vehicle-check  { vehiclenumber: "TN01AB1234" }
+router.post("/public/vehicle-check", bulkPassController.publicVehicleCheck);
 
 // Upload Excel files (up to 5) — dedicated excelUpload middleware
 router.post(
@@ -207,12 +213,13 @@ router.post(
 router.get("/list", verifyToken, bulkPassController.listBatches);
 
 // Internal endpoints called by approval-admin-service (service-to-service)
+// C-03 fix: guarded by verifyService — requires x-service-key header.
 // MUST be declared before /:id to prevent "approval-queue" being parsed as an id
-router.get("/approval-queue", bulkPassController.getApprovalQueue);
+router.get("/approval-queue", verifyService, bulkPassController.getApprovalQueue);
 
 // Internal endpoint called by qr-service to fetch batch + persons for QR/PDF
-// generation (no user auth — applicant viewing the approved pass isn't logged in)
-router.get("/:id/qr-data", bulkPassController.getBatchQrData);
+// C-03 fix: guarded by verifyService — requires x-service-key header.
+router.get("/:id/qr-data", verifyService, bulkPassController.getBatchQrData);
 
 // PUBLIC scan endpoint — opened when anyone scans the bulk pass QR code.
 // No auth required; serves full details for COMPLETED batches only.
@@ -222,14 +229,17 @@ router.get("/scan/:id", bulkPassController.getPublicScanData);
 
 // Internal per-person approve / reject — declared BEFORE /:id to prevent
 // "persons" being swallowed by a hypothetical /:id/persons pattern
-router.post("/:batchId/persons/:personId/approve", bulkPassController.approvePersonInBatch);
-router.post("/:batchId/persons/:personId/reject",  bulkPassController.rejectPersonInBatch);
+// C-03 fix: guarded by verifyService — requires x-service-key header.
+router.post("/:batchId/persons/:personId/approve", verifyService, bulkPassController.approvePersonInBatch);
+router.post("/:batchId/persons/:personId/reject",  verifyService, bulkPassController.rejectPersonInBatch);
 
 // Internal finalize — called after all persons have been individually actioned
-router.post("/:id/finalize", bulkPassController.finalizeBatch);
+// C-03 fix: guarded by verifyService — requires x-service-key header.
+router.post("/:id/finalize", verifyService, bulkPassController.finalizeBatch);
 
 // Internal batch-level reject (reject all pending persons at once)
-router.post("/:id/reject", bulkPassController.rejectBatch);
+// C-03 fix: guarded by verifyService — requires x-service-key header.
+router.post("/:id/reject", verifyService, bulkPassController.rejectBatch);
 
 // Get batch detail
 router.get("/:id", verifyToken, bulkPassController.getBatchDetail);
@@ -253,6 +263,7 @@ router.post("/:id/resubmit", verifyToken, bulkPassController.resubmitBatch);
 router.get("/:id/pdf", verifyToken, bulkPassController.downloadPdf);
 
 // Internal: update qrPdfPath on a COMPLETED batch (called by approval-admin after on-demand regen)
-router.post("/:id/update-pdf-path", bulkPassController.updatePdfPath);
+// C-03 fix: guarded by verifyService — requires x-service-key header.
+router.post("/:id/update-pdf-path", verifyService, bulkPassController.updatePdfPath);
 
 module.exports = router;

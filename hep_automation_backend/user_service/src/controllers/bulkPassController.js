@@ -109,7 +109,10 @@ async function sendEmail(endpoint, payload) {
     });
     return true;
   } catch (err) {
-    console.error(`[bulkPass] Email send failed (${endpoint}):`, err.response?.data || err.message);
+    const detail = err.response?.data
+      ? JSON.stringify(err.response.data)
+      : err.message;
+    console.error(`[bulkPass] Email send failed (${endpoint}): status=${err.response?.status ?? "N/A"} — ${detail}`);
     return false;
   }
 }
@@ -227,6 +230,88 @@ exports.publicBlacklistCheck = async (req, res) => {
   } catch (err) {
     console.error("[bulkPass] publicBlacklistCheck error:", err.message);
     return res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
+/**
+ * POST /api/bulk-pass/public/vehicle-check
+ * Public endpoint — no auth required. Used by the applicant upload form to
+ * check RC validity, insurance expiry, fitness expiry, etc. via ULIP VAHAN/04.
+ * Body: { vehiclenumber: "TN01AB1234" }
+ */
+exports.publicVehicleCheck = async (req, res) => {
+  try {
+    const { vehiclenumber } = req.body;
+    if (!vehiclenumber || typeof vehiclenumber !== "string") {
+      return res.status(400).json({ success: false, message: "vehiclenumber is required" });
+    }
+
+    const reg = vehiclenumber.replace(/[\s\-]/g, "").toUpperCase();
+    if (!/^[A-Z0-9]{5,11}$/.test(reg)) {
+      return res.status(400).json({ success: false, message: "Invalid vehicle number format" });
+    }
+
+    const ulipService = require("../services/ulipService");
+    const data = await ulipService.verifyVehicle(reg);
+
+    // VAHAN/04 returns data inside response[0].response (JSON) when vehicle exists
+    const vd = data?.response?.[0]?.response;
+    if (!vd || data?.response?.[0]?.responseStatus === "ERROR") {
+      return res.json({ success: true, found: false, message: "Vehicle not found in VAHAN database" });
+    }
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    // Helper: parse ULIP date strings like "25-Jan-2032" or "25-01-2032"
+    const parseUlipDate = (str) => {
+      if (!str) return null;
+      const d = new Date(str);
+      return isNaN(d.getTime()) ? null : d;
+    };
+
+    // Collect all validity fields that exist in the response
+    const validityChecks = [
+      { label: "RC Registration",     date: parseUlipDate(vd.rcRegnUpto),          field: "rcRegnUpto"        },
+      { label: "Insurance",           date: parseUlipDate(vd.rcInsuranceUpto),      field: "rcInsuranceUpto"   },
+      { label: "Fitness Certificate", date: parseUlipDate(vd.rcFitUpto),            field: "rcFitUpto"         },
+      { label: "Tax",                 date: parseUlipDate(vd.rcTaxUpto),            field: "rcTaxUpto"         },
+      { label: "PUCC/Emission",       date: parseUlipDate(vd.rcPuccUpto),           field: "rcPuccUpto"        },
+    ].filter((c) => c.date !== null); // only include fields present in the response
+
+    const expired = validityChecks.filter((c) => c.date < today);
+    const valid   = validityChecks.filter((c) => c.date >= today);
+
+    // RC status check
+    const rcStatus = (vd.rcStatus || "").toUpperCase();
+    const rcActive = rcStatus === "ACTIVE" || rcStatus === "";
+
+    return res.json({
+      success: true,
+      found: true,
+      rcStatus: vd.rcStatus || null,
+      rcActive,
+      validityChecks: validityChecks.map((c) => ({
+        label: c.label,
+        date: c.date.toISOString().split("T")[0],
+        expired: c.date < today,
+      })),
+      expired: expired.map((c) => ({
+        label: c.label,
+        date: c.date.toISOString().split("T")[0],
+      })),
+      allValid: expired.length === 0 && rcActive,
+      // Extra info for display
+      makerModel: [vd.rcMakerDesc, vd.rcMakerModel].filter(Boolean).join(" – ") || null,
+      vehicleClass: vd.rcVhClassDesc || null,
+    });
+  } catch (err) {
+    console.error("[bulkPass] publicVehicleCheck error:", err.message || err);
+    // Don't block the form if ULIP is down — return a graceful degradation
+    return res.status(503).json({
+      success: false,
+      message: "Vehicle verification service is temporarily unavailable. Please try again.",
+    });
   }
 };
 
@@ -399,7 +484,7 @@ exports.resendInvitation = async (req, res) => {
     });
 
     if (!sent) {
-      return res.status(500).json({ success: false, message: "Failed to send email. Please try again." });
+      return res.status(503).json({ success: false, message: "Failed to send invitation email. The email service may be unavailable — please try again shortly." });
     }
 
     // Update lastEmailSentAt, refresh the link expiry window, and reactivate

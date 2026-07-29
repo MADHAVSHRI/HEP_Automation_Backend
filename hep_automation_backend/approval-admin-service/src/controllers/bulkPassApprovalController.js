@@ -59,14 +59,25 @@ function emailServiceUrl() {
 const SERVICE_HEADER = { "x-service-name": "APPROVAL-ADMIN-SERVICE" };
 
 /**
- * Forward the caller's Authorization header to internal services so that
- * verifyToken middleware on those routes passes (where required).
+ * Headers for calls that reach verifyService-protected routes in user_service.
+ * x-service-key authenticates this service as a trusted internal caller.
+ * Authorization forwards the traffic officer's JWT so verifyToken routes
+ * (like GET /:id) also pass without a separate lookup.
  */
-function authHeaders(req) {
+function serviceHeaders(req) {
   return {
     ...SERVICE_HEADER,
+    "x-service-key": process.env.SERVICE_AUTH_KEY || "",
     Authorization: req.headers.authorization || "",
   };
+}
+
+/**
+ * @deprecated use serviceHeaders — kept only for the email helper which
+ * doesn't need the service key (email_service has no verifyService guard).
+ */
+function authHeaders(req) {
+  return serviceHeaders(req);
 }
 
 async function callUserService(method, path, data, req) {
@@ -74,7 +85,7 @@ async function callUserService(method, path, data, req) {
     method,
     url: `${userServiceUrl()}${path}`,
     data,
-    headers: authHeaders(req),
+    headers: serviceHeaders(req),
     timeout: 15000,
   });
   return response.data;
@@ -84,7 +95,7 @@ async function callQrService(batchId, req) {
   const response = await axios.post(
     `${qrServiceUrl()}/api/qr/bulk-pass/${batchId}`,
     {},
-    { headers: authHeaders(req), timeout: 30000, responseType: "arraybuffer" }
+    { headers: serviceHeaders(req), timeout: 30000, responseType: "arraybuffer" }
   );
   // filePath is returned in the X-Pdf-Path header (set by the QR controller)
   const filePath = response.headers["x-pdf-path"] || null;
@@ -168,7 +179,7 @@ exports.downloadPdf = async (req, res) => {
       const response = await axios({
         method: "get",
         url: `${userServiceUrl()}/api/bulk-pass/${id}/pdf`,
-        headers: authHeaders(req),
+        headers: serviceHeaders(req),
         responseType: "stream",
         timeout: 30000,
       });
@@ -206,7 +217,7 @@ exports.downloadPdf = async (req, res) => {
       const qrResponse = await axios.post(
         `${qrServiceUrl()}/api/qr/bulk-pass/${id}`,
         {},
-        { headers: authHeaders(req), timeout: 30000, responseType: "arraybuffer" }
+        { headers: serviceHeaders(req), timeout: 30000, responseType: "arraybuffer" }
       );
       qrPdfPath = qrResponse.headers["x-pdf-path"] || null;
 

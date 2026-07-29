@@ -2,8 +2,11 @@ const express = require("express");
 const router = express.Router();
 
 const verifyToken = require("../middlewares/verifyToken");
+// Security fix C-03, C-08, C-11: service-to-service auth for internal/vendor routes
+const verifyService = require("../middlewares/verifyService");
 const passQrController = require("../controllers/passQrController");
 
+// ── User-facing: require JWT from authenticated portal user ─────────────────
 router.get(
   "/generate-pass/:passRequestId",
   verifyToken,
@@ -16,21 +19,37 @@ router.get(
   passQrController.generateMaterialPassQr
 );
 
+// QR validation — public (called from gate scanner app, no user session)
 router.post(
   "/validate",
   passQrController.validateQr
 );
 
-// Vendor pass QR generation (public route - no auth needed) 
-router.get("/vendor-generate-qr/:vendorPassId", passQrController.generateVendorQr);
+// ── Vendor pass QR generation ───────────────────────────────────────────────
+// Fix C-08: was unauthenticated — now requires service key.
+// Called by approval-admin-service after vendor pass approval.
+router.get(
+  "/vendor-generate-qr/:vendorPassId",
+  verifyService,
+  passQrController.generateVendorQr
+);
 
-// Single entity vendor pass QR generation (public route - no auth needed)
-router.get("/vendor-generate-single-qr/:vendorPassId/:entityType/:entityIndex", passQrController.generateVendorSingleQr);
+router.get(
+  "/vendor-generate-single-qr/:vendorPassId/:entityType/:entityIndex",
+  verifyService,
+  passQrController.generateVendorSingleQr
+);
 
-// ── Bulk Pass QR routes ──────────────────────────────────────────────────────
-// Internal: generate + store QR PDF (returns PDF + X-Pdf-Path header)
-router.post("/bulk-pass/:batchId", passQrController.generateBulkQr);
-// Public: inline PDF viewer for an approved (COMPLETED) bulk pass
+// ── Bulk Pass QR routes ─────────────────────────────────────────────────────
+// Fix C-11: was unauthenticated — now requires service key (called by approval-admin).
+router.post(
+  "/bulk-pass/:batchId",
+  verifyService,
+  passQrController.generateBulkQr
+);
+
+// Public: inline PDF viewer for an approved (COMPLETED) bulk pass.
+// Intentionally public — anyone with the link can view their approved pass.
 router.get("/bulk-pass-view/:batchId", passQrController.viewBulkPass);
 
 module.exports = router;
