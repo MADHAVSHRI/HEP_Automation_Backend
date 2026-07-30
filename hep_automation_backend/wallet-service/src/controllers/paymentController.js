@@ -26,16 +26,28 @@ const initiatePayment = (req, res) => {
             customerId
         });
 
+        // console.log("========== SBI REQUEST ==========");
+        // console.log("Order No :", orderNumber);
+        // console.log("Packet   :", response.packet);
+        // console.log("Success URL:", config.successUrl);
+        // console.log("Failure URL:", config.failureUrl);
+        // console.log("Push URL:", config.pushUrl);
+        // console.log("Payment URL:", config.paymentUrl);
+        // console.log("Merchant:", config.merchantId);
+        // console.log("Aggregator:", config.aggregatorId);
+        // console.log("Encrypted:", response.encrypted);
+        // console.log("=================================");
+
         console.log("========== SBI REQUEST ==========");
-        console.log("Order No :", orderNumber);
-        console.log("Packet   :", response.packet);
-        console.log("Success URL:", config.successUrl);
-        console.log("Failure URL:", config.failureUrl);
-        console.log("Push URL:", config.pushUrl);
-        console.log("Payment URL:", config.paymentUrl);
-        console.log("Merchant:", config.merchantId);
+        console.log("Merchant ID :", config.merchantId);
+        console.log("Payment URL :", config.paymentUrl);
+        console.log("Success URL :", config.successUrl);
+        console.log("Failure URL :", config.failureUrl);
+        console.log("Push URL    :", config.pushUrl);
+        console.log("Order No    :", orderNumber);
+        console.log("Packet      :", response.packet);
+        console.log("Encrypted   :", response.encrypted);
         console.log("Aggregator:", config.aggregatorId);
-        console.log("Encrypted:", response.encrypted);
         console.log("=================================");
 
         const html = `
