@@ -337,20 +337,27 @@ const createPassRequest = async (req, res) => {
     }
 
     // 0. Check Overstay Charges — block pass if agent has any PENDING or EXCEPTION_REJECTED charges
+    // 0. Check Overstay Charges — block pass if agent has any PENDING or EXCEPTION_REJECTED charges
+    //    (only if ATM has this enforcement switched on)
     if (payload.agentId) {
-      const overstayBlock = await pool.query(
-        `SELECT id, identifier, total_amount, status
-         FROM overstay_charges
-         WHERE agent_id = $1 AND status IN ('PENDING','EXCEPTION_REJECTED')
-         LIMIT 5`,
-        [payload.agentId]
-      );
-      if (overstayBlock.rows.length > 0) {
-        return res.status(403).json({
-          success: false,
-          message: "You have unpaid overstay charges. Please clear them before applying for a new pass.",
-          overstay_charges: overstayBlock.rows,
-        });
+      const Overstay = require("../../../approval-admin-service/src/models/overstaySchema"); // adjust path as needed
+      const blockSetting = await Overstay.getPassBlockSetting();
+
+      if (blockSetting.value) {
+        const overstayBlock = await pool.query(
+          `SELECT id, identifier, total_amount, status
+          FROM overstay_charges
+          WHERE agent_id = $1 AND status IN ('PENDING','EXCEPTION_REJECTED')
+          LIMIT 5`,
+          [payload.agentId]
+        );
+        if (overstayBlock.rows.length > 0) {
+          return res.status(403).json({
+            success: false,
+            message: "You have unpaid overstay charges. Please clear them before applying for a new pass.",
+            overstay_charges: overstayBlock.rows,
+          });
+        }
       }
     }
 

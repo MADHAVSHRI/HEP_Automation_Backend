@@ -18,9 +18,12 @@ const forgotPasswordLimiter = rateLimit({
   max: 5,                    // max 5 OTP requests per window per IP
   standardHeaders: true,
   legacyHeaders: false,
-  message: {
-    success: false,
-    message: "Too many OTP requests. Please try again after 15 minutes.",
+  handler: (req, res) => {
+    console.log("Forgot password limiter triggered");
+    return res.status(429).json({
+      success: false,
+      message: "Too many OTP requests. Please try again after 15 minutes.",
+    });
   },
   store: new RedisStore({
     sendCommand: (...args) => redisClient.sendCommand(args),

@@ -10,6 +10,15 @@ const sendEmailEvent = require("../utils/kafka/producer");
 async function overstayEmailJob() {
   console.log("[OvstayJob] Starting daily overstay reminder email run…");
   try {
+    // Client requirement: for the first 2 months, only manual notifications
+    // are allowed — no automatic daily emails. Controlled via the
+    // 'overstay_auto_email_enabled' toggle in system_settings (ATM UI checkbox).
+    const setting = await Overstay.getAutoEmailSetting();
+    if (!setting.value) {
+      console.log("[OvstayJob] Automatic overstay emails are disabled — skipping this run.");
+      return;
+    }
+
     const charges = await Overstay.fetchPendingForEmail();
     console.log(`[OvstayJob] Found ${charges.length} pending charge(s) to notify.`);
 
@@ -19,11 +28,13 @@ async function overstayEmailJob() {
           type: "OVERSTAY_REMINDER",
           email: charge.agent_email,
           company_name: charge.company_name,
+          login_id: charge.login_id,
           identifier: charge.identifier,
           entity_type: charge.entity_type,
           pass_no: charge.pass_no,
           date_to: charge.date_to,
           overstay_days: charge.overstay_days,
+          daily_rate: charge.daily_rate,
           total_amount: charge.total_amount,
           charge_id: charge.id,
         });

@@ -202,11 +202,13 @@ const startConsumer = async () => {
             payload = {
               email: data.email,
               company_name: data.company_name,
+              login_id: data.login_id,
               identifier: data.identifier,
               entity_type: data.entity_type,
               pass_no: data.pass_no,
               date_to: data.date_to,
               overstay_days: data.overstay_days,
+              daily_rate: data.daily_rate,
               total_amount: data.total_amount,
               charge_id: data.charge_id
             };

@@ -1,11 +1,44 @@
 /**
  * overstayReminderTemplate.js
  * Email template for OVERSTAY_REMINDER Kafka event.
- * Sent daily to agents with unpaid overstay charges.
+ *
+ * Per SRS §5.6.7 — Overstay Charges:
+ *   - Sent daily to the agent login ID when an unpaid overstay charge exists.
+ *   - Must clearly state: charge accumulates every day.
+ *   - Options available to the agent:
+ *       1. Provide proof of Gate OUT (exit) transaction.
+ *       2. Pay the overstay penalty.
+ *       3. Request an exception with reason (approved/rejected by Traffic dept).
  */
-function overstayReminderTemplate({ company_name, identifier, entity_type, pass_no, date_to, overstay_days, total_amount, charge_id }) {
-  const formattedDate = date_to ? new Date(date_to).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) : "N/A";
-  const formattedAmount = `₹${parseFloat(total_amount || 0).toLocaleString("en-IN")}`;
+function overstayReminderTemplate({
+  company_name,
+  login_id,
+  identifier,
+  entity_type,
+  pass_no,
+  date_to,
+  overstay_days,
+  total_amount,
+  daily_rate,
+  charge_id,
+}) {
+  const formattedExpiry = date_to
+    ? new Date(date_to).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })
+    : "N/A";
+
+  const formattedTotal = `₹${parseFloat(total_amount || 0).toLocaleString("en-IN", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
+
+  const formattedDailyRate = daily_rate
+    ? `₹${parseFloat(daily_rate).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+    : null;
+
+  const entityLabel =
+    entity_type === "VEHICLE" ? "Vehicle" : entity_type === "DRIVER" ? "Driver" : "Person";
+
+  const portalUrl = process.env.AGENT_PORTAL_URL || "http://localhost:3000";
 
   return `
 <!DOCTYPE html>
@@ -18,94 +51,182 @@ function overstayReminderTemplate({ company_name, identifier, entity_type, pass_
 <body style="margin:0;padding:0;background:#f0f2f5;font-family:'Segoe UI',Arial,sans-serif;">
   <table width="100%" cellpadding="0" cellspacing="0" style="background:#f0f2f5;padding:32px 0;">
     <tr><td align="center">
-      <table width="600" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
+      <table width="620" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:14px;overflow:hidden;box-shadow:0 4px 28px rgba(0,0,0,0.09);">
 
-        <!-- Header -->
+        <!-- ── Header ── -->
         <tr>
           <td style="background:linear-gradient(135deg,#0a1e4d 0%,#1a3a6e 100%);padding:28px 36px;text-align:center;">
-            <h1 style="margin:0;color:#ffffff;font-size:22px;font-weight:800;letter-spacing:-0.3px;">Chennai Port Authority</h1>
-            <p style="margin:6px 0 0;color:#93b4e8;font-size:13px;font-weight:500;text-transform:uppercase;letter-spacing:1px;">APACS — Automated Port Access &amp; Control System</p>
+            <h1 style="margin:0;color:#ffffff;font-size:22px;font-weight:800;letter-spacing:-0.3px;">
+              Chennai Port Authority
+            </h1>
+            <p style="margin:6px 0 0;color:#93b4e8;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:1.2px;">
+              APACS — Automated Port Access &amp; Control System
+            </p>
           </td>
         </tr>
 
-        <!-- Alert Banner -->
+        <!-- ── Urgent Alert Banner ── -->
         <tr>
-          <td style="background:#fef2f2;border-left:4px solid #dc2626;padding:16px 36px;">
-            <p style="margin:0;color:#dc2626;font-size:14px;font-weight:700;">⚠ URGENT: Unpaid Overstay Charge</p>
+          <td style="background:#fef2f2;border-left:5px solid #dc2626;padding:14px 36px;">
+            <p style="margin:0;color:#dc2626;font-size:14px;font-weight:800;">
+              ${charge_id ? `⚠ ACTION REQUIRED: Pending Overstay Charge` : `⚠ PASS EXPIRED: Your Port Pass has Expired — Action Required`}
+            </p>
           </td>
         </tr>
 
-        <!-- Body -->
+        <!-- ── Body ── -->
         <tr>
-          <td style="padding:32px 36px;">
-            <p style="margin:0 0 16px;color:#374151;font-size:15px;line-height:1.6;">
-              Dear <strong>${company_name || "Agent"}</strong>,
+          <td style="padding:30px 36px 20px;">
+
+            <p style="margin:0 0 6px;color:#374151;font-size:15px;line-height:1.6;">
+              Dear <strong>${company_name || "Agent"}</strong>${login_id ? ` (Login ID: <strong>${login_id}</strong>)` : ""},
             </p>
-            <p style="margin:0 0 24px;color:#374151;font-size:14px;line-height:1.7;">
-              This is an official reminder from <strong>Chennai Port Authority — ATM / Pass Section</strong>.<br/>
-              A pass holder associated with your company has exceeded their permitted entry period and an overstay charge has been levied. Failure to clear this charge will block future pass applications.
+            <p style="margin:0 0 22px;color:#64748b;font-size:13px;line-height:1.75;">
+              This is an official automated notice from the <strong>Chennai Port Authority — ATM / Pass Section.</strong>
             </p>
 
-            <!-- Charge Details Box -->
-            <table width="100%" cellpadding="0" cellspacing="0" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;overflow:hidden;margin-bottom:24px;">
+            <!-- ── Charge Summary Card ── -->
+            <table width="100%" cellpadding="0" cellspacing="0"
+              style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;overflow:hidden;margin-bottom:26px;">
               <tr style="background:#0a1e4d;">
-                <td colspan="2" style="padding:12px 20px;">
-                  <p style="margin:0;color:#ffffff;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:1px;">Overstay Charge Details — Ref #${charge_id}</p>
+                <td colspan="2" style="padding:11px 20px;">
+                  <p style="margin:0;color:#ffffff;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1.1px;">
+                    ${charge_id ? `Overstay Charge Details — Charge Ref #${charge_id}` : `Pass Expiry Details`}
+                  </p>
                 </td>
               </tr>
               <tr>
-                <td style="padding:12px 20px;border-bottom:1px solid #e2e8f0;color:#64748b;font-size:13px;font-weight:600;width:45%;">Entity Type</td>
-                <td style="padding:12px 20px;border-bottom:1px solid #e2e8f0;color:#0f172a;font-size:13px;font-weight:700;">${entity_type}</td>
+                <td style="padding:11px 20px;border-bottom:1px solid #e2e8f0;color:#64748b;font-size:13px;font-weight:600;width:44%;">Entity Type</td>
+                <td style="padding:11px 20px;border-bottom:1px solid #e2e8f0;color:#0f172a;font-size:13px;font-weight:700;">${entityLabel}</td>
               </tr>
               <tr style="background:#ffffff;">
-                <td style="padding:12px 20px;border-bottom:1px solid #e2e8f0;color:#64748b;font-size:13px;font-weight:600;">Identifier</td>
-                <td style="padding:12px 20px;border-bottom:1px solid #e2e8f0;color:#0f172a;font-size:13px;font-weight:700;">${identifier}</td>
+                <td style="padding:11px 20px;border-bottom:1px solid #e2e8f0;color:#64748b;font-size:13px;font-weight:600;">Identifier</td>
+                <td style="padding:11px 20px;border-bottom:1px solid #e2e8f0;color:#0f172a;font-size:13px;font-weight:700;font-family:monospace;">${identifier}</td>
               </tr>
               <tr>
-                <td style="padding:12px 20px;border-bottom:1px solid #e2e8f0;color:#64748b;font-size:13px;font-weight:600;">Pass Number</td>
-                <td style="padding:12px 20px;border-bottom:1px solid #e2e8f0;color:#0f172a;font-size:13px;font-weight:700;">${pass_no || "N/A"}</td>
+                <td style="padding:11px 20px;border-bottom:1px solid #e2e8f0;color:#64748b;font-size:13px;font-weight:600;">Pass Number</td>
+                <td style="padding:11px 20px;border-bottom:1px solid #e2e8f0;color:#0f172a;font-size:13px;font-weight:700;">${pass_no || "N/A"}</td>
               </tr>
               <tr style="background:#ffffff;">
-                <td style="padding:12px 20px;border-bottom:1px solid #e2e8f0;color:#64748b;font-size:13px;font-weight:600;">Pass Expiry Date</td>
-                <td style="padding:12px 20px;border-bottom:1px solid #e2e8f0;color:#0f172a;font-size:13px;font-weight:700;">${formattedDate}</td>
+                <td style="padding:11px 20px;border-bottom:1px solid #e2e8f0;color:#64748b;font-size:13px;font-weight:600;">Pass Expiry Date</td>
+                <td style="padding:11px 20px;border-bottom:1px solid #e2e8f0;color:#dc2626;font-size:13px;font-weight:700;">${formattedExpiry}</td>
               </tr>
               <tr>
-                <td style="padding:12px 20px;border-bottom:1px solid #e2e8f0;color:#64748b;font-size:13px;font-weight:600;">Days Overstayed</td>
-                <td style="padding:12px 20px;border-bottom:1px solid #e2e8f0;color:#dc2626;font-size:13px;font-weight:800;">${overstay_days} day(s)</td>
+                <td style="padding:11px 20px;border-bottom:1px solid #e2e8f0;color:#64748b;font-size:13px;font-weight:600;">Days Overstayed</td>
+                <td style="padding:11px 20px;border-bottom:1px solid #e2e8f0;color:#dc2626;font-size:13px;font-weight:800;">${overstay_days} day(s)</td>
               </tr>
+              ${
+                formattedDailyRate
+                  ? `<tr style="background:#ffffff;">
+                <td style="padding:11px 20px;border-bottom:1px solid #e2e8f0;color:#64748b;font-size:13px;font-weight:600;">Daily Penalty Rate</td>
+                <td style="padding:11px 20px;border-bottom:1px solid #e2e8f0;color:#0f172a;font-size:13px;font-weight:700;">${formattedDailyRate} / day</td>
+              </tr>`
+                  : ""
+              }
               <tr style="background:#fef2f2;">
-                <td style="padding:14px 20px;color:#64748b;font-size:13px;font-weight:600;">Total Amount Due</td>
-                <td style="padding:14px 20px;color:#dc2626;font-size:20px;font-weight:900;">${formattedAmount}</td>
+                <td style="padding:14px 20px;color:#64748b;font-size:13px;font-weight:700;">Total Amount Due</td>
+                <td style="padding:14px 20px;color:#dc2626;font-size:22px;font-weight:900;">${formattedTotal}</td>
               </tr>
             </table>
 
-            <p style="margin:0 0 16px;color:#374151;font-size:14px;line-height:1.7;">
-              Please log in to the <strong>APACS Agent Portal</strong>, navigate to <em>Blacklist &amp; Penalties → Overstay Charges</em>, and clear this charge immediately.
-              You may also apply for an exception if circumstances warrant review.
+            <!-- ── Daily Accrual Warning ── -->
+            <table width="100%" cellpadding="0" cellspacing="0"
+              style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;margin-bottom:24px;">
+              <tr>
+                <td style="padding:14px 18px;">
+                  <p style="margin:0;color:#92400e;font-size:13px;font-weight:700;line-height:1.6;">
+                    📅 <strong>Important:</strong> This charge increases by ${formattedDailyRate || "the applicable daily rate"} for every additional day the
+                    ${entityLabel.toLowerCase()} remains within port premises beyond the pass expiry date.
+                    Settle this charge promptly to avoid further accumulation.
+                  </p>
+                </td>
+              </tr>
+            </table>
+
+            <!-- ── Options Available ── -->
+            <p style="margin:0 0 12px;color:#0f172a;font-size:14px;font-weight:800;text-transform:uppercase;letter-spacing:0.5px;">
+              What can you do?
             </p>
 
-            <!-- CTA -->
-            <table width="100%" cellpadding="0" cellspacing="0">
+            <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:24px;border-collapse:separate;border-spacing:0 8px;">
+
+              <!-- Option 1: Proof of Exit -->
               <tr>
-                <td align="center" style="padding:8px 0 24px;">
-                  <a href="http://localhost:3000/dashboard/blacklist_penalties" style="background:linear-gradient(135deg,#dc2626,#b91c1c);color:#ffffff;text-decoration:none;padding:14px 32px;border-radius:8px;font-size:14px;font-weight:700;display:inline-block;">
-                    Pay Overstay Charge Now →
+                <td style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:14px 16px;vertical-align:top;width:32px;">
+                  <span style="color:#16a34a;font-size:18px;font-weight:900;">1</span>
+                </td>
+                <td style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:14px 18px;" width="100%">
+                  <p style="margin:0 0 4px;color:#166534;font-size:13px;font-weight:800;">Submit Proof of Gate-OUT</p>
+                  <p style="margin:0;color:#166534;font-size:12px;line-height:1.65;">
+                    If the ${entityLabel.toLowerCase()} has already exited the port, log in and submit the Gate-OUT
+                    transaction record. The Pass Section will verify and remove the charge if a valid exit transaction exists.
+                  </p>
+                </td>
+              </tr>
+
+              <!-- Option 2: Pay -->
+              <tr>
+                <td style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:14px 16px;vertical-align:top;width:32px;">
+                  <span style="color:#dc2626;font-size:18px;font-weight:900;">2</span>
+                </td>
+                <td style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:14px 18px;" width="100%">
+                  <p style="margin:0 0 4px;color:#991b1b;font-size:13px;font-weight:800;">Pay the Overstay Penalty</p>
+                  <p style="margin:0;color:#991b1b;font-size:12px;line-height:1.65;">
+                    Log in to the APACS Agent Portal, navigate to <em>Blacklist &amp; Penalties → Overstay Charges</em>,
+                    and clear the outstanding amount of <strong>${formattedTotal}</strong>.
+                    Note: unpaid overstay charges will block future pass applications.
+                  </p>
+                </td>
+              </tr>
+
+              <!-- Option 3: Exception -->
+              <tr>
+                <td style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:14px 16px;vertical-align:top;width:32px;">
+                  <span style="color:#1d4ed8;font-size:18px;font-weight:900;">3</span>
+                </td>
+                <td style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:14px 18px;" width="100%">
+                  <p style="margin:0 0 4px;color:#1e3a8a;font-size:13px;font-weight:800;">Request an Exception</p>
+                  <p style="margin:0;color:#1e3a8a;font-size:12px;line-height:1.65;">
+                    If there are genuine extenuating circumstances, you may submit an exception request with a
+                    supporting reason through the portal. The <strong>Traffic Department</strong> will review and
+                    approve or reject the request. If approved, the overstay charge will be automatically removed.
+                    If rejected, the charge must be paid before a new pass can be issued.
+                  </p>
+                </td>
+              </tr>
+
+            </table>
+
+            <!-- ── CTA Buttons ── -->
+            <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:28px;">
+              <tr>
+                <td align="center" style="padding:4px 6px;">
+                  <a href="${portalUrl}/dashboard/blacklist_penalties"
+                    style="display:inline-block;background:linear-gradient(135deg,#dc2626,#b91c1c);color:#ffffff;text-decoration:none;padding:13px 28px;border-radius:8px;font-size:13px;font-weight:700;margin:4px;">
+                    Pay Charge Now →
+                  </a>
+                  <a href="${portalUrl}/dashboard/blacklist_penalties"
+                    style="display:inline-block;background:linear-gradient(135deg,#1d4ed8,#1e40af);color:#ffffff;text-decoration:none;padding:13px 28px;border-radius:8px;font-size:13px;font-weight:700;margin:4px;">
+                    Request Exception →
                   </a>
                 </td>
               </tr>
             </table>
 
-            <p style="margin:0;color:#64748b;font-size:12px;line-height:1.7;border-top:1px solid #e2e8f0;padding-top:20px;">
-              This is an automated reminder from the Chennai Port Authority APACS system. Do not reply to this email.<br/>
-              For queries, contact the ATM / Pass Section at Chennai Port Authority.
+            <!-- ── Footer Note ── -->
+            <p style="margin:0;color:#94a3b8;font-size:11.5px;line-height:1.75;border-top:1px solid #e2e8f0;padding-top:18px;">
+              This is an automated daily reminder sent by the Chennai Port Authority APACS system. <strong>Do not reply to this email.</strong><br/>
+              For queries, contact the ATM / Pass Section at Chennai Port Authority directly.
             </p>
           </td>
         </tr>
 
-        <!-- Footer -->
+        <!-- ── Email Footer ── -->
         <tr>
-          <td style="background:#f8fafc;padding:16px 36px;text-align:center;border-top:1px solid #e2e8f0;">
-            <p style="margin:0;color:#94a3b8;font-size:11px;">© ${new Date().getFullYear()} Chennai Port Authority · APACS · All rights reserved</p>
+          <td style="background:#f8fafc;padding:14px 36px;text-align:center;border-top:1px solid #e2e8f0;">
+            <p style="margin:0;color:#94a3b8;font-size:11px;">
+              © ${new Date().getFullYear()} Chennai Port Authority &nbsp;·&nbsp; APACS &nbsp;·&nbsp; All rights reserved
+            </p>
           </td>
         </tr>
 

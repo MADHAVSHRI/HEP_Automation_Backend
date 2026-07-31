@@ -18,7 +18,7 @@ async function initOverstayTable() {
       date_from             DATE,
       date_to               DATE,
       overstay_days         INTEGER      NOT NULL DEFAULT 0,
-      daily_rate            DECIMAL(12,2) NOT NULL DEFAULT 100.00,
+      daily_rate            DECIMAL(12,2) NOT NULL DEFAULT 0,
       total_amount          DECIMAL(12,2) NOT NULL DEFAULT 0,
       status                VARCHAR(30)  NOT NULL DEFAULT 'PENDING',
       payment_method        VARCHAR(50),
@@ -40,6 +40,64 @@ async function initOverstayTable() {
   `);
 }
 
+// Same cargo-equipment classification the frontend uses, kept in sync
+// with vehicle_types.name values so VEHICLE vs CARGO_HANDLING_EQUIPMENT
+// resolve identically on both sides.
+const CARGO_EQUIPMENT_TYPES = [
+  "CRANE", "DOZERS", "DUMPERS", "EXCAVATORS", "FORKLIFT",
+  "JCB EARTHMOVER", "MOBILE CRANE", "PAY LOADER", "POCLAIN",
+];
+const LIVE_AMOUNT_SELECT = `
+  CASE
+    WHEN oc.status IN ('PENDING', 'EXCEPTION_REQUESTED', 'EXCEPTION_REJECTED')
+      THEN GREATEST(CURRENT_DATE - oc.date_to::date, 0)
+    ELSE oc.overstay_days
+  END AS current_overstay_days,
+  CASE
+    WHEN oc.status IN ('PENDING', 'EXCEPTION_REQUESTED', 'EXCEPTION_REJECTED')
+      THEN ROUND((oc.daily_rate * GREATEST(CURRENT_DATE - oc.date_to::date, 0))::numeric, 2)
+    ELSE oc.total_amount
+  END AS current_total_amount
+`;
+/**
+ * Load active daily fees from pass_fee_master — the single source of
+ * truth shared with the frontend fee calculator — keyed by category.
+ * Returns e.g. { INDIVIDUAL: 10.30, VEHICLE: 25.70, CARGO_HANDLING_EQUIPMENT: 41.00 }
+ */
+async function loadDailyRates() {
+  const res = await pool.query(
+    `SELECT category, daily_fee FROM pass_fee_master WHERE is_active = true`
+  );
+  const rates = {};
+  res.rows.forEach((row) => {
+    rates[row.category] = parseFloat(row.daily_fee);
+  });
+  return rates;
+}
+
+async function initSettingsTable() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS system_settings (
+      key         VARCHAR(100) PRIMARY KEY,
+      value       BOOLEAN NOT NULL DEFAULT true,
+      updated_by  VARCHAR(100),
+      updated_at  TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    );
+  `);
+  // Seed the default row if it doesn't exist yet — defaults to OFF per the
+  // client's request (manual notify only, no auto emails for first 2 months).
+  await pool.query(`
+    INSERT INTO system_settings (key, value)
+    VALUES ('overstay_auto_email_enabled', false)
+    ON CONFLICT (key) DO NOTHING;
+  `);
+  await pool.query(`
+  INSERT INTO system_settings (key, value)
+  VALUES ('overstay_pass_block_enabled', true)
+  ON CONFLICT (key) DO NOTHING;
+`);
+}
+
 const Overstay = {
   initTable: initOverstayTable,
 
@@ -47,8 +105,18 @@ const Overstay = {
   async detectOverstays() {
     await initOverstayTable();
 
-    const personRateDefault = parseFloat(process.env.OVERSTAY_DAILY_RATE_PERSON || "100");
-    const vehicleRateDefault = parseFloat(process.env.OVERSTAY_DAILY_RATE_VEHICLE || "200");
+    const rates = await loadDailyRates();
+
+    const missing = [];
+    if (rates.INDIVIDUAL === undefined) missing.push("INDIVIDUAL");
+    if (rates.VEHICLE === undefined) missing.push("VEHICLE");
+    if (rates.CARGO_HANDLING_EQUIPMENT === undefined) missing.push("CARGO_HANDLING_EQUIPMENT");
+    if (missing.length > 0) {
+      throw new Error(
+        `Missing active pass_fee_master rate(s) for: ${missing.join(", ")}. ` +
+        `Overstay detection cannot compute penalties without these.`
+      );
+    }
 
     const personsQuery = `
       SELECT
@@ -63,8 +131,7 @@ const Overstay = {
         pp."personPassNo"    AS pass_no,
         pp."dateFrom"        AS date_from,
         pp."dateTo"          AS date_to,
-        CURRENT_DATE - pp."dateTo"::date AS overstay_days,
-        $1::numeric          AS daily_rate
+        CURRENT_DATE - pp."dateTo"::date AS overstay_days
       FROM pass_persons pp
       JOIN pass_requests pr ON pr.id = pp."passRequestId"
       LEFT JOIN hep_types ht ON ht.id = pp."hepTypeId"
@@ -75,7 +142,7 @@ const Overstay = {
           SELECT 1 FROM overstay_charges oc
           WHERE oc.entity_type IN ('PERSON','DRIVER')
             AND oc.entity_id = pp.id
-            AND oc.status NOT IN ('EXCEPTION_APPROVED','WAIVED')
+            AND oc.pass_request_id = pp."passRequestId"
         )
       ORDER BY overstay_days DESC
     `;
@@ -94,8 +161,7 @@ const Overstay = {
         pv."vehiclePassNo"   AS pass_no,
         pv."dateFrom"        AS date_from,
         pv."dateTo"          AS date_to,
-        CURRENT_DATE - pv."dateTo"::date AS overstay_days,
-        $1::numeric          AS daily_rate
+        CURRENT_DATE - pv."dateTo"::date AS overstay_days
       FROM pass_vehicles pv
       JOIN pass_requests pr ON pr.id = pv."passRequestId"
       LEFT JOIN vehicle_types vt ON vt.id = pv."vehicleTypeId"
@@ -106,26 +172,65 @@ const Overstay = {
           SELECT 1 FROM overstay_charges oc
           WHERE oc.entity_type = 'VEHICLE'
             AND oc.entity_id = pv.id
-            AND oc.status NOT IN ('EXCEPTION_APPROVED','WAIVED')
+            AND oc.pass_request_id = pv."passRequestId"
         )
       ORDER BY overstay_days DESC
     `;
 
     const [persons, vehicles] = await Promise.all([
-      pool.query(personsQuery, [personRateDefault]),
-      pool.query(vehiclesQuery, [vehicleRateDefault]),
+      pool.query(personsQuery),
+      pool.query(vehiclesQuery),
     ]);
 
-    // Annotate with computed total
-    const annotate = (rows) =>
-      rows.map((r) => ({
+    // Persons/Drivers: always INDIVIDUAL rate
+    const personRows = persons.rows.map((r) => {
+      const dailyRate = rates.INDIVIDUAL;
+      return {
         ...r,
-        total_amount: parseFloat(r.daily_rate) * parseInt(r.overstay_days, 10),
-      }));
+        daily_rate: dailyRate,
+        total_amount: parseFloat((dailyRate * parseInt(r.overstay_days, 10)).toFixed(2)),
+      };
+    });
 
-    return [...annotate(persons.rows), ...annotate(vehicles.rows)];
+    // Vehicles: rate depends on whether it's cargo handling equipment
+    const vehicleRows = vehicles.rows.map((r) => {
+      const typeName = String(r.vehicle_type_name || "").toUpperCase().trim();
+      const isCargoEquipment = CARGO_EQUIPMENT_TYPES.includes(typeName);
+      const dailyRate = isCargoEquipment ? rates.CARGO_HANDLING_EQUIPMENT : rates.VEHICLE;
+      return {
+        ...r,
+        daily_rate: dailyRate,
+        total_amount: parseFloat((dailyRate * parseInt(r.overstay_days, 10)).toFixed(2)),
+      };
+    });
+
+    return [...personRows, ...vehicleRows];
   },
 
+  async createNotification(data) {
+    // Check if a record already exists
+    const existing = await pool.query(
+      `SELECT *
+      FROM overstay_charges
+      WHERE entity_type = $1
+        AND entity_id = $2
+        AND pass_request_id = $3
+      LIMIT 1`,
+      [
+        data.entity_type,
+        data.entity_id,
+        data.pass_request_id,
+      ]
+    );
+
+    if (existing.rows.length > 0) {
+      return existing.rows[0];
+    }
+
+    // Otherwise create it
+    return this.levyCharge(data);
+  },
+  
   /* ── 2. LEVY: insert a new charge ── */
   async levyCharge(data) {
     const res = await pool.query(
@@ -172,12 +277,13 @@ const Overstay = {
     params.push(limit, offset);
 
     const res = await pool.query(
-      `SELECT oc.*, a."entityName" AS company_name, a."loginId" AS login_id
-       FROM overstay_charges oc
-       LEFT JOIN "Agents" a ON a.id = oc.agent_id
-       ${where}
-       ORDER BY oc.created_at DESC
-       LIMIT $${idx++} OFFSET $${idx++}`,
+      `SELECT oc.*, ${LIVE_AMOUNT_SELECT},
+              a."entityName" AS company_name, a."loginId" AS login_id
+      FROM overstay_charges oc
+      LEFT JOIN "Agents" a ON a.id = oc.agent_id
+      ${where}
+      ORDER BY oc.created_at DESC
+      LIMIT $${idx++} OFFSET $${idx++}`,
       params
     );
     return res.rows;
@@ -186,7 +292,9 @@ const Overstay = {
   /* ── 4. MY CHARGES (Agent) ── */
   async myCharges(agentId) {
     const res = await pool.query(
-      `SELECT * FROM overstay_charges WHERE agent_id = $1 ORDER BY created_at DESC`,
+      `SELECT oc.*, ${LIVE_AMOUNT_SELECT}
+      FROM overstay_charges oc
+      WHERE agent_id = $1 ORDER BY created_at DESC`,
       [agentId]
     );
     return res.rows;
@@ -195,10 +303,11 @@ const Overstay = {
   /* ── 5. GET BY ID ── */
   async getById(id) {
     const res = await pool.query(
-      `SELECT oc.*, a."entityName" AS company_name, a."email" AS agent_email
-       FROM overstay_charges oc
-       LEFT JOIN "Agents" a ON a.id = oc.agent_id
-       WHERE oc.id = $1`,
+      `SELECT oc.*, ${LIVE_AMOUNT_SELECT},
+              a."entityName" AS company_name, a."email" AS agent_email, a."loginId" AS login_id
+      FROM overstay_charges oc
+      LEFT JOIN "Agents" a ON a.id = oc.agent_id
+      WHERE oc.id = $1`,
       [id]
     );
     return res.rows[0] || null;
@@ -208,9 +317,14 @@ const Overstay = {
   async pay(id, { payment_method, transaction_id }) {
     const res = await pool.query(
       `UPDATE overstay_charges
-       SET status = 'PAID', payment_method = $2, transaction_id = $3, updated_at = NOW()
-       WHERE id = $1 AND status IN ('PENDING','EXCEPTION_REJECTED')
-       RETURNING *`,
+      SET status = 'PAID',
+          payment_method = $2,
+          transaction_id = $3,
+          overstay_days = GREATEST(CURRENT_DATE - date_to::date, 0),
+          total_amount = ROUND((daily_rate * GREATEST(CURRENT_DATE - date_to::date, 0))::numeric, 2),
+          updated_at = NOW()
+      WHERE id = $1 AND status IN ('PENDING','EXCEPTION_REJECTED')
+      RETURNING *`,
       [id, payment_method || "GATEWAY", transaction_id || `TXN-${Date.now()}`]
     );
     return res.rows[0] || null;
@@ -280,12 +394,13 @@ const Overstay = {
   async fetchPendingForEmail() {
     const today = new Date().toISOString().slice(0, 10);
     const res = await pool.query(
-      `SELECT oc.*, a."email" AS agent_email, a."entityName" AS company_name
-       FROM overstay_charges oc
-       LEFT JOIN "Agents" a ON a.id = oc.agent_id
-       WHERE oc.status = 'PENDING'
-         AND (oc.last_email_sent_at IS NULL OR oc.last_email_sent_at::date < $1::date)
-         AND a.email IS NOT NULL`,
+      `SELECT oc.*, ${LIVE_AMOUNT_SELECT},
+              a."email" AS agent_email, a."entityName" AS company_name, a."loginId" AS login_id
+      FROM overstay_charges oc
+      LEFT JOIN "Agents" a ON a.id = oc.agent_id
+      WHERE oc.status = 'PENDING'
+        AND (oc.last_email_sent_at IS NULL OR oc.last_email_sent_at::date < $1::date)
+        AND a.email IS NOT NULL`,
       [today]
     );
     return res.rows;
@@ -298,6 +413,53 @@ const Overstay = {
       [id]
     );
   },
+
+  /* ── 14. GET AGENT EMAIL by agent_id ── */
+  async getAgentEmail(agentId) {
+    const res = await pool.query(
+      `SELECT email FROM "Agents" WHERE id = $1`,
+      [agentId]
+    );
+    return res.rows[0]?.email || null;
+  },
+  /* ── 15. AUTO-EMAIL SETTING (system_settings) ── */
+/* ── 15. GENERIC SETTINGS GET/SET ── */
+async getSetting(key, defaultValue = false) {
+  await initSettingsTable();
+  const res = await pool.query(
+    `SELECT value, updated_by, updated_at FROM system_settings WHERE key = $1`,
+    [key]
+  );
+  return res.rows[0] || { value: defaultValue, updated_by: null, updated_at: null };
+},
+
+async setSetting(key, enabled, updatedBy) {
+  await initSettingsTable();
+  const res = await pool.query(
+    `INSERT INTO system_settings (key, value, updated_by, updated_at)
+     VALUES ($1, $2, $3, NOW())
+     ON CONFLICT (key) DO UPDATE SET value = $2, updated_by = $3, updated_at = NOW()
+     RETURNING *`,
+    [key, enabled, updatedBy]
+  );
+  return res.rows[0];
+},
+
+// Kept for backward compatibility with existing auto-email routes
+async getAutoEmailSetting() {
+  return this.getSetting('overstay_auto_email_enabled', false);
+},
+async setAutoEmailSetting(enabled, updatedBy) {
+  return this.setSetting('overstay_auto_email_enabled', enabled, updatedBy);
+},
+
+// New: pass-blocking toggle
+async getPassBlockSetting() {
+  return this.getSetting('overstay_pass_block_enabled', true);
+},
+async setPassBlockSetting(enabled, updatedBy) {
+  return this.setSetting('overstay_pass_block_enabled', enabled, updatedBy);
+},
 };
 
 module.exports = Overstay;

@@ -6,6 +6,7 @@ const blacklistRoutes = require("./blacklistRoutes");
 const bulkPassRoutes = require("./bulkPassRoutes");
 const materialPassRoutes = require("./materialPassRoutes");
 const overstayRoutes = require("./overstayRoutes");
+const passFeeMasterRoutes = require("./passFeeMasterRoutes"); 
 
 router.use("/user", userRoutes);
 router.use("/pass-request", passRequestRoutes);
@@ -13,5 +14,6 @@ router.use("/blacklist", blacklistRoutes);
 router.use("/bulk-pass", bulkPassRoutes);
 router.use("/material-pass", materialPassRoutes);
 router.use("/overstay", overstayRoutes);
+router.use("/pass-fee-master", passFeeMasterRoutes);
 
 module.exports = router;
