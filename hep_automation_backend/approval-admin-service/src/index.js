@@ -9,6 +9,7 @@ const routes = require("./routes/index");
 const corsConfig = require("../config/corsConfig");
 const Overstay = require("./models/overstaySchema");
 const Blacklist = require("./models/blacklistSchema");
+const HepRate = require("./models/hepRateConfigSchema");
 const overstayEmailJob = require("./jobs/overstayEmailJob");
 
 const app = express();
@@ -30,6 +31,11 @@ Overstay.initTable()
 Blacklist.initPenaltyConfigTable()
   .then(() => console.log("blacklist_penalty_config table ready"))
   .catch((err) => console.error("blacklist_penalty_config init error:", err.message));
+
+// Initialise hep_rate_config table (idempotent — seeds INDIVIDUAL/VEHICLE/CARGO rates)
+HepRate.initHepRateConfigTable()
+  .then(() => console.log("hep_rate_config table ready"))
+  .catch((err) => console.error("hep_rate_config init error:", err.message));
 
 // Schedule daily overstay reminder emails at 09:00 AM
 cron.schedule("0 9 * * *", overstayEmailJob, {

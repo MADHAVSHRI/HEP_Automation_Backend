@@ -172,10 +172,11 @@ exports.levyCharge = async (req, res) => {
       date_from, date_to, overstay_days, notes,
     } = req.body;
 
-    if (!entity_type || !identifier || !overstay_days) {
+    const parsedDays = parseInt(overstay_days, 10);
+    if (!entity_type || !identifier || overstay_days === undefined || overstay_days === null || isNaN(parsedDays)) {
       return res.status(400).json({
         success: false,
-        message: "entity_type, identifier, and overstay_days are required",
+        message: "entity_type, identifier, and valid overstay_days are required",
       });
     }
 
