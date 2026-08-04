@@ -23,6 +23,9 @@ const profileUpdateSubmittedTemplate = require("../emailTemplates/profileUpdateS
 const profileUpdateApprovedTemplate = require("../emailTemplates/profileUpdateApprovedTemplate");
 const profileUpdateRevertedTemplate = require("../emailTemplates/profileUpdateRevertedTemplate");
 const profileUpdateRejectedTemplate = require("../emailTemplates/profileUpdateRejectedTemplate");
+const twoWheelerUpdateSubmittedTemplate = require("../emailTemplates/twoWheelerUpdateSubmittedTemplate");
+const twoWheelerUpdateApprovedTemplate = require("../emailTemplates/twoWheelerUpdateApprovedTemplate");
+const twoWheelerUpdateRejectedTemplate = require("../emailTemplates/twoWheelerUpdateRejectedTemplate");
 const licenseExpiryWarningTemplate = require("../emailTemplates/licenseExpiryWarningTemplate");
 const overstayReminderTemplate = require("../emailTemplates/overstayReminderTemplate");
 const overstayLeviedTemplate = require("../emailTemplates/overstayLeviedTemplate");
@@ -425,6 +428,55 @@ const sendLicenseExpiryWarningEmail = async (payload) => {
   return transporter.sendMail(mailOptions);
 };
 
+const sendTwoWheelerUpdateSubmittedEmail = async (payload) => {
+  const html = twoWheelerUpdateSubmittedTemplate(
+    payload.name,
+    payload.referenceNumber,
+    payload.oldVehicleNo,
+    payload.newVehicleNo
+  );
+  const mailOptions = {
+    from: process.env.EMAIL_USER,
+    to: payload.email,
+    subject: `🛵 Two-Wheeler Vehicle Update Request Received (${payload.referenceNumber})`,
+    html,
+  };
+  return transporter.sendMail(mailOptions);
+};
+
+const sendTwoWheelerUpdateApprovedEmail = async (payload) => {
+  const html = twoWheelerUpdateApprovedTemplate(
+    payload.name,
+    payload.referenceNumber,
+    payload.oldVehicleNo,
+    payload.newVehicleNo
+  );
+  const mailOptions = {
+    from: process.env.EMAIL_USER,
+    to: payload.email,
+    subject: `✅ Two-Wheeler Vehicle Update Approved — Chennai Port (${payload.referenceNumber})`,
+    html,
+  };
+  return transporter.sendMail(mailOptions);
+};
+
+const sendTwoWheelerUpdateRejectedEmail = async (payload) => {
+  const html = twoWheelerUpdateRejectedTemplate(
+    payload.name,
+    payload.referenceNumber,
+    payload.oldVehicleNo,
+    payload.newVehicleNo,
+    payload.rejectedReason
+  );
+  const mailOptions = {
+    from: process.env.EMAIL_USER,
+    to: payload.email,
+    subject: `❌ Two-Wheeler Vehicle Update Rejected — Chennai Port (${payload.referenceNumber})`,
+    html,
+  };
+  return transporter.sendMail(mailOptions);
+};
+
 module.exports = {
   sendReferenceEmail, sendApprovalEmail, 
   sendRejectionEmail, sendDeptUserCreationEmail, sendDeptUserActivatedEmail, 
@@ -437,5 +489,7 @@ module.exports = {
   sendBulkPassRejectedPersonsEmail,
   sendProfileUpdateSubmittedEmail, sendProfileUpdateApprovedEmail,
   sendProfileUpdateRevertedEmail, sendProfileUpdateRejectedEmail,
+  sendTwoWheelerUpdateSubmittedEmail, sendTwoWheelerUpdateApprovedEmail,
+  sendTwoWheelerUpdateRejectedEmail,
   sendLicenseExpiryWarningEmail
 };

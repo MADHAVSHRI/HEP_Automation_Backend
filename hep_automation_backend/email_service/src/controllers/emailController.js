@@ -9,6 +9,8 @@ const { sendReferenceEmail, sendApprovalEmail, sendRejectionEmail,
   sendBulkPassRejectedPersonsEmail,
   sendProfileUpdateSubmittedEmail, sendProfileUpdateApprovedEmail,
   sendProfileUpdateRevertedEmail, sendProfileUpdateRejectedEmail,
+  sendTwoWheelerUpdateSubmittedEmail, sendTwoWheelerUpdateApprovedEmail,
+  sendTwoWheelerUpdateRejectedEmail,
   sendLicenseExpiryWarningEmail } = require("../services/emailService");
 
 exports.sendOverstayReminder = async (req, res) => {
@@ -608,6 +610,36 @@ exports.sendLicenseExpiryWarning = async (req, res) => {
     return res.json({ success: true, message: "License expiry warning email sent" });
   } catch (error) {
     console.error("[EMAIL-CTRL] sendLicenseExpiryWarning error:", error);
+    res.status(500).json({ success: false, message: "Email sending failed" });
+  }
+};
+
+exports.sendTwoWheelerUpdateSubmitted = async (req, res) => {
+  try {
+    await sendTwoWheelerUpdateSubmittedEmail(req.body);
+    return res.json({ success: true, message: "Two-wheeler update submission email sent" });
+  } catch (error) {
+    console.error("[EMAIL-CTRL] sendTwoWheelerUpdateSubmitted error:", error);
+    res.status(500).json({ success: false, message: "Email sending failed" });
+  }
+};
+
+exports.sendTwoWheelerUpdateApproved = async (req, res) => {
+  try {
+    await sendTwoWheelerUpdateApprovedEmail(req.body);
+    return res.json({ success: true, message: "Two-wheeler update approval email sent" });
+  } catch (error) {
+    console.error("[EMAIL-CTRL] sendTwoWheelerUpdateApproved error:", error);
+    res.status(500).json({ success: false, message: "Email sending failed" });
+  }
+};
+
+exports.sendTwoWheelerUpdateRejected = async (req, res) => {
+  try {
+    await sendTwoWheelerUpdateRejectedEmail(req.body);
+    return res.json({ success: true, message: "Two-wheeler update rejection email sent" });
+  } catch (error) {
+    console.error("[EMAIL-CTRL] sendTwoWheelerUpdateRejected error:", error);
     res.status(500).json({ success: false, message: "Email sending failed" });
   }
 };

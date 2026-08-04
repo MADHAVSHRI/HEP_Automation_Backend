@@ -10,6 +10,7 @@ const passRequestService = require("../services/passRequestService");
 const { Designation, vehicleTypes, PassRequest, hepTypes,
         countries, states, cities, visitPurpose, getPassRequest, Master, getAgentPassRequestsDetails, viewPassRequestsDocuments } = require("../models/passRequestSchema");
 const { pool } = require("../dbconfig/db");
+const { sendEmailEvent } = require("../utils/kafka/producer");
 
 const isOilDockArea = (val) => {
   if (!val) return false;
@@ -1743,6 +1744,287 @@ const validateSecureQr = async (
   }
 };
 
+const submitTwoWheelerUpdate = async (req, res) => {
+  try {
+    const { personId, passRequestId, newVehicleNo, reason } = req.body;
+    if (!personId || !newVehicleNo) {
+      return res.status(400).json({ success: false, message: "Person ID and new vehicle number are required." });
+    }
+
+    // Vehicle Number Regex Validation (Indian vehicle registration number)
+    const vehicleNoClean = newVehicleNo.toUpperCase().trim();
+    const vehicleRegex = /^[A-Z]{2}[-\s]?[0-9]{1,2}[-\s]?[A-Z]{1,3}[-\s]?[0-9]{1,4}$/i;
+    if (!vehicleRegex.test(vehicleNoClean)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid two-wheeler vehicle number format. Valid examples: MH01AB1234, KA-02-C-5678.",
+      });
+    }
+
+    // Fetch person details
+    let personRes = await pool.query(`SELECT * FROM pass_persons WHERE id = $1`, [personId]);
+    let isVendor = false;
+    if (personRes.rows.length === 0) {
+      personRes = await pool.query(`SELECT * FROM vendor_pass_persons WHERE id = $1`, [personId]);
+      isVendor = true;
+    }
+
+    if (personRes.rows.length === 0) {
+      return res.status(404).json({ success: false, message: "Person record not found." });
+    }
+
+    const person = personRes.rows[0];
+
+    // Check Annual/Yearly pass type
+    const passTypeStr = String(person.passType || "").toUpperCase();
+    const isAnnual = passTypeStr === "YEARLY" || passTypeStr === "ANNUAL" || passTypeStr === "3";
+    if (!isAnnual) {
+      return res.status(400).json({ success: false, message: "Two-wheeler number update is only permitted for Annual/Yearly passes." });
+    }
+
+    // Check two wheeler enablement
+    const hasTwoWheeler = person.withTwoWheeler === true || String(person.withTwoWheeler) === "true";
+    if (!hasTwoWheeler) {
+      return res.status(400).json({ success: false, message: "Two-wheeler pass was not availed for this person." });
+    }
+
+    // Check 3-change limit
+    const changeCount = parseInt(person.twoWheelerChangeCount || 0, 10);
+    if (changeCount >= 3) {
+      return res.status(400).json({
+        success: false,
+        message: "You have changed the two-wheeler number 3 times already this year, so you cannot change it again.",
+      });
+    }
+
+    // Check pending request lock
+    const pendingCheck = await pool.query(
+      `SELECT * FROM two_wheeler_change_requests WHERE "personId" = $1 AND status = 'PENDING'`,
+      [personId]
+    );
+    if (pendingCheck.rows.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: "A two-wheeler update request for this person is already under review by the Pass Section.",
+      });
+    }
+
+    // Get company name and email
+    let companyName = "";
+    let email = "";
+    const targetPassId = passRequestId || person.passRequestId;
+    if (targetPassId) {
+      if (isVendor) {
+        const vpRes = await pool.query(`SELECT email, "companyName" FROM vendor_pass_requests WHERE id = $1`, [targetPassId]);
+        if (vpRes.rows.length > 0) {
+          companyName = vpRes.rows[0].companyName || "";
+          email = vpRes.rows[0].email || "";
+        }
+      } else {
+        const prRes = await pool.query(
+          `SELECT a.email, a."entityName" FROM pass_requests pr JOIN "Agents" a ON pr."agentId" = a.id WHERE pr.id = $1`,
+          [targetPassId]
+        );
+        if (prRes.rows.length > 0) {
+          companyName = prRes.rows[0].entityName || "";
+          email = prRes.rows[0].email || "";
+        }
+      }
+    }
+
+    // Insert update request
+    const insertRes = await pool.query(
+      `INSERT INTO two_wheeler_change_requests 
+       ("passRequestId", "personId", "isVendorPass", "personName", "personPassNo", "companyName", "oldVehicleNo", "newVehicleNo", "reason", "status", "changeCount", "createdAt", "updatedAt")
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'PENDING', $10, NOW(), NOW())
+       RETURNING *`,
+      [
+        passRequestId || person.passRequestId || null,
+        personId,
+        isVendor,
+        person.name,
+        person.personPassNo || "",
+        companyName,
+        person.vehicleNo || "",
+        vehicleNoClean,
+        reason || "Two-wheeler vehicle number change",
+        changeCount + 1,
+      ]
+    );
+
+    if (email) {
+      setImmediate(() => {
+        sendEmailEvent({
+          type: "TWO_WHEELER_UPDATE_SUBMITTED",
+          email,
+          name: companyName,
+          referenceNumber: person.personPassNo || `REQ-${targetPassId}`,
+          oldVehicleNo: person.vehicleNo || "N/A",
+          newVehicleNo: vehicleNoClean,
+          rejectedReason: null,
+        }).catch((err) => console.error("Email notification error:", err.message));
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Two-wheeler update request submitted successfully for approval.",
+      data: insertRes.rows[0],
+    });
+  } catch (error) {
+    console.error("submitTwoWheelerUpdate error:", error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+const getTwoWheelerUpdateRequests = async (req, res) => {
+  try {
+    const { status } = req.query;
+    let query = `SELECT * FROM two_wheeler_change_requests`;
+    let params = [];
+    if (status) {
+      query += ` WHERE status = $1`;
+      params.push(status);
+    }
+    query += ` ORDER BY id DESC`;
+
+    const result = await pool.query(query, params);
+    return res.status(200).json({
+      success: true,
+      data: result.rows,
+    });
+  } catch (error) {
+    console.error("getTwoWheelerUpdateRequests error:", error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+const approveTwoWheelerUpdate = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const reqRes = await pool.query(`SELECT * FROM two_wheeler_change_requests WHERE id = $1`, [id]);
+    if (reqRes.rows.length === 0) {
+      return res.status(404).json({ success: false, message: "Update request not found." });
+    }
+
+    const changeReq = reqRes.rows[0];
+    if (changeReq.status !== "PENDING") {
+      return res.status(400).json({ success: false, message: `Request is already ${changeReq.status}` });
+    }
+
+    // Update person vehicleNo & twoWheelerChangeCount
+    const table = changeReq.isVendorPass ? "vendor_pass_persons" : "pass_persons";
+    await pool.query(
+      `UPDATE ${table} 
+       SET "vehicleNo" = $1, "twoWheelerChangeCount" = COALESCE("twoWheelerChangeCount", 0) + 1, "updatedAt" = NOW()
+       WHERE id = $2`,
+      [changeReq.newVehicleNo, changeReq.personId]
+    );
+
+    // Update change request status
+    await pool.query(
+      `UPDATE two_wheeler_change_requests SET status = 'APPROVED', "updatedAt" = NOW() WHERE id = $1`,
+      [id]
+    );
+
+    // Send Approval Email Notification
+    if (changeReq.passRequestId) {
+      let email = "";
+      if (changeReq.isVendorPass) {
+        const vpRes = await pool.query(`SELECT email FROM vendor_pass_requests WHERE id = $1`, [changeReq.passRequestId]);
+        if (vpRes.rows.length > 0) email = vpRes.rows[0].email || "";
+      } else {
+        const prRes = await pool.query(
+          `SELECT a.email FROM pass_requests pr JOIN "Agents" a ON pr."agentId" = a.id WHERE pr.id = $1`,
+          [changeReq.passRequestId]
+        );
+        if (prRes.rows.length > 0) email = prRes.rows[0].email || "";
+      }
+
+      if (email) {
+        setImmediate(() => {
+          sendEmailEvent({
+            type: "TWO_WHEELER_UPDATE_APPROVED",
+            email,
+            name: changeReq.companyName,
+            referenceNumber: changeReq.personPassNo || `REQ-${changeReq.passRequestId}`,
+            oldVehicleNo: changeReq.oldVehicleNo || "N/A",
+            newVehicleNo: changeReq.newVehicleNo,
+            rejectedReason: null,
+          }).catch((err) => console.error("Email notification error:", err.message));
+        });
+      }
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Two-wheeler number update approved successfully.",
+    });
+  } catch (error) {
+    console.error("approveTwoWheelerUpdate error:", error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+const rejectTwoWheelerUpdate = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { rejectedReason } = req.body;
+    const reqRes = await pool.query(`SELECT * FROM two_wheeler_change_requests WHERE id = $1`, [id]);
+    if (reqRes.rows.length === 0) {
+      return res.status(404).json({ success: false, message: "Update request not found." });
+    }
+
+    const changeReq = reqRes.rows[0];
+    if (changeReq.status !== "PENDING") {
+      return res.status(400).json({ success: false, message: `Request is already ${changeReq.status}` });
+    }
+
+    const finalReason = rejectedReason || "Request rejected by approver";
+    await pool.query(
+      `UPDATE two_wheeler_change_requests SET status = 'REJECTED', "rejectedReason" = $1, "updatedAt" = NOW() WHERE id = $2`,
+      [finalReason, id]
+    );
+
+    // Send Rejection Email Notification
+    if (changeReq.passRequestId) {
+      let email = "";
+      if (changeReq.isVendorPass) {
+        const vpRes = await pool.query(`SELECT email FROM vendor_pass_requests WHERE id = $1`, [changeReq.passRequestId]);
+        if (vpRes.rows.length > 0) email = vpRes.rows[0].email || "";
+      } else {
+        const prRes = await pool.query(
+          `SELECT a.email FROM pass_requests pr JOIN "Agents" a ON pr."agentId" = a.id WHERE pr.id = $1`,
+          [changeReq.passRequestId]
+        );
+        if (prRes.rows.length > 0) email = prRes.rows[0].email || "";
+      }
+
+      if (email) {
+        setImmediate(() => {
+          sendEmailEvent({
+            type: "TWO_WHEELER_UPDATE_REJECTED",
+            email,
+            name: changeReq.companyName,
+            referenceNumber: changeReq.personPassNo || `REQ-${changeReq.passRequestId}`,
+            oldVehicleNo: changeReq.oldVehicleNo || "N/A",
+            newVehicleNo: changeReq.newVehicleNo,
+            rejectedReason: finalReason,
+          }).catch((err) => console.error("Email notification error:", err.message));
+        });
+      }
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Two-wheeler update request rejected.",
+    });
+  } catch (error) {
+    console.error("rejectTwoWheelerUpdate error:", error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 module.exports = {
   getNationalities,
   getPassTypes,
@@ -1777,5 +2059,9 @@ module.exports = {
   resubmitRevertedPass,
   saveQrPdfPath,
   validateSecureQr,
-  viewMasterDocument
+  viewMasterDocument,
+  submitTwoWheelerUpdate,
+  getTwoWheelerUpdateRequests,
+  approveTwoWheelerUpdate,
+  rejectTwoWheelerUpdate,
 };

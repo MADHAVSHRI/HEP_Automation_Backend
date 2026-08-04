@@ -1584,7 +1584,7 @@ const getPassRequest = {
               'status',       pp.status,
               'rejectedReason', pp."rejectedReason",
               'personPassNo', pp."personPassNo",
-              'designationId', COALESCE(pp."designationId", mp."designationId"),
+              'designationId', COALESCE(d.name, pp."designationOther", mp."designationOther", pp."designationId"::text, mp."designationId"::text),
               'designationOther', COALESCE(pp."designationOther", mp."designationOther"),
               'accessAreaId', COALESCE(pp."accessAreaId"::TEXT, mp."accessAreaId"::TEXT),
               'nationality', COALESCE(pp.nationality::text, mp.nationality::text),
@@ -1623,13 +1623,17 @@ const getPassRequest = {
               'cdcDocumentPath', COALESCE(pp."cdcDocumentPath", mp."cdcDocumentPath"),
               'cdcDocumentName', COALESCE(pp."cdcDocumentName", mp."cdcDocumentName"),
               'entryAuthorizationFilePath', pp."entryAuthorizationFilePath",
-              'entryAuthorizationFileName', pp."entryAuthorizationFileName"
+              'entryAuthorizationFileName', pp."entryAuthorizationFileName",
+              'twoWheelerChangeCount', COALESCE(pp."twoWheelerChangeCount", 0)
             ) ORDER BY pp.id ASC
           ) AS persons
         FROM pass_persons pp
 
         LEFT JOIN master_persons mp
           ON mp.id = pp."masterPersonId"
+
+        LEFT JOIN designations d
+          ON d.id = COALESCE(pp."designationId", mp."designationId")
 
         GROUP BY pp."passRequestId"
       ) p ON p."passRequestId" = pr.id
@@ -2389,7 +2393,8 @@ const getAgentPassRequestsDetails = {
         'vehicleNo', COALESCE(pp."vehicleNo", mp."vehicleNo"),
         'withTwoWheeler', COALESCE(pp."withTwoWheeler", mp."withTwoWheeler"),
         'idProofType', COALESCE(pp."idProofType", mp."idProofType"),
-        'idProofNumber', COALESCE(pp."idProofNumber", mp."idProofNumber")
+        'idProofNumber', COALESCE(pp."idProofNumber", mp."idProofNumber"),
+        'twoWheelerChangeCount', COALESCE(pp."twoWheelerChangeCount", 0)
       )
     )
     ORDER BY pp.id ASC

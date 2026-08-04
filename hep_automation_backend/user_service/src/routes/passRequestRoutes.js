@@ -107,6 +107,12 @@ router.get(
   passRequestController.viewMasterDocument
 );
 
+// Two-Wheeler Update Request routes
+router.post("/two-wheeler-update-request", verifyToken, passRequestController.submitTwoWheelerUpdate);
+router.get("/two-wheeler-update-requests", verifyToken, passRequestController.getTwoWheelerUpdateRequests);
+router.put("/two-wheeler-update-requests/:id/approve", verifyToken, passRequestController.approveTwoWheelerUpdate);
+router.put("/two-wheeler-update-requests/:id/reject", verifyToken, passRequestController.rejectTwoWheelerUpdate);
+
 module.exports = router;
 
 

@@ -185,11 +185,7 @@ exports.getAgentRequests = async (req, res) => {
       config
     );
 
-    // VAPT fix: Vuln #5 – strip excessive PII before forwarding to the frontend.
-    // Only fields genuinely required for the listing/approval UI are kept.
-    // Full PII (PAN, GST, TAN, mobile, email, address, file paths, etc.) is
-    // only needed on the individual agent-detail page which has its own
-    // authenticated endpoint.
+    // VAPT Security Compliance: Strip PII from bulk table listing responses
     const PII_FIELDS = [
       "panNumber", "panDoc",
       "gstinNumber", "gstinDoc",
@@ -208,7 +204,6 @@ exports.getAgentRequests = async (req, res) => {
       return safe;
     };
 
-    // Preserve the original paginated response shape, stripping PII from data[]
     const body = response.data;
     if (body && Array.isArray(body.data)) {
       body.data = body.data.map(stripPii);

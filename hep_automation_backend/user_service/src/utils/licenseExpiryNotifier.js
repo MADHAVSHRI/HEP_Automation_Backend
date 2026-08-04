@@ -13,18 +13,25 @@ async function checkAndNotifyLicenseExpirations() {
     for (const noticeDays of noticeDaysList) {
       const query = `
         SELECT
-          id,
-          "entityName",
-          email,
-          "licenseNumber",
-          "licenseValidityDate",
-          ("licenseValidityDate"::date - CURRENT_DATE) AS "daysRemaining"
-        FROM "Agents"
+          a.id,
+          a."entityName",
+          a.email,
+          a."contactEmail",
+          a."licenseNumber",
+          a."licenseValidityDate",
+          (a."licenseValidityDate"::date - CURRENT_DATE) AS "daysRemaining"
+        FROM "Agents" a
         WHERE
-          "licenseValidityDate" IS NOT NULL
-          AND status = 'approved'
-          AND ("isLifetimeLicense" IS NOT TRUE)
-          AND ("licenseValidityDate"::date - CURRENT_DATE) = $1;
+          a."licenseValidityDate" IS NOT NULL
+          AND a.status = 'approved'
+          AND (a."isLifetimeLicense" IS NOT TRUE)
+          AND (a."licenseValidityDate"::date - CURRENT_DATE) = $1
+          AND NOT EXISTS (
+            SELECT 1 FROM "AgentProfileUpdateRequests" r
+            WHERE r."agentId" = a.id
+              AND r.status = 'pending'
+              AND (r."licenseValidityDate" IS NOT NULL OR r."isLifetimeLicense" = true)
+          );
       `;
 
       const res = await pool.query(query, [noticeDays]);
@@ -34,15 +41,18 @@ async function checkAndNotifyLicenseExpirations() {
 
         for (const agent of res.rows) {
           try {
+            const targetEmail = agent.email;
+            if (!targetEmail) continue;
+
             await sendEmailEvent({
               type: "LICENSE_EXPIRY_WARNING",
-              email: agent.email,
+              email: targetEmail,
               name: agent.entityName,
               licenseNumber: agent.licenseNumber,
               licenseValidityDate: agent.licenseValidityDate,
               daysRemaining: noticeDays,
             });
-            console.log(`[LicenseExpiryNotifier] Warning email event queued for ${agent.email} (${agent.entityName})`);
+            console.log(`[LicenseExpiryNotifier] Warning email event queued for ${targetEmail} (${agent.entityName})`);
           } catch (emailErr) {
             console.error(`[LicenseExpiryNotifier] Failed to send email to ${agent.email}:`, emailErr.message);
           }

@@ -26,11 +26,14 @@ router.post("/sendBulkPassApproved", emailController.sendBulkPassApproved);
 router.post("/sendBulkPassRejected", emailController.sendBulkPassRejected);
 router.post("/sendBulkPassRejectedPersons", emailController.sendBulkPassRejectedPersons);
 
-// ── Profile Update & License Expiry Routes ───────────────────────────────────
+// ── Profile & Vehicle Update & License Expiry Routes ─────────────────────────
 router.post("/sendProfileUpdateSubmitted", emailController.sendProfileUpdateSubmitted);
 router.post("/sendProfileUpdateApproved", emailController.sendProfileUpdateApproved);
 router.post("/sendProfileUpdateReverted", emailController.sendProfileUpdateReverted);
 router.post("/sendProfileUpdateRejected", emailController.sendProfileUpdateRejected);
+router.post("/sendTwoWheelerUpdateSubmitted", emailController.sendTwoWheelerUpdateSubmitted);
+router.post("/sendTwoWheelerUpdateApproved", emailController.sendTwoWheelerUpdateApproved);
+router.post("/sendTwoWheelerUpdateRejected", emailController.sendTwoWheelerUpdateRejected);
 router.post("/sendLicenseExpiryWarning", emailController.sendLicenseExpiryWarning);
 
 // ── Overstay Charges Email Route ──────────────────────────────────────────────
