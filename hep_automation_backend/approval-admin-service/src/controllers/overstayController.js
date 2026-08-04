@@ -1,4 +1,5 @@
 const Overstay = require("../models/overstaySchema");
+const HepRate = require("../models/hepRateConfigSchema");
 const { pool } = require("../dbconfig/db");
 const sendEmailEvent = require("../utils/kafka/producer");
 
@@ -88,33 +89,25 @@ exports.setAutoEmailSetting = async (req, res) => {
  * Resolve the daily rate for overstay penalty calculation.
  * Per SRS: "a penalty equal to respective daily charges will be levied
  * for overstay ... calculated for the period of overstay from the date
- * of expiry of HEP." The daily charge must come from pass_fee_master —
- * the single source of truth shared with the frontend fee calculator.
+ * of expiry of HEP." The daily charge must come from hep_rate_config —
+ * the single source of truth for the HEP rates maintained by ATM.
  */
 const getDailyRate = async (category) => {
-  const result = await pool.query(
-    `
-    SELECT daily_fee
-    FROM pass_fee_master
-    WHERE category = $1
-      AND is_active = true
-    LIMIT 1
-    `,
-    [category]
+  const rates = await HepRate.getHepRates();
+  const row = rates.find(
+    (item) => String(item.category).toUpperCase() === String(category).toUpperCase()
   );
 
-  if (result.rows.length === 0) {
-    throw new Error(
-      `No active fee configuration found for category '${category}'`
-    );
+  if (!row) {
+    throw new Error(`No HEP rate configuration found for category '${category}'`);
   }
 
-  return parseFloat(result.rows[0].daily_fee);
+  return parseFloat(row.daily_rate);
 };
 
 /**
  * Map entity_type (+ optional finer category from the client, e.g. for
- * cargo handling equipment vehicles) to a pass_fee_master.category value.
+ * cargo handling equipment vehicles) to a hep_rate_config category value.
  */
 const resolveFeeCategory = (entity_type, category) => {
   if (category) return String(category).toUpperCase().trim();

@@ -60,17 +60,16 @@ const LIVE_AMOUNT_SELECT = `
   END AS current_total_amount
 `;
 /**
- * Load active daily fees from pass_fee_master — the single source of
- * truth shared with the frontend fee calculator — keyed by category.
- * Returns e.g. { INDIVIDUAL: 10.30, VEHICLE: 25.70, CARGO_HANDLING_EQUIPMENT: 41.00 }
+ * Load daily fees from hep_rate_config — the single source of truth for
+ * HEP charges maintained by ATM. Returns e.g. { INDIVIDUAL: 13.00, VEHICLE: 32.00, CARGO: 51.00 }
  */
 async function loadDailyRates() {
   const res = await pool.query(
-    `SELECT category, daily_fee FROM pass_fee_master WHERE is_active = true`
+    `SELECT category, daily_rate FROM hep_rate_config`
   );
   const rates = {};
   res.rows.forEach((row) => {
-    rates[row.category] = parseFloat(row.daily_fee);
+    rates[String(row.category).toUpperCase()] = parseFloat(row.daily_rate);
   });
   return rates;
 }
@@ -110,10 +109,10 @@ const Overstay = {
     const missing = [];
     if (rates.INDIVIDUAL === undefined) missing.push("INDIVIDUAL");
     if (rates.VEHICLE === undefined) missing.push("VEHICLE");
-    if (rates.CARGO_HANDLING_EQUIPMENT === undefined) missing.push("CARGO_HANDLING_EQUIPMENT");
+    if (rates.CARGO === undefined) missing.push("CARGO");
     if (missing.length > 0) {
       throw new Error(
-        `Missing active pass_fee_master rate(s) for: ${missing.join(", ")}. ` +
+        `Missing HEP rate configuration for: ${missing.join(", ")}. ` +
         `Overstay detection cannot compute penalties without these.`
       );
     }
@@ -196,7 +195,7 @@ const Overstay = {
     const vehicleRows = vehicles.rows.map((r) => {
       const typeName = String(r.vehicle_type_name || "").toUpperCase().trim();
       const isCargoEquipment = CARGO_EQUIPMENT_TYPES.includes(typeName);
-      const dailyRate = isCargoEquipment ? rates.CARGO_HANDLING_EQUIPMENT : rates.VEHICLE;
+      const dailyRate = isCargoEquipment ? rates.CARGO : rates.VEHICLE;
       return {
         ...r,
         daily_rate: dailyRate,
