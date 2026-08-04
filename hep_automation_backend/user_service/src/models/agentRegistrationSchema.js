@@ -843,28 +843,29 @@ const Agent = {
 
   },
 
-  async findAgentByIdentifier(identifier) {
+async findAgentByIdentifier(identifier) {
 
-    const query = `
-      SELECT
-        id,
-        "loginId",
-        email,
-        "firstName",
-        "isApproved"
-      FROM "Agents"
-      WHERE
-        "loginId" = $1
-        OR email = $1
-      LIMIT 1
-    `;
+  const query = `
+    SELECT
+      id,
+      "loginId",
+      email,
+      "firstName",
+      "isApproved",
+      password
+    FROM "Agents"
+    WHERE
+      "loginId" = $1
+      OR email = $1
+    LIMIT 1
+  `;
 
-    const result =
-      await pool.query(query, [identifier]);
+  const result =
+    await pool.query(query, [identifier]);
 
-    return result.rows[0] || null;
+  return result.rows[0] || null;
 
-  },
+},
 
   async updateForgotPassword(loginId,hashedPassword) {
 

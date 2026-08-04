@@ -822,6 +822,17 @@ exports.changePassword = async (req, res) => {
       });
     }
 
+    // NEW: block reuse of the current password
+    if (agent.password) {
+      const isSameAsCurrent = await bcrypt.compare(newPassword, agent.password);
+      if (isSameAsCurrent) {
+        return res.status(400).json({
+          success: false,
+          message: "New password cannot be the same as your current password",
+        });
+      }
+    }
+
     const result = await Agent.changePassword(loginId, newPassword);
 
     if (!result.success) {
@@ -912,7 +923,7 @@ exports.sendForgotPasswordOtp = async (req, res) => {
       message:
         "OTP sent successfully",
       loginId: user.loginId,
-      userName: user.loginId
+      userName: user.firstName
     });
 
   } catch (error) {
@@ -1086,8 +1097,6 @@ exports.resetForgotPassword = async (req, res) => {
 
     }
 
-    /* ===== MY CHANGE START ===== */
-
     if (!data.verified) {
 
       return res.status(400).json({
@@ -1098,17 +1107,15 @@ exports.resetForgotPassword = async (req, res) => {
 
     }
 
-    /* ===== MY CHANGE END ===== */
-
-
-    if (!user) {
-
-      return res.status(404).json({
-        success: false,
-        message:
-          "User not found",
-      });
-
+    // NEW: block reuse of the current password
+    if (user.password) {
+      const isSameAsCurrent = await bcrypt.compare(newPassword, user.password);
+      if (isSameAsCurrent) {
+        return res.status(400).json({
+          success: false,
+          message: "New password cannot be the same as your current password",
+        });
+      }
     }
 
     const hash =

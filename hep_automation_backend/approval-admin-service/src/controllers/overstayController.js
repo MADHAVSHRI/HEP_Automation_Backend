@@ -119,6 +119,7 @@ const getDailyRate = async (category) => {
 const resolveFeeCategory = (entity_type, category) => {
   if (category) return String(category).toUpperCase().trim();
   if (entity_type === "PERSON") return "INDIVIDUAL";
+  if (entity_type === "DRIVER") return "INDIVIDUAL";
   if (entity_type === "VEHICLE") return "VEHICLE";
   throw new Error(`Cannot resolve fee category for entity_type '${entity_type}'`);
 };

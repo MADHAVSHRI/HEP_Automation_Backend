@@ -213,7 +213,21 @@ const startConsumer = async () => {
               charge_id: data.charge_id
             };
 
-          } else {
+          } 
+           else if (data.type === "OVERSTAY_LEVIED") {
+
+            payload = {
+              email: data.email,
+              agent_id: data.agent_id,
+              identifier: data.identifier,
+              entity_type: data.entity_type,
+              overstay_days: data.overstay_days,
+              total_amount: data.total_amount,
+              charge_id: data.charge_id
+            };
+
+          }
+          else {
             // Registration email (existing logic)
             payload = {
               email: data.email,
@@ -293,7 +307,13 @@ const startConsumer = async () => {
 
         emailApi = "/api/email/sendOverstayReminder";
 
-    }else {
+    }
+     else if (data.type === "OVERSTAY_LEVIED") {
+
+        emailApi = "/api/email/sendOverstayLevied";
+
+    }
+    else {
 
       emailApi = "/api/email/sendReferenceNo";
 

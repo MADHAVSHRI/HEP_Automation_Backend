@@ -35,5 +35,6 @@ router.post("/sendLicenseExpiryWarning", emailController.sendLicenseExpiryWarnin
 
 // ── Overstay Charges Email Route ──────────────────────────────────────────────
 router.post("/sendOverstayReminder", emailController.sendOverstayReminder);
+router.post("/sendOverstayLevied", emailController.sendOverstayLevied);
 
 module.exports = router;

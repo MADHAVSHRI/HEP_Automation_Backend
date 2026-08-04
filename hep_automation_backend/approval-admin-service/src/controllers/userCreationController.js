@@ -577,10 +577,17 @@ exports.forgotPassword = async (req, res) => {
         console.error("Email service error:", emailErr.response?.data || emailErr.message);
       });
     }
-    // Always respond the same way — do not reveal whether the account exists
+    // Always respond the same way — do not reveal whether the account exists.
+    // NOTE: loginId is echoed back as-submitted (not derived from the DB row),
+    // so this does not leak whether the account exists — it's only ever the
+    // same string the client just sent us. The frontend needs this value to
+    // carry forward into /verify-otp as resolvedLoginId; without it, that
+    // field is undefined and verify-otp always 400s with "Email ID and OTP
+    // are required", even for a valid, existing account.
     return res.status(200).json({
       success: true,
       message: "If an account with that email exists, an OTP has been sent.",
+      loginId,
     });
   } catch (error) {
     console.error("Forgot password error:", error);
@@ -629,10 +636,10 @@ exports.resetPassword = async (req, res) => {
       });
     }
 
-    if (newPassword === "APPROVAL") {
+    if (newPassword.toUpperCase() === "APPROVAL") {
       return res.status(400).json({
         success: false,
-        message: "New password cannot be APPROVAL"
+        message: "New password cannot be the same as your default password"
       });
     }
 
@@ -644,6 +651,15 @@ exports.resetPassword = async (req, res) => {
     const user = await User.findUserByEmail(loginId);
     if (!user) {
       return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    // NEW: block reuse of the current password
+    const isSameAsCurrent = await bcrypt.compare(newPassword, user.password);
+    if (isSameAsCurrent) {
+      return res.status(400).json({
+        success: false,
+        message: "New password cannot be the same as your current password"
+      });
     }
 
     const hashedPassword = await bcrypt.hash(newPassword, 10);
@@ -680,16 +696,25 @@ exports.changePassword = async (req, res) => {
       });
     }
 
-    if (newPassword === "APPROVAL") {
+    if (newPassword.toUpperCase() === "APPROVAL") {
       return res.status(400).json({
         success: false,
-        message: "New password cannot be APPROVAL"
+        message: "New password cannot be the same as your default password"
       });
     }
 
     const user = await User.findUserById(userId);
     if (!user) {
       return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    // NEW: block reuse of the current password
+    const isSameAsCurrent = await bcrypt.compare(newPassword, user.password);
+    if (isSameAsCurrent) {
+      return res.status(400).json({
+        success: false,
+        message: "New password cannot be the same as your current password"
+      });
     }
 
     const hashedPassword = await bcrypt.hash(newPassword, 10);

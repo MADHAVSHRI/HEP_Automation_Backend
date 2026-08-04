@@ -2,7 +2,7 @@ const { sendReferenceEmail, sendApprovalEmail, sendRejectionEmail,
   sendDeptUserCreationEmail, sendDeptUserActivatedEmail, sendDeptUserDisabledEmail,
   sendRevertedAgentRequestEmail,sendUpdatedAfterRevertEmail,
   sendVendorPassLinkEmail, sendPassRevertedEmail, sendVendorPassApprovedEmail,
-  sendVendorPassSubmittedEmail, sendOverstayReminderEmail,
+  sendVendorPassSubmittedEmail, sendOverstayReminderEmail, sendOverstayLeviedEmail,
   sendForgotPasswordOTPEmail, sendForgotPasswordOtpEmail,
   sendBulkPassInvitationEmail, sendBulkPassSubmittedEmail, sendBulkPassUnderReviewEmail,
   sendBulkPassReturnedEmail, sendBulkPassApprovedEmail, sendBulkPassRejectedEmail,
@@ -20,7 +20,15 @@ exports.sendOverstayReminder = async (req, res) => {
     res.status(500).json({ success: false, message: "Email sending failed" });
   }
 };
-
+exports.sendOverstayLevied = async (req, res) => {
+  try {
+    await sendOverstayLeviedEmail(req.body);
+    return res.json({ success: true, message: "Overstay levied email sent" });
+  } catch (error) {
+    console.error("sendOverstayLevied error:", error);
+    res.status(500).json({ success: false, message: "Email sending failed" });
+  }
+};
 exports.sendReference = async (req, res) => {
 
   try {

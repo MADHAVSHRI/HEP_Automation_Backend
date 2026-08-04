@@ -214,9 +214,10 @@ const User = {
         u.email,
         u."isApprovedByAdmin",
         u.status,
-        u."isPasswordChanged"
+        u."isPasswordChanged",
+        u.password
       FROM "users" u
-      WHERE u.email = $1
+      WHERE u."userName" = $1 OR u.email = $1
     `;
     const result = await pool.query(query, [email]);
     return result.rows[0];
@@ -244,7 +245,8 @@ const User = {
         u.email,
         u."isApprovedByAdmin",
         u.status,
-        u."isPasswordChanged"
+        u."isPasswordChanged",
+        u.password
       FROM "users" u
       WHERE u.id = $1
     `;

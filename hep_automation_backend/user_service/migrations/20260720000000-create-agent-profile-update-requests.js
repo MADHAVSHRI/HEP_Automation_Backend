@@ -45,6 +45,14 @@ module.exports = {
         type: Sequelize.STRING(255),
         allowNull: true,
       },
+      authorizedPersonName: {
+        type: Sequelize.STRING(255),
+        allowNull: true,
+      },
+      remarks: {
+        type: Sequelize.TEXT,
+        allowNull: true,
+      },
       addressLine: {
         type: Sequelize.TEXT,
         allowNull: true,
