@@ -53,12 +53,88 @@ const formatISTDateTime = (dateValue, isEndOfDay = false) => {
   });
 };
 
+// --- Shared helper: find-or-create a master item, keyed per agent+passType ---
+async function findOrCreateMasterItem(client, { name, unitId, materialPassTypeId, agentId }) {
+  const existingQuery = `
+    SELECT id
+    FROM master_items
+    WHERE
+      LOWER(name) = LOWER($1)
+      AND "materialPassTypeId" = $2
+      AND "agentId" = $3
+    LIMIT 1
+  `;
+  const existingResult = await client.query(existingQuery, [name, materialPassTypeId, agentId]);
+
+  if (existingResult.rows.length > 0) {
+    const masterItemId = existingResult.rows[0].id;
+    await client.query(
+      `UPDATE master_items SET "unitId" = $1, "updatedAt" = NOW() WHERE id = $2`,
+      [unitId, masterItemId]
+    );
+    return masterItemId;
+  }
+
+  const insertQuery = `
+    INSERT INTO master_items (name, "materialPassTypeId", "unitId", "userType", "agentId")
+    VALUES ($1,$2,$3,$4,$5)
+    RETURNING id
+  `;
+  const insertResult = await client.query(insertQuery, [
+    name,
+    materialPassTypeId,
+    unitId,
+    "Agent",
+    agentId,
+  ]);
+  return insertResult.rows[0].id;
+}
+
+// --- Shared helper: attach a statusCode to errors so the controller can
+// map them to the right HTTP response without string-matching messages ---
+function httpError(statusCode, message) {
+  const err = new Error(message);
+  err.statusCode = statusCode;
+  return err;
+}
+
 const portLocations = {
   async getAllPortLocations() {
     const query = `
       SELECT id, name
       FROM locations
       ORDER BY name ASC
+    `;
+
+    const result = await pool.query(query);
+
+    return result.rows;
+  },
+};
+
+const materialPassType = {
+  async getRegularPassTypes() {
+    const query = `
+      SELECT id, name
+      FROM material_pass_type
+      WHERE "isActive" = true
+        AND name IN ('Returnable', 'Non Returnable')
+      ORDER BY id;
+    `;
+
+    const result = await pool.query(query);
+
+    return result.rows;
+  },
+};
+
+const units = {
+  async getAllUnits() {
+    const query = `
+      SELECT id, "unitName" AS name, "unitCode" AS code
+      FROM units
+      WHERE "isActive" = true
+      ORDER BY "unitName" ASC
     `;
 
     const result = await pool.query(query);
@@ -168,77 +244,6 @@ const materialPassRequest = {
       let returnablePassId = null;
       let nonReturnablePassId = null;
 
-      async function findOrCreateMasterItem({
-          name,
-          unitId,
-          materialPassTypeId,
-          agentId,
-      }) {
-
-          // 1. Check if master item already exists
-          const existingQuery = `
-              SELECT id
-              FROM master_items
-              WHERE
-                  LOWER(name) = LOWER($1)
-                  AND "materialPassTypeId" = $2
-                  AND "agentId" = $3
-              LIMIT 1
-          `;
-
-          const existingResult = await client.query(existingQuery, [
-              name,
-              materialPassTypeId,
-              agentId,
-          ]);
-
-          // 2. If found, update latest unit and return id
-          if (existingResult.rows.length > 0) {
-
-              const masterItemId = existingResult.rows[0].id;
-
-              await client.query(
-                  `
-                  UPDATE master_items
-                  SET
-                      "unitId" = $1,
-                      "updatedAt" = NOW()
-                  WHERE id = $2
-                  `,
-                  [unitId, masterItemId]
-              );
-
-              return masterItemId;
-          }
-
-          // 3. Otherwise create a new master item
-          const insertQuery = `
-              INSERT INTO master_items
-              (
-                  name,
-                  "materialPassTypeId",
-                  "unitId",
-                  "userType",
-                  "agentId"
-              )
-              VALUES
-              (
-                  $1,$2,$3,$4,$5
-              )
-              RETURNING id
-          `;
-
-          const insertResult = await client.query(insertQuery, [
-              name,
-              materialPassTypeId,
-              unitId,
-              "Agent",
-              agentId,
-          ]);
-
-          return insertResult.rows[0].id;
-      }
-
       const materialListQuery = `
           INSERT INTO material_list
           (
@@ -270,7 +275,7 @@ const materialPassRequest = {
 
           for (const material of returnables) {
               const masterItemId =
-                  await findOrCreateMasterItem({
+                  await findOrCreateMasterItem(client, {
                       name: material.name.trim(),
                       unitId: material.unit,
                       materialPassTypeId: 1,
@@ -303,7 +308,7 @@ const materialPassRequest = {
 
           for (const material of nonReturnables) {
               const masterItemId =
-                  await findOrCreateMasterItem({
+                  await findOrCreateMasterItem(client, {
                       name: material.name.trim(),
                       unitId: material.unit,
                       materialPassTypeId: 2,
@@ -427,6 +432,7 @@ const materialPassRequest = {
         SET
           "status" = 'Completed',
           "hasRevertedPass" = $1,
+          "isResubmitted" = false,
           "approvedBy" = $2
         WHERE id = $3
         RETURNING id, "referenceNo", "status", "hasRevertedPass"
@@ -470,6 +476,136 @@ const materialPassRequest = {
     const result = await pool.query(query, [qrPdfPath, passId]);
 
     return result.rows[0];
+  },
+
+  /*
+  =====================================================
+  RESUBMIT REVERTED MATERIAL PASS
+  Atomically: (1) verifies the caller owns the request and it is
+  genuinely in a reverted state, (2) verifies each targeted pass_material
+  row is itself Reverted, (3) replaces its material line items,
+  (4) moves it back to Submitted, (5) clears the parent request's
+  hasRevertedPass flag and puts it back in the admin review queue.
+  Either all of this happens, or none of it does.
+  =====================================================
+  */
+  async resubmitRevertedMaterialPass(passRequestId, agentId, passes) {
+    const client = await pool.connect();
+
+    try {
+      await client.query("BEGIN");
+
+      // Lock the parent request row for the duration of the transaction —
+      // prevents a concurrent resubmit/review racing against this one.
+      const requestRes = await client.query(
+        `
+        SELECT id, "agentId", "hasRevertedPass", "status"
+        FROM material_pass_request
+        WHERE id = $1 AND "isActive"
+        FOR UPDATE
+        `,
+        [passRequestId]
+      );
+
+      if (requestRes.rows.length === 0) {
+        throw httpError(404, "Material pass request not found");
+      }
+
+      const requestRow = requestRes.rows[0];
+
+      if (requestRow.agentId !== agentId) {
+        throw httpError(403, "You do not have permission to modify this request");
+      }
+
+      if (!requestRow.hasRevertedPass) {
+        throw httpError(409, "This request has no reverted passes to resubmit");
+      }
+
+      const PASS_TYPE_ID_MAP = { returnable: 1, nonReturnable: 2 };
+
+      const materialListQuery = `
+        INSERT INTO material_list
+        ("passMaterialId", "masterItemId", "requestedQty", "actualMovedQty", "unitId")
+        VALUES ($1,$2,$3,$4,$5)
+      `;
+
+      for (const [type, pass] of Object.entries(passes)) {
+        const materialPassTypeId = PASS_TYPE_ID_MAP[type];
+
+        // Lock and verify this specific pass belongs to the request, matches
+        // the claimed type, and is actually in a revertible state — a stale
+        // or forged passId can't be used to overwrite an unrelated pass.
+        const passRes = await client.query(
+          `
+          SELECT id, status
+          FROM pass_material
+          WHERE id = $1
+            AND "materialPassRequestId" = $2
+            AND "materialPassTypeId" = $3
+            AND "isActive"
+          FOR UPDATE
+          `,
+          [pass.passId, passRequestId, materialPassTypeId]
+        );
+
+        if (passRes.rows.length === 0) {
+          throw httpError(404, `${type} pass not found on this request`);
+        }
+        if (passRes.rows[0].status !== "Reverted") {
+          throw httpError(409, `${type} pass is not in a revertible state`);
+        }
+
+        // Full replace of the material line items — same idempotent
+        // overwrite semantics as the old per-type PUT, just inside one
+        // transaction now.
+        await client.query(`DELETE FROM material_list WHERE "passMaterialId" = $1`, [
+          pass.passId,
+        ]);
+
+        for (const material of pass.materials) {
+          const masterItemId = await findOrCreateMasterItem(client, {
+            name: material.name.trim(),
+            unitId: material.unit,
+            materialPassTypeId,
+            agentId,
+          });
+
+          await client.query(materialListQuery, [
+            pass.passId,
+            masterItemId,
+            material.quantity,
+            0, // nothing moved yet — mirrors createRegularMaterialPass
+            material.unit,
+          ]);
+        }
+
+        await client.query(
+          `UPDATE pass_material SET "status" = 'Pending' WHERE id = $1`,
+          [pass.passId]
+        );
+      }
+
+      // The frontend only allows Resubmit once every currently-reverted
+      // pass type has been updated in this same call, so once we reach
+      // here there are no Reverted passes left on this request.
+      const updateRequestRes = await client.query(
+        `
+        UPDATE material_pass_request
+        SET "status" = 'Submitted', "hasRevertedPass" = false, "isResubmitted" = true
+        WHERE id = $1
+        RETURNING id, "referenceNo", "status", "hasRevertedPass"
+        `,
+        [passRequestId]
+      );
+
+      await client.query("COMMIT");
+      return updateRequestRes.rows[0];
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
   },
 };
 
@@ -1208,4 +1344,6 @@ module.exports = {
     portLocations,
     materialPassRequest,
     getMaterialPass,
+    materialPassType,
+    units
 };

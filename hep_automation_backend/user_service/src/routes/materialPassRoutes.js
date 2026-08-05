@@ -3,18 +3,22 @@ const router = express.Router();
 
 const {
   getPortLocations,
+  getRegularPassTypes,
+  getUnits,
   createRegularMaterialPassRequest,
   getMaterialPassRequests,
   getMaterialPassRequestsToApproverAdmin,
   completeMaterialPassReview,
   getMaterialQrData,
   saveMaterialQrPdfPath,
+  resubmitRevertedMaterialPass
 } = require("../controllers/materialPassController");
 
 const validate = require("../middlewares/validate");
 
 const {
   materialPassRequestSchema,
+  resubmitRevertedPassSchema
 } = require("../validations/materialPass.validation");
 
 const verifyToken = require("../middlewares/verifyToken");
@@ -23,7 +27,11 @@ const verifyToken = require("../middlewares/verifyToken");
 
 
 
-router.get("/locations",getPortLocations);
+router.get("/locations", verifyToken, getPortLocations);
+
+router.get("/RegularPassTypes", verifyToken, getRegularPassTypes);
+
+router.get("/units", verifyToken, getUnits);
 
 router.post(
     "/createRegularMaterialPassRequest",
@@ -56,6 +64,13 @@ router.post(
     "/save-qr-pdf-path",
     verifyToken,
     saveMaterialQrPdfPath
+)
+
+router.put(
+    "/resubmit-reverted-pass/:passRequestId",
+    verifyToken,
+    validate(resubmitRevertedPassSchema),
+    resubmitRevertedMaterialPass
 )
 
 module.exports = router;

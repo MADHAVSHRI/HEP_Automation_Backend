@@ -535,7 +535,7 @@ async function generateMaterialPdf(data) {
   const PAGE_H = 842; // A4 — table length is unpredictable, so no fixed short card height
   const HEADER_H = 62;
   const MARGIN = 30;
-  const ROW_H = 20;
+  const ROW_H = 24; // bumped from 20 to fit larger text comfortably
   const BOTTOM_MARGIN = 40;
 
   const pass = data.pass;
@@ -577,11 +577,11 @@ async function generateMaterialPdf(data) {
 
     const TX = LOGO_X + LOGO_SIZE + 6;
     const TW = PAGE_W - TX - 10;
-    doc.fillColor("white").font("Noto").fontSize(9)
-      .text("चेन्नई पत्तन न्यास", TX, 10, { width: TW, align: "center" });
-    doc.fillColor("white").font("Helvetica-Bold").fontSize(14)
-      .text("CHENNAI PORT AUTHORITY", TX, 24, { width: TW, align: "center" });
-    doc.fillColor("white").font("Helvetica").fontSize(9)
+    doc.fillColor("white").font("Noto").fontSize(10)
+      .text("चेन्नई पत्तन न्यास", TX, 8, { width: TW, align: "center" });
+    doc.fillColor("white").font("Helvetica-Bold").fontSize(15)
+      .text("CHENNAI PORT AUTHORITY", TX, 23, { width: TW, align: "center" });
+    doc.fillColor("white").font("Helvetica").fontSize(10)
       .text(passTypeLabel, TX, 44, { width: TW, align: "center" });
   };
 
@@ -604,16 +604,16 @@ async function generateMaterialPdf(data) {
   let y = HEADER_H + 16;
 
   // ── Basic info block ──
-  doc.fillColor("black").font("Helvetica-Bold").fontSize(16)
+  doc.fillColor("black").font("Helvetica-Bold").fontSize(17)
     .text(`Pass No: ${pass.materialPassNo || "-"}`, LEFT_X, y, { width: INFO_W });
-  y += 22;
+  y += 24;
 
   const field = (label, value) => {
-    doc.font("Helvetica-Bold").fontSize(8).fillColor("#555555")
+    doc.font("Helvetica-Bold").fontSize(9).fillColor("#555555")
       .text(label, LEFT_X, y, { continued: true, width: INFO_W });
-    doc.font("Helvetica").fillColor("black").fontSize(9)
+    doc.font("Helvetica").fillColor("black").fontSize(10)
       .text(` ${value ?? "-"}`);
-    y += 14;
+    y += 16;
   };
 
   field("REFERENCE NO.:", data.referenceNo);
@@ -631,37 +631,56 @@ async function generateMaterialPdf(data) {
   // ── QR block (right side, aligned with info block) ──
   const QR_Y = HEADER_H + 16;
   doc.image(qr, QR_X, QR_Y, { fit: [QR_W, QR_W] });
-  doc.fillColor("black").font("Helvetica").fontSize(7)
+  doc.fillColor("black").font("Helvetica").fontSize(8)
     .text("AUTHORIZED BY", QR_X - 4, QR_Y + QR_W + 5, { width: QR_W + 8, align: "center" })
-    .text("TRAFFIC MANAGER", QR_X - 4, QR_Y + QR_W + 15, { width: QR_W + 8, align: "center" });
+    .text("TRAFFIC MANAGER", QR_X - 4, QR_Y + QR_W + 16, { width: QR_W + 8, align: "center" });
 
-  y = Math.max(y, QR_Y + QR_W + 30) + 10;
+  y = Math.max(y, QR_Y + QR_W + 32) + 10;
 
   // ── Materials table (paginates if it overflows the page) ──
   const TABLE_W = PAGE_W - 2 * MARGIN;
+
+  // Column layout — widened row height + a new ACTION column with a
+  // checkbox drawn per row. Widths were rebalanced so everything still
+  // fits inside TABLE_W (535pt) at the larger font size.
   const COL = {
-    sno: LEFT_X + 4,
-    item: LEFT_X + 44,
-    qty: LEFT_X + 320,
-    unit: LEFT_X + 410,
+    sno: LEFT_X + 4,     // ~35pt wide
+    item: LEFT_X + 40,   // ~210pt wide
+    qty: LEFT_X + 260,   // ~80pt wide
+    unit: LEFT_X + 345,  // ~65pt wide
+    action: LEFT_X + 415, // remaining ~120pt, checkbox centered in it
   };
+  const ACTION_COL_W = TABLE_W - (COL.action - LEFT_X);
+  const CHECKBOX_SIZE = 14;
 
   const drawTableHeader = (yPos) => {
-    doc.rect(LEFT_X, yPos, TABLE_W, 22).fill("#0a1e4d");
-    doc.fillColor("white").font("Helvetica-Bold").fontSize(9);
-    doc.text("S.NO.", COL.sno, yPos + 6);
-    doc.text("ITEM", COL.item, yPos + 6);
-    doc.text("QUANTITY", COL.qty, yPos + 6);
-    doc.text("UNIT", COL.unit, yPos + 6);
-    return yPos + 22;
+    doc.rect(LEFT_X, yPos, TABLE_W, 24).fill("#0a1e4d");
+    doc.fillColor("white").font("Helvetica-Bold").fontSize(10);
+    doc.text("S.NO.", COL.sno, yPos + 7);
+    doc.text("ITEM", COL.item, yPos + 7);
+    doc.text("QUANTITY", COL.qty, yPos + 7);
+    doc.text("UNIT", COL.unit, yPos + 7);
+    doc.text("ACTION", COL.action, yPos + 7, { width: ACTION_COL_W, align: "center" });
+    return yPos + 24;
+  };
+
+  // Draws an empty checkbox square, vertically + horizontally centered
+  // within the ACTION column for the given row's y position.
+  const drawCheckbox = (rowY) => {
+    const boxX = COL.action + (ACTION_COL_W - CHECKBOX_SIZE) / 2;
+    const boxY = rowY + (ROW_H - CHECKBOX_SIZE) / 2;
+    doc.rect(boxX, boxY, CHECKBOX_SIZE, CHECKBOX_SIZE)
+      .lineWidth(1)
+      .strokeColor("#333333")
+      .stroke();
   };
 
   y = drawTableHeader(y);
 
   if (materials.length === 0) {
     doc.rect(LEFT_X, y, TABLE_W, ROW_H).fill("#ffffff");
-    doc.fillColor("#999999").font("Helvetica-Oblique").fontSize(8.5)
-      .text("No materials listed.", LEFT_X + 4, y + 5, { width: TABLE_W - 8, align: "center" });
+    doc.fillColor("#999999").font("Helvetica-Oblique").fontSize(9.5)
+      .text("No materials listed.", LEFT_X + 4, y + 6, { width: TABLE_W - 8, align: "center" });
     y += ROW_H;
   } else {
     materials.forEach((m, idx) => {
@@ -674,11 +693,12 @@ async function generateMaterialPdf(data) {
 
       const rowColor = idx % 2 === 0 ? "#f8fafc" : "#ffffff";
       doc.rect(LEFT_X, y, TABLE_W, ROW_H).fill(rowColor);
-      doc.fillColor("black").font("Helvetica").fontSize(8.5);
-      doc.text(String(idx + 1), COL.sno, y + 5);
-      doc.text(m.name || "-", COL.item, y + 5, { width: 270 });
-      doc.text(String(m.quantity ?? "-"), COL.qty, y + 5);
-      doc.text(m.unit || "-", COL.unit, y + 5);
+      doc.fillColor("black").font("Helvetica").fontSize(9.5);
+      doc.text(String(idx + 1), COL.sno, y + 6);
+      doc.text(m.name || "-", COL.item, y + 6, { width: 210 });
+      doc.text(String(m.quantity ?? "-"), COL.qty, y + 6);
+      doc.text(m.unit || "-", COL.unit, y + 6);
+      drawCheckbox(y);
       y += ROW_H;
     });
   }
@@ -690,14 +710,14 @@ async function generateMaterialPdf(data) {
     y = HEADER_H + 16;
   }
   doc.rect(LEFT_X, y, TABLE_W, ROW_H).fill("#eef2f7");
-  doc.fillColor("black").font("Helvetica-Bold").fontSize(9)
-    .text(`TOTAL ITEMS: ${materials.length}`, LEFT_X + 4, y + 5);
+  doc.fillColor("black").font("Helvetica-Bold").fontSize(10)
+    .text(`TOTAL ITEMS: ${materials.length}`, LEFT_X + 4, y + 6);
   y += ROW_H;
 
   // ── Footer note on the last page ──
   doc.moveTo(MARGIN, PAGE_H - 30).lineTo(PAGE_W - MARGIN, PAGE_H - 30)
     .strokeColor("#dddddd").lineWidth(0.5).stroke();
-  doc.fillColor("#888888").font("Helvetica").fontSize(7)
+  doc.fillColor("#888888").font("Helvetica").fontSize(8)
     .text(
       "This is a system generated material movement pass. Present this QR at the gate for verification.",
       MARGIN,

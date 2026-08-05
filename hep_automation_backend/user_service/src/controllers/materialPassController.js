@@ -3,6 +3,8 @@ const {
   portLocations,
   materialPassRequest,
   getMaterialPass,
+  materialPassType,
+  units
  } = require("../models/materialPassSchema");
 
 const { getPagination, buildPaginatedResponse } = require("../utils/pagination");
@@ -18,6 +20,42 @@ exports.getPortLocations = async (req, res) => {
     });
   } catch (error) {
     console.error("Locations Fetch Error:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+};
+
+exports.getRegularPassTypes = async (req, res) => {
+  try {
+    const passTypes = await materialPassType.getRegularPassTypes();
+
+    res.status(200).json({
+      success: true,
+      data: passTypes,
+    });
+  } catch (error) {
+    console.error("Pass Types Fetch Error:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+};
+
+exports.getUnits = async (req, res) => {
+  try {
+    const unitList = await units.getAllUnits();
+
+    res.status(200).json({
+      success: true,
+      data: unitList,
+    });
+  } catch (error) {
+    console.error("Units Fetch Error:", error);
 
     res.status(500).json({
       success: false,
@@ -289,4 +327,42 @@ exports.saveMaterialQrPdfPath = async (req, res) => {
   }
 };
 
+
+exports.resubmitRevertedMaterialPass = async (req, res) => {
+  try {
+    const passRequestId = Number(req.params.passRequestId);
+    const agentId = req.user.userId;
+
+    if (!passRequestId) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid pass request id",
+      });
+    }
+
+    // req.body is already validated + shaped by resubmitRevertedPassSchema —
+    // only { returnable?, nonReturnable? } keys with valid material arrays
+    // reach this point.
+    const passes = req.body;
+
+    const result = await materialPassRequest.resubmitRevertedMaterialPass(
+      passRequestId,
+      agentId,
+      passes
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: "Material pass resubmitted successfully",
+      data: result,
+    });
+  } catch (error) {
+    console.error("Resubmit Reverted Material Pass Error:", error);
+
+    return res.status(error.statusCode || 500).json({
+      success: false,
+      message: error.message || "Failed to resubmit material pass",
+    });
+  }
+};
 

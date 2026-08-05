@@ -108,7 +108,41 @@ const materialPassRequestSchema = z.object({
     }
 })
 
+// One reverted pass type being resubmitted: the pass being updated,
+// plus its full replacement material list.
+const revertedPassEntrySchema = z.object({
+    passId: z
+        .number({
+            required_error: "passId is required.",
+            invalid_type_error: "passId must be a number.",
+        })
+        .int()
+        .positive(),
+
+    materials: z
+        .array(materialSchema)
+        .min(1, "At least one material is required."),
+});
+
+const resubmitRevertedPassSchema = z
+    .object({
+        returnable: revertedPassEntrySchema.optional(),
+        nonReturnable: revertedPassEntrySchema.optional(),
+    })
+    .strict()
+    .superRefine((data, ctx) => {
+        if (!data.returnable && !data.nonReturnable) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                path: [],
+                message:
+                    "At least one of 'returnable' or 'nonReturnable' must be provided.",
+            });
+        }
+    });
+
 module.exports = {
     materialSchema,
-    materialPassRequestSchema
+    materialPassRequestSchema,
+    resubmitRevertedPassSchema,
 }
