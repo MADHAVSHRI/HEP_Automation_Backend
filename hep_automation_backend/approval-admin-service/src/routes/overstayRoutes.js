@@ -29,4 +29,11 @@ router.get("/settings/auto-email", overstayController.getAutoEmailSetting);
 router.patch("/settings/auto-email", overstayController.setAutoEmailSetting);
 router.get("/settings/pass-block", overstayController.getPassBlockSetting);
 router.patch("/settings/pass-block", overstayController.setPassBlockSetting);
+router.get("/settings/pass-block/agent/:agentId", overstayController.getAgentPassBlockSetting);
+router.patch("/settings/pass-block/agent/:agentId", overstayController.setAgentPassBlockSetting);
+
+// Per-charge (per-company) pass block — independent of global toggle
+router.get("/:id/pass-block", overstayController.getChargePassBlock);
+router.patch("/:id/pass-block", overstayController.setChargePassBlock);
+
 module.exports = router;

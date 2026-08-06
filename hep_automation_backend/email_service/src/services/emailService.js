@@ -35,7 +35,7 @@ const sendOverstayReminderEmail = async (data) => {
   const mailOptions = {
     from: process.env.EMAIL_USER,
     to: data.email,
-    subject: "Notice: Pending Overstay Charge — Chennai Port APACS",
+    subject: "Notice: Port Pass Expired — Immediate Action Required | Chennai Port APACS",
     html
   };
   return transporter.sendMail(mailOptions);

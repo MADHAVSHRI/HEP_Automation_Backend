@@ -57,6 +57,67 @@ exports.setPassBlockSetting = async (req, res) => {
   }
 };
 
+exports.getAgentPassBlockSetting = async (req, res) => {
+  try {
+    const { agentId } = req.params;
+    const setting = await Overstay.getAgentPassBlockSetting(agentId);
+    res.status(200).json({ success: true, data: setting });
+  } catch (err) {
+    console.error("getAgentPassBlockSetting error:", err);
+    res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
+exports.setAgentPassBlockSetting = async (req, res) => {
+  try {
+    const { agentId } = req.params;
+    const { enabled } = req.body;
+    if (typeof enabled !== "boolean") {
+      return res.status(400).json({ success: false, message: "enabled must be a boolean" });
+    }
+    const updatedBy = await resolveActorName(req.user);
+    const setting = await Overstay.setAgentPassBlockSetting(agentId, enabled, updatedBy);
+    res.status(200).json({
+      success: true,
+      message: `Pass blocked for this company: ${enabled ? "ON" : "OFF"}`,
+      data: setting,
+    });
+  } catch (err) {
+    console.error("setAgentPassBlockSetting error:", err);
+    res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
+exports.getChargePassBlock = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const data = await Overstay.getChargePassBlock(id);
+    res.status(200).json({ success: true, data });
+  } catch (err) {
+    console.error("getChargePassBlock error:", err);
+    res.status(err.message === "Charge not found" ? 404 : 500).json({ success: false, message: err.message || "Internal server error" });
+  }
+};
+
+exports.setChargePassBlock = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { blocked } = req.body;
+    if (typeof blocked !== "boolean") {
+      return res.status(400).json({ success: false, message: "blocked must be a boolean" });
+    }
+    const data = await Overstay.setChargePassBlock(id, blocked);
+    res.status(200).json({
+      success: true,
+      message: `Pass blocked for this company: ${blocked ? "ON" : "OFF"}`,
+      data,
+    });
+  } catch (err) {
+    console.error("setChargePassBlock error:", err);
+    res.status(err.message === "Charge not found" ? 404 : 500).json({ success: false, message: err.message || "Internal server error" });
+  }
+};
+
 exports.getAutoEmailSetting = async (req, res) => {
   try {
     const setting = await Overstay.getAutoEmailSetting();
@@ -399,11 +460,11 @@ exports.notifyCharge = async (req, res) => {
 /**
  * POST /overstay/notify-detected
  * Send an overstay expiry reminder for a detected (un-levied) entity.
- * No charge record is required — looks up the agent email by agent_id
- * and fires an OVERSTAY_REMINDER Kafka event directly.
+ * Creates/keeps a NOTIFIED row so the company can see reminder status,
+ * but no levy amount is exposed until ATM explicitly clicks Levy.
  *
  * Body: { agent_id, company_name, login_id, identifier, entity_type,
- *         pass_no, date_to, overstay_days, daily_rate, total_amount }
+ *         pass_no, date_to, overstay_days }
  */
 exports.notifyDetected = async (req, res) => {
   try {
@@ -430,16 +491,6 @@ exports.notifyDetected = async (req, res) => {
 
     const overstayDaysInt = parseInt(overstay_days, 10) || 0;
 
-    // Derive fee server-side (same source of truth as levyCharge) instead of
-    // trusting any daily_rate/total_amount the client might send.
-    let dailyRate = 0;
-    let totalAmount = 0;
-    if (overstayDaysInt > 0) {
-      const feeCategory = resolveFeeCategory(entity_type, category);
-      dailyRate = await getDailyRate(feeCategory);
-      totalAmount = parseFloat((dailyRate * overstayDaysInt).toFixed(2));
-    }
-
     const notifiedBy = await resolveActorName(req.user);
 
     // Create the charge now so it's visible under the company's login
@@ -455,10 +506,8 @@ exports.notifyDetected = async (req, res) => {
       date_from,
       date_to,
       overstay_days: overstayDaysInt,
-      daily_rate: dailyRate,
-      total_amount: totalAmount,
       levied_by: notifiedBy,
-      notes: "Auto-created on overstay expiry notification",
+      notes: "Overstay reminder sent; penalty not levied yet",
     });
 
     try {
@@ -472,8 +521,6 @@ exports.notifyDetected = async (req, res) => {
         pass_no: pass_no || null,
         date_to,
         overstay_days: overstayDaysInt,
-        daily_rate: dailyRate,
-        total_amount: totalAmount,
         charge_id: charge.id,
       });
       await Overstay.markEmailSent(charge.id);
@@ -483,13 +530,12 @@ exports.notifyDetected = async (req, res) => {
 
     res.status(201).json({
       success: true,
-      message: `Overstay expiry reminder queued for ${agentEmail}; charge is now visible to the company`,
+      message: `Overstay expiry reminder queued for ${agentEmail}; company can now see reminder status`,
       data: charge,
     });
   } catch (err) {
     console.error("notifyDetected error:", err);
-    const status = /fee configuration|fee category/i.test(err.message) ? 422 : 500;
-    res.status(status).json({ success: false, message: err.message || "Internal server error" });
+    res.status(500).json({ success: false, message: err.message || "Internal server error" });
   }
 };
 

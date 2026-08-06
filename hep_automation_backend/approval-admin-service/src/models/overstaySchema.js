@@ -38,6 +38,11 @@ async function initOverstayTable() {
     CREATE INDEX IF NOT EXISTS idx_overstay_status     ON overstay_charges (status);
     CREATE INDEX IF NOT EXISTS idx_overstay_entity     ON overstay_charges (entity_type, identifier);
   `);
+  // Idempotent migration: add per-charge pass_blocked flag if not already present
+  await pool.query(`
+    ALTER TABLE overstay_charges
+    ADD COLUMN IF NOT EXISTS pass_blocked BOOLEAN NOT NULL DEFAULT false
+  `);
 }
 
 // Same cargo-equipment classification the frontend uses, kept in sync
@@ -142,6 +147,7 @@ const Overstay = {
           WHERE oc.entity_type IN ('PERSON','DRIVER')
             AND oc.entity_id = pp.id
             AND oc.pass_request_id = pp."passRequestId"
+            AND oc.status <> 'NOTIFIED'
         )
       ORDER BY overstay_days DESC
     `;
@@ -172,6 +178,7 @@ const Overstay = {
           WHERE oc.entity_type = 'VEHICLE'
             AND oc.entity_id = pv.id
             AND oc.pass_request_id = pv."passRequestId"
+            AND oc.status <> 'NOTIFIED'
         )
       ORDER BY overstay_days DESC
     `;
@@ -226,12 +233,72 @@ const Overstay = {
       return existing.rows[0];
     }
 
-    // Otherwise create it
-    return this.levyCharge(data);
+    // Otherwise create a reminder-only row. Amount is intentionally zero here;
+    // ATM must click Levy to convert it into a payable charge.
+    const res = await pool.query(
+      `INSERT INTO overstay_charges (
+          entity_type, entity_id, pass_request_id, agent_id,
+          identifier, entity_name, pass_no, date_from, date_to,
+          overstay_days, daily_rate, total_amount, status,
+          levied_by, levied_at, notes
+       ) VALUES (
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 0, 0,
+          'NOTIFIED', $11, NOW(), $12
+       ) RETURNING *`,
+      [
+        data.entity_type,
+        data.entity_id || null,
+        data.pass_request_id || null,
+        data.agent_id || null,
+        data.identifier,
+        data.entity_name || null,
+        data.pass_no || null,
+        data.date_from || null,
+        data.date_to || null,
+        data.overstay_days,
+        data.levied_by || null,
+        data.notes || null,
+      ]
+    );
+    return res.rows[0];
   },
   
   /* ── 2. LEVY: insert a new charge ── */
   async levyCharge(data) {
+    // If an expiry reminder already exists for this entity, promote that row
+    // into a payable charge instead of inserting a duplicate row.
+    const promoted = await pool.query(
+      `UPDATE overstay_charges
+       SET overstay_days = $5,
+           daily_rate = $6,
+           total_amount = $7,
+           status = 'PENDING',
+           levied_by = $8,
+           levied_at = NOW(),
+           notes = $9,
+           updated_at = NOW()
+       WHERE entity_type = $1
+         AND entity_id IS NOT DISTINCT FROM $2
+         AND pass_request_id IS NOT DISTINCT FROM $3
+         AND identifier = $4
+         AND status = 'NOTIFIED'
+       RETURNING *`,
+      [
+        data.entity_type,
+        data.entity_id || null,
+        data.pass_request_id || null,
+        data.identifier,
+        data.overstay_days,
+        data.daily_rate,
+        data.total_amount,
+        data.levied_by || null,
+        data.notes || null,
+      ]
+    );
+    if (promoted.rows[0]) {
+      return promoted.rows[0];
+    }
+
     const res = await pool.query(
       `INSERT INTO overstay_charges (
           entity_type, entity_id, pass_request_id, agent_id,
@@ -458,6 +525,35 @@ async getPassBlockSetting() {
 },
 async setPassBlockSetting(enabled, updatedBy) {
   return this.setSetting('overstay_pass_block_enabled', enabled, updatedBy);
+},
+
+// Per-agent (company) pass-blocking toggle used by per-company action modals
+async getAgentPassBlockSetting(agentId) {
+  return this.getSetting(`overstay_pass_block_agent_${agentId}`, false);
+},
+async setAgentPassBlockSetting(agentId, enabled, updatedBy) {
+  return this.setSetting(`overstay_pass_block_agent_${agentId}`, enabled, updatedBy);
+},
+
+// Per-charge (per-company) pass block — independent of the global toggle
+async getChargePassBlock(chargeId) {
+  const res = await pool.query(
+    `SELECT pass_blocked FROM overstay_charges WHERE id = $1`,
+    [chargeId]
+  );
+  if (!res.rows[0]) throw new Error("Charge not found");
+  return { pass_blocked: res.rows[0].pass_blocked };
+},
+async setChargePassBlock(chargeId, blocked) {
+  const res = await pool.query(
+    `UPDATE overstay_charges
+        SET pass_blocked = $2, updated_at = NOW()
+      WHERE id = $1
+      RETURNING id, pass_blocked`,
+    [chargeId, !!blocked]
+  );
+  if (!res.rows[0]) throw new Error("Charge not found");
+  return res.rows[0];
 },
 };
 
