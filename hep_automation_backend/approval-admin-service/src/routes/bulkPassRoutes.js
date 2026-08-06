@@ -43,6 +43,9 @@ router.post("/:batchId/persons/:personId/approve", verifyToken, bulkPassApproval
 // POST /api/bulk-pass/:batchId/persons/:personId/reject
 router.post("/:batchId/persons/:personId/reject",  verifyToken, bulkPassApprovalController.rejectPersonInBatch);
 
+// POST /api/bulk-pass/:batchId/persons/:personId/undo — reset approved/rejected → PENDING
+router.post("/:batchId/persons/:personId/undo",    verifyToken, bulkPassApprovalController.undoPersonInBatch);
+
 // POST /api/bulk-pass/:id/finalize — generate QR (approved only) + mark COMPLETED
 router.post("/:id/finalize", verifyToken, bulkPassApprovalController.finalizeBatch);
 

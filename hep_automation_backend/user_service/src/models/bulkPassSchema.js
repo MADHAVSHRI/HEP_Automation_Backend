@@ -391,11 +391,13 @@ const BulkPassSchema = {
           "vehicleDocs",
           "inCharge",
           "aadhaarCardPath",
+          "driverLicenseNumber",
+          "driverLicensePath",
           "validationStatus",
           "errorMessage",
           "createdAt"
         ) VALUES (
-          $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,NOW()
+          $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,NOW()
         )
         RETURNING *`,
         [
@@ -413,6 +415,8 @@ const BulkPassSchema = {
           row.vehicleDocs ? JSON.stringify(row.vehicleDocs) : null,
           row.inCharge === true,
           row.aadhaarCardPath || null,
+          row.driverLicenseNumber || null,
+          row.driverLicensePath || null,
           row.validationStatus || "valid",
           row.errorMessage || null,
         ]

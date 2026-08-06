@@ -7,46 +7,71 @@ let tokenFetchedAt = null;
 const TOKEN_TTL_MS = 25 * 60 * 1000; // refresh 5 min before the 30-min expiry
 
 /**
- * Returns a valid Bearer token, logging in automatically when the token is
- * absent or older than TOKEN_TTL_MS.
+ * Attempt to obtain a fresh token via ULIP login.
+ * Returns the token string or throws on failure.
+ */
+async function loginAndGetToken() {
+  const response = await axios.post(
+    `${ulipConfig.baseURL}/user/login`,
+    { username: ulipConfig.username, password: ulipConfig.password },
+    { headers: { Accept: "application/json", "Content-Type": "application/json" } }
+  );
+
+  // ULIP login returns the JWT in response.data.response.id
+  const token =
+    response.headers["authorization"]?.replace("Bearer ", "") ||
+    response.data?.response?.id ||
+    response.data?.token ||
+    response.data?.accessToken ||
+    response.data?.data?.token;
+
+  if (!token) throw new Error("ULIP login succeeded but no token found in response.");
+  return token;
+}
+
+/**
+ * Returns a valid Bearer token.
+ * Priority:
+ *   1. In-memory cache (still within TTL)
+ *   2. ULIP_STATIC_TOKEN from .env  (used when account is locked or login is unavailable)
+ *   3. Fresh login via credentials
  */
 async function getToken() {
   const now = Date.now();
+
+  // 1. Use cached token if still fresh
   if (cachedToken && tokenFetchedAt && now - tokenFetchedAt < TOKEN_TTL_MS) {
     return cachedToken;
   }
 
-  try {
-    const response = await axios.post(
-      `${ulipConfig.baseURL}/user/login`,
-      { username: ulipConfig.username, password: ulipConfig.password },
-      { headers: { Accept: "application/json", "Content-Type": "application/json" } }
-    );
-
-    // The ULIP login endpoint returns the JWT directly in the Authorization header
-    // or inside the response body – handle both.
-    const token =
-      response.headers["authorization"]?.replace("Bearer ", "") ||
-      response.data?.token ||
-      response.data?.accessToken ||
-      response.data?.data?.token;
-
-    if (!token) {
-      throw new Error("ULIP login succeeded but no token found in response.");
+  // 2. Try fresh login first (normal path)
+  if (ulipConfig.username && ulipConfig.password) {
+    try {
+      const token = await loginAndGetToken();
+      cachedToken = token;
+      tokenFetchedAt = now;
+      console.log("[ULIP] Token refreshed via login.");
+      return cachedToken;
+    } catch (loginErr) {
+      const msg = loginErr.response?.data?.message || loginErr.message || "";
+      console.warn("[ULIP] Login failed:", msg, "— trying static token fallback.");
     }
-
-    cachedToken = token;
-    tokenFetchedAt = now;
-    console.log("[ULIP] Token refreshed successfully.");
-    return cachedToken;
-  } catch (error) {
-    console.error("[ULIP] Login failed:", error.response?.data || error.message);
-    throw new Error("Unable to authenticate with ULIP. Check ULIP_USERNAME / ULIP_PASSWORD.");
   }
+
+  // 3. Fall back to static token from .env
+  const staticToken = ulipConfig.staticToken;
+  if (staticToken) {
+    console.log("[ULIP] Using static token from ULIP_STATIC_TOKEN.");
+    cachedToken = staticToken;
+    tokenFetchedAt = now;
+    return cachedToken;
+  }
+
+  throw new Error("Unable to authenticate with ULIP. Login failed and no ULIP_STATIC_TOKEN set.");
 }
 
 /**
- * Build headers with a fresh token.
+ * Build headers with a valid token.
  */
 async function buildHeaders() {
   const token = await getToken();
@@ -58,7 +83,10 @@ async function buildHeaders() {
 }
 
 /**
- * Generic ULIP POST wrapper with automatic token retry on 401/403.
+ * Generic ULIP POST wrapper.
+ * On 401/403 the cache is cleared and we retry once — this handles
+ * the static token becoming stale after the account is re-unlocked and
+ * a fresh login token is issued.
  */
 async function ulipPost(endpoint, body) {
   let headers = await buildHeaders();
@@ -66,9 +94,8 @@ async function ulipPost(endpoint, body) {
     const response = await axios.post(`${ulipConfig.baseURL}${endpoint}`, body, { headers });
     return response.data;
   } catch (error) {
-    // If the token was rejected, force-refresh once and retry
     if (error.response?.status === 401 || error.response?.status === 403) {
-      console.warn("[ULIP] Token rejected, forcing re-login...");
+      console.warn("[ULIP] Token rejected, clearing cache and retrying...");
       cachedToken = null;
       tokenFetchedAt = null;
       headers = await buildHeaders();

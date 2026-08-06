@@ -341,6 +341,29 @@ exports.rejectPersonInBatch = async (req, res) => {
 };
 
 /**
+ * POST /api/bulk-pass/:batchId/persons/:personId/undo
+ * Undo a previous approve/reject — resets person back to PENDING.
+ * Only allowed while batch is still UNDER_REVIEW (not yet finalized).
+ */
+exports.undoPersonInBatch = async (req, res) => {
+  try {
+    const { batchId, personId } = req.params;
+
+    const result = await callUserService(
+      "post",
+      `/api/bulk-pass/${batchId}/persons/${personId}/undo`,
+      { undoneBy: req.user?.userId || null },
+      req
+    );
+    return res.status(200).json(result);
+  } catch (err) {
+    console.error("[bulkPassApproval] undoPersonInBatch error:", err.response?.data || err.message);
+    if (err.response) return res.status(err.response.status).json(err.response.data);
+    return res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
+/**
  * POST /api/bulk-pass/:id/finalize
  * Called after all persons have been individually approved/rejected.
  * Generates QR PDF (approved persons only) and marks batch COMPLETED.

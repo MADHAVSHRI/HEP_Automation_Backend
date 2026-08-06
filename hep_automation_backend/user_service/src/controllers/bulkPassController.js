@@ -264,10 +264,29 @@ exports.publicVehicleCheck = async (req, res) => {
     today.setHours(0, 0, 0, 0);
 
     // Helper: parse ULIP date strings like "25-Jan-2032" or "25-01-2032"
+    // Must parse as local date (not UTC) to avoid off-by-one due to timezone shift.
     const parseUlipDate = (str) => {
-      if (!str) return null;
-      const d = new Date(str);
-      return isNaN(d.getTime()) ? null : d;
+      if (!str || typeof str !== "string") return null;
+      const s = str.trim();
+      // "DD-Mon-YYYY" e.g. "04-Aug-2025"
+      const namedMonth = s.match(/^(\d{1,2})-([A-Za-z]{3})-(\d{4})$/);
+      if (namedMonth) {
+        const months = { Jan:0,Feb:1,Mar:2,Apr:3,May:4,Jun:5,Jul:6,Aug:7,Sep:8,Oct:9,Nov:10,Dec:11 };
+        const mo = months[namedMonth[2]];
+        if (mo === undefined) return null;
+        return new Date(+namedMonth[3], mo, +namedMonth[1]);
+      }
+      // "DD-MM-YYYY" e.g. "25-01-2032"
+      const numericDMY = s.match(/^(\d{1,2})-(\d{2})-(\d{4})$/);
+      if (numericDMY) {
+        return new Date(+numericDMY[3], +numericDMY[2] - 1, +numericDMY[1]);
+      }
+      // "YYYY-MM-DD" ISO format fallback — parse as local date
+      const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      if (iso) {
+        return new Date(+iso[1], +iso[2] - 1, +iso[3]);
+      }
+      return null;
     };
 
     // Collect all validity fields that exist in the response
@@ -301,9 +320,6 @@ exports.publicVehicleCheck = async (req, res) => {
         date: c.date.toISOString().split("T")[0],
       })),
       allValid: expired.length === 0 && rcActive,
-      // Extra info for display
-      makerModel: [vd.rcMakerDesc, vd.rcMakerModel].filter(Boolean).join(" – ") || null,
-      vehicleClass: vd.rcVhClassDesc || null,
     });
   } catch (err) {
     console.error("[bulkPass] publicVehicleCheck error:", err.message || err);
@@ -324,6 +340,25 @@ exports.getBulkVisitorTypes = async (req, res) => {  return res.status(200).json
  */
 exports.createIntake = async (req, res) => {
   try {
+    // ── Department restriction ─────────────────────────────────────────────
+    // Only General Administration (6) and Traffic sub-departments (9–15) are
+    // allowed to create bulk passes. Admins/super-admins bypass this check.
+    const BULK_PASS_ALLOWED_DEPT_IDS = [6, 9, 10, 11, 12, 13, 14, 15];
+    const creatorRole = (req.user?.role || "").toLowerCase();
+    const isAdmin =
+      creatorRole === "admin" ||
+      creatorRole === "administrator" ||
+      creatorRole === "super admin" ||
+      creatorRole === "superadmin";
+
+    if (!isAdmin && !BULK_PASS_ALLOWED_DEPT_IDS.includes(Number(req.user?.departmentId))) {
+      return res.status(403).json({
+        success: false,
+        message: "Only General Administration and Traffic departments are permitted to create bulk passes.",
+      });
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+
     const validation = validateIntakeBody(req.body);
     if (!validation.ok) {
       return res.status(validation.status).json({ success: false, message: validation.message });
@@ -718,17 +753,21 @@ exports.returnToApplicant = async (req, res) => {
     });
     await BulkPassSchema.logTransition(id, "RETURNED_TO_APPLICANT", req.user.userId, returnReason.trim());
 
-    // Email applicant
-    sendEmail("sendBulkPassReturned", {
+    // Email applicant — log failures but don't block the response
+    const emailSent = await sendEmail("sendBulkPassReturned", {
       email: batch.applicantEmail,
       refNo: batch.refNo,
       companyName: batch.companyName,
       returnReason: returnReason.trim(),
       uploadLink: buildUploadLink(batch.token),
-    }).catch(() => {});
+    });
+    if (!emailSent) {
+      console.error(`[bulkPass] returnToApplicant: failed to send returned email for batch ${id} (${batch.refNo}) to ${batch.applicantEmail}`);
+    }
 
     return res.status(200).json({
       success: true,
+      emailSent,
       data: {
         ...updated,
         applicantEmail: batch.applicantEmail,
@@ -806,25 +845,75 @@ exports.getPublicByToken = async (req, res) => {
       });
     }
 
-    return res.status(200).json({
-      success: true,
-      data: {
-        id: batch.id,
-        refNo: batch.refNo,
-        departmentName: batch.departmentName,
-        visitorType: batch.visitorType,
-        companyName: batch.companyName,
-        noOfPersons: batch.noOfPersons,
-        noOfVehicles: batch.noOfVehicles,
-        validityFrom: batch.validityFrom,
-        validityUpto: batch.validityUpto,
-        purpose: batch.purpose,
-        paymentMode: batch.paymentMode,
-        status: batch.status,
-        linkValidityHours: batch.linkValidityHours,
-        tokenExpiresAt: batch.tokenExpiresAt,
-      },
-    });
+    // Base response fields
+    const responseData = {
+      id: batch.id,
+      refNo: batch.refNo,
+      departmentName: batch.departmentName,
+      visitorType: batch.visitorType,
+      companyName: batch.companyName,
+      noOfPersons: batch.noOfPersons,
+      noOfVehicles: batch.noOfVehicles,
+      validityFrom: batch.validityFrom,
+      validityUpto: batch.validityUpto,
+      purpose: batch.purpose,
+      paymentMode: batch.paymentMode,
+      status: batch.status,
+      linkValidityHours: batch.linkValidityHours,
+      tokenExpiresAt: batch.tokenExpiresAt,
+    };
+
+    // When this link was sent for revision, include the return reason and any
+    // previously submitted persons/vehicles so the applicant can review and
+    // correct their data without starting from scratch.
+    if (batch.status === "RETURNED_TO_APPLICANT") {
+      responseData.returnReason = batch.returnReason || null;
+      const previousPersons = await BulkPassSchema.getPersonsByBatch(batch.id);
+      // Separate persons from vehicle rows (vehicles have a vehicleNumber)
+      const personRows = previousPersons.filter(
+        (p) => !p.vehicleNumber || p.vehicleNumber.trim() === ""
+      );
+      const vehicleRows = previousPersons.filter(
+        (p) => p.vehicleNumber && p.vehicleNumber.trim() !== ""
+      );
+      responseData.previousPersons = personRows.map((p) => ({
+        id: p.id,
+        name: p.name || "",
+        aadhaar: p.aadhaar || "",
+        dob: p.dob
+          ? (() => {
+              // Convert stored YYYY-MM-DD back to DD/MM/YYYY for the form
+              const parts = String(p.dob).split("T")[0].split("-");
+              return parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : p.dob;
+            })()
+          : "",
+        mobile: p.mobile || "",
+        photoPath: p.photoPath || null,   // existing server-side path (display only, not re-uploaded)
+        aadhaarCardPath: p.aadhaarCardPath || null, // must be re-uploaded by applicant
+        approvalStatus: p.approvalStatus || "PENDING",
+        approvalReason: p.approvalReason || null,
+      }));
+      responseData.previousVehicles = vehicleRows.map((v) => ({
+        id: v.id,
+        regNo: v.vehicleNumber || "",
+        vehicleType: v.vehicleType || "",
+        driverName: v.name || "",
+        driverAadhaar: v.aadhaar || "",
+        driverMobile: v.mobile || "",
+        driverDob: v.dob
+          ? (() => {
+              const parts = String(v.dob).split("T")[0].split("-");
+              return parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : v.dob;
+            })()
+          : "",
+        driverLicenseNumber: v.driverLicenseNumber || "",
+        vehicleDocs: v.vehicleDocs || {},  // existing doc paths (must be re-uploaded)
+        approvalStatus: v.approvalStatus || "PENDING",
+        approvalReason: v.approvalReason || null,
+      }));
+    }
+
+    return res.status(200).json({ success: true, data: responseData });
   } catch (err) {
     console.error("[bulkPass] getPublicByToken error:", err.message);
     return res.status(500).json({ success: false, message: "Internal server error" });
@@ -1395,7 +1484,7 @@ exports.approvePersonInBatch = async (req, res) => {
       return res.status(404).json({ success: false, message: "Person not found in this batch" });
     }
     if (person.approvalStatus !== "PENDING") {
-      return res.status(400).json({ success: false, message: `Person is already ${person.approvalStatus.toLowerCase()}` });
+      return res.status(400).json({ success: false, message: `Person is already ${person.approvalStatus.toLowerCase()}. Use undo to reset before changing.` });
     }
 
     const updated = await BulkPassSchema.setPersonApprovalStatus(personId, "APPROVED", null, approvedBy || null);
@@ -1433,13 +1522,59 @@ exports.rejectPersonInBatch = async (req, res) => {
       return res.status(404).json({ success: false, message: "Person not found in this batch" });
     }
     if (person.approvalStatus !== "PENDING") {
-      return res.status(400).json({ success: false, message: `Person is already ${person.approvalStatus.toLowerCase()}` });
+      return res.status(400).json({ success: false, message: `Person is already ${person.approvalStatus.toLowerCase()}. Use undo to reset before changing.` });
     }
 
     const updated = await BulkPassSchema.setPersonApprovalStatus(personId, "REJECTED", rejectionReason.trim(), rejectedBy || null);
     return res.status(200).json({ success: true, data: updated });
   } catch (err) {
     console.error("[bulkPass] rejectPersonInBatch error:", err.message);
+    return res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
+/**
+ * POST /api/bulk-pass/:batchId/persons/:personId/undo  (internal — called by approval-admin-service)
+ * Undo a previous approve/reject decision — resets the person back to PENDING.
+ * Only allowed while the batch is still UNDER_REVIEW (not yet finalized).
+ */
+exports.undoPersonInBatch = async (req, res) => {
+  try {
+    const batchId = Number(req.params.batchId);
+    const personId = Number(req.params.personId);
+    if (!batchId || isNaN(batchId)) return res.status(400).json({ success: false, message: "Invalid batch ID" });
+    if (!personId || isNaN(personId)) return res.status(400).json({ success: false, message: "Invalid person ID" });
+
+    const batch = await BulkPassSchema.getById(batchId);
+    if (!batch) return res.status(404).json({ success: false, message: "Batch not found" });
+    if (batch.status !== "UNDER_REVIEW") {
+      return res.status(400).json({ success: false, message: "Undo is only allowed while the batch is under review" });
+    }
+
+    const person = await BulkPassSchema.getPersonById(personId);
+    if (!person || person.batchId !== batchId) {
+      return res.status(404).json({ success: false, message: "Person not found in this batch" });
+    }
+    if (!person.approvalStatus || person.approvalStatus === "PENDING") {
+      return res.status(400).json({ success: false, message: "Person is already pending — nothing to undo" });
+    }
+
+    // Reset to PENDING by clearing all approval fields
+    const result = await pool.query(
+      `UPDATE "bulk_pass_persons"
+       SET "approvalStatus" = 'PENDING',
+           "approvalReason" = NULL,
+           "approvedBy"     = NULL,
+           "approvedAt"     = NULL
+       WHERE id = $1
+       RETURNING *`,
+      [personId]
+    );
+
+    const updated = result.rows[0];
+    return res.status(200).json({ success: true, data: updated });
+  } catch (err) {
+    console.error("[bulkPass] undoPersonInBatch error:", err.message);
     return res.status(500).json({ success: false, message: "Internal server error" });
   }
 };
@@ -1765,21 +1900,32 @@ exports.submitRowsDirectly = async (req, res) => {
       const mobRes = validateMobile(String(row.mobile || ""));
       if (!mobRes.valid) { errors.push({ index: i, message: `${rowLabel}: ${mobRes.error}` }); continue; }
 
-      if (!row.photoDataUrl) { errors.push({ index: i, message: `${rowLabel}: Photo is required` }); continue; }
+      // Photo: accept either a newly uploaded base64 data URL or a reused server-side path.
+      const hasNewPhoto = !!row.photoDataUrl;
+      const hasKeptPhoto = !hasNewPhoto && row._keepPhotoPath && typeof row._keepPhotoPath === "string" &&
+        fs.existsSync(path.resolve(row._keepPhotoPath));
+      if (!hasNewPhoto && !hasKeptPhoto) {
+        errors.push({ index: i, message: `${rowLabel}: Photo is required` }); continue;
+      }
 
-      const b64Match = row.photoDataUrl.match(/^data:image\/(?:jpeg|png);base64,(.+)$/);
-      if (!b64Match) { errors.push({ index: i, message: `${rowLabel}: Invalid photo format` }); continue; }
+      if (hasNewPhoto) {
+        const b64Match = row.photoDataUrl.match(/^data:image\/(?:jpeg|png);base64,(.+)$/);
+        if (!b64Match) { errors.push({ index: i, message: `${rowLabel}: Invalid photo format` }); continue; }
 
-      const photoBuffer = Buffer.from(b64Match[1], "base64");
-      const photoRes = await validateEmbeddedPhoto(photoBuffer);
-      if (!photoRes.valid) { errors.push({ index: i, message: `${rowLabel}: ${photoRes.error}` }); continue; }
+        const photoBuffer = Buffer.from(b64Match[1], "base64");
+        const photoRes = await validateEmbeddedPhoto(photoBuffer);
+        if (!photoRes.valid) { errors.push({ index: i, message: `${rowLabel}: ${photoRes.error}` }); continue; }
+      }
     }
 
     // ── Aadhaar card mandatory for EVERY person ──────────────────────────────
-    // Each person must have an Aadhaar card document uploaded.
+    // Each person must have either a newly uploaded Aadhaar card or a reused server-side path.
     for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
       const uploaded = req.files && req.files[`person_${i}_aadhaarCard`] && req.files[`person_${i}_aadhaarCard`][0];
-      if (!uploaded) {
+      const keptPath = !uploaded && row._keepAadhaarPath && typeof row._keepAadhaarPath === "string" &&
+        fs.existsSync(path.resolve(row._keepAadhaarPath));
+      if (!uploaded && !keptPath) {
         errors.push({
           index: i,
           message: `Row ${i + 1}: Aadhaar card document is required for every person`,
@@ -1819,10 +1965,12 @@ exports.submitRowsDirectly = async (req, res) => {
       const v = vehicleMeta[i];
       if (!v.regNo) continue;
 
-      // Require driver Aadhaar card document for every vehicle
+      // Require driver Aadhaar card document for every vehicle (new upload OR reused kept path)
       const driverAadhaarUploaded = req.files && req.files[`vehicle_${i}_driverAadhaarCard`] && req.files[`vehicle_${i}_driverAadhaarCard`][0];
-      if (!driverAadhaarUploaded) {
-        // Clean up any already-uploaded files before rejecting
+      const driverAadhaarKept = !driverAadhaarUploaded &&
+        v._keepVehicleDocs && v._keepVehicleDocs.driverAadhaarCard &&
+        fs.existsSync(path.resolve(v._keepVehicleDocs.driverAadhaarCard));
+      if (!driverAadhaarUploaded && !driverAadhaarKept) {
         return res.status(400).json({
           success: false,
           message: `Vehicle ${i + 1} (${v.regNo}): Driver Aadhaar card document is required`,
@@ -1859,25 +2007,59 @@ exports.submitRowsDirectly = async (req, res) => {
     const personRows = [];
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
-      const b64 = row.photoDataUrl.replace(/^data:image\/(?:jpeg|png);base64,/, "");
-      const photoBuffer = Buffer.from(b64, "base64");
-      const compressed = await compressPhotoBuffer(photoBuffer);
-      const photoFileName = `${String(row.aadhaar).replace(/\s+/g, "")}_${i}.jpg`;
-      const photoPath = path.join(uploadDir, photoFileName);
-      fs.writeFileSync(photoPath, compressed);
 
-      // ALL persons: persist the uploaded Aadhaar card document.
+      // ── Photo: new upload or reuse existing server-side file ───────────────
+      let photoPath;
+      if (row.photoDataUrl) {
+        const b64 = row.photoDataUrl.replace(/^data:image\/(?:jpeg|png);base64,/, "");
+        const photoBuffer = Buffer.from(b64, "base64");
+        const compressed = await compressPhotoBuffer(photoBuffer);
+        const photoFileName = `${String(row.aadhaar).replace(/\s+/g, "")}_${i}.jpg`;
+        photoPath = path.join(uploadDir, photoFileName);
+        fs.writeFileSync(photoPath, compressed);
+      } else {
+        // Reuse the existing server-side photo path (validated during validation phase)
+        photoPath = row._keepPhotoPath;
+      }
+
+      // ── Aadhaar card: new upload, reuse existing, or null ─────────────────
       let aadhaarCardPath = null;
       const aadhaarUploaded = req.files && req.files[`person_${i}_aadhaarCard`] && req.files[`person_${i}_aadhaarCard`][0];
       if (aadhaarUploaded) {
         fs.mkdirSync(personDocsDir, { recursive: true });
         const destName = `${String(row.aadhaar).replace(/\s+/g, "")}_${i}_aadhaar${path.extname(aadhaarUploaded.originalname)}`;
         const destPath = path.join(personDocsDir, destName);
-        // copy+unlink — temp dir may be on a different filesystem (EXDEV on rename)
-        fs.copyFileSync(aadhaarUploaded.path, destPath);
+        try {
+          fs.copyFileSync(aadhaarUploaded.path, destPath);
+        } catch (copyErr) {
+          if (copyErr.code === "ENOENT") {
+            console.warn(`[bulkPass] Temp file missing for person_${i}_aadhaarCard: ${aadhaarUploaded.path} — skipping`);
+            personRows.push({
+              fileName: row.fileName || "manual",
+              rowNumber: i + 1,
+              name: row.name.trim(),
+              aadhaar: String(row.aadhaar).replace(/\s+/g, ""),
+              dob: dobToISO(row.dob),
+              mobile: String(row.mobile),
+              address: row.address || null,
+              vehicleNumber: null,
+              vehicleType: null,
+              photoPath,
+              inCharge: row.inCharge === true,
+              aadhaarCardPath: null,
+              validationStatus: "valid",
+              errorMessage: null,
+            });
+            continue;
+          }
+          throw copyErr;
+        }
         try { fs.unlinkSync(aadhaarUploaded.path); } catch {}
         const compResult = await compressDocumentFile(destPath);
         aadhaarCardPath = compResult.path;
+      } else if (row._keepAadhaarPath && fs.existsSync(path.resolve(row._keepAadhaarPath))) {
+        // Reuse the existing aadhaar card — no copy needed, just reference the same path
+        aadhaarCardPath = row._keepAadhaarPath;
       }
 
       personRows.push({
@@ -1911,8 +2093,10 @@ exports.submitRowsDirectly = async (req, res) => {
       const v = vehicleMeta[i];
       if (!v.regNo) continue;
 
-      // Move uploaded doc files to permanent location and compress to ≤ 5 MB
-      const docFields = ["rc", "insurance", "fitness", "permit", "roadTax", "emission", "driverAadhaarCard"];
+      // Move uploaded doc files to permanent location and compress to ≤ 5 MB.
+      // For each field: use newly uploaded file if present, otherwise reuse the
+      // kept server-side path from the previous submission (if it still exists).
+      const docFields = ["rc", "insurance", "fitness", "permit", "roadTax", "emission", "driverAadhaarCard", "driverLicense"];
       const docPaths = {};
       for (const field of docFields) {
         const fileKey = `vehicle_${i}_${field}`;
@@ -1920,14 +2104,25 @@ exports.submitRowsDirectly = async (req, res) => {
         if (uploaded) {
           const destName = `${v.regNo.replace(/\s+/g, "_")}_${field}${path.extname(uploaded.originalname)}`;
           const destPath = path.join(vehicleDir, destName);
-          // Use copy+unlink instead of rename: the temp dir (/tmp) is often on a
-          // different filesystem than uploads/, and rename across devices throws EXDEV.
-          fs.copyFileSync(uploaded.path, destPath);
+          try {
+            fs.copyFileSync(uploaded.path, destPath);
+          } catch (copyErr) {
+            if (copyErr.code === "ENOENT") {
+              console.warn(`[bulkPass] Temp file missing for vehicle_${i}_${field}: ${uploaded.path} — skipping`);
+              continue;
+            }
+            throw copyErr;
+          }
           try { fs.unlinkSync(uploaded.path); } catch {}
-
-          // Compress document image to ≤ 5 MB (never rejects)
           const compResult = await compressDocumentFile(destPath);
           docPaths[field] = compResult.path;
+        } else if (
+          v._keepVehicleDocs &&
+          v._keepVehicleDocs[field] &&
+          fs.existsSync(path.resolve(v._keepVehicleDocs[field]))
+        ) {
+          // Reuse existing server-side doc — no copy needed
+          docPaths[field] = v._keepVehicleDocs[field];
         }
       }
 
@@ -1942,6 +2137,10 @@ exports.submitRowsDirectly = async (req, res) => {
         vehicleNumber: v.regNo.trim(),
         vehicleType: v.vehicleType || null,
         photoPath: docPaths.rc || null,
+        // Driver license number entered in the form
+        driverLicenseNumber: v.driverLicenseNumber ? String(v.driverLicenseNumber).trim() : null,
+        // Driver license document path (stored inside vehicleDocs too for unified access)
+        driverLicensePath: docPaths.driverLicense || null,
         // Persist every uploaded document path so all of them can be viewed later.
         vehicleDocs: Object.keys(docPaths).length > 0 ? docPaths : null,
         validationStatus: "valid",

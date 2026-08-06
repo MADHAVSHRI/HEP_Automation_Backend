@@ -488,17 +488,36 @@ function validateUploadedFileTypes(req, res, next) {
     }
   }
 
+  const invalidFiles = [];
   for (const file of uploadedFiles) {
     if (!verifyFileMagicBytes(file.path, file.fieldname)) {
-      // Delete all files already written to disk before responding
-      for (const f of uploadedFiles) {
-        try { fs.unlinkSync(f.path); } catch { /* ignore */ }
-      }
-      return res.status(400).json({
-        success: false,
-        message: "Invalid file content. Aadhaar cards must be PDF, JPG or PNG. Other documents must be genuine PDFs.",
-      });
+      invalidFiles.push(file);
     }
+  }
+
+  if (invalidFiles.length > 0) {
+    // Delete only the invalid files — leave valid ones intact so downstream
+    // handlers (e.g. submitRowsDirectly) can still process them. If we deleted
+    // ALL files here the controller would throw ENOENT on copyFileSync.
+    for (const f of invalidFiles) {
+      try { fs.unlinkSync(f.path); } catch { /* ignore */ }
+    }
+
+    const details = invalidFiles.map((f) => {
+      const fnLower = f.fieldname.toLowerCase();
+      const isPhotoOrAadhaar = fnLower === "personphoto" ||
+                               fnLower.includes("aadhaar") ||
+                               fnLower.endsWith("photo");
+      const typeHint = isPhotoOrAadhaar
+        ? "must be a genuine PDF, JPG, or PNG"
+        : "must be a genuine PDF";
+      return `"${f.originalname}" (field: ${f.fieldname}) — ${typeHint}`;
+    });
+
+    return res.status(400).json({
+      success: false,
+      message: `Invalid file content detected. The following file(s) failed content validation:\n${details.join("\n")}`,
+    });
   }
 
   next();

@@ -18,7 +18,9 @@ const bulkPassReturnedTemplate = ({
 
       <p style="background:#fff7ed; padding:12px 16px; border-radius:6px; color:#9a3412;">
         <strong>Action Required:</strong> Your bulk pass application has been <strong>returned</strong> by the
-        department officer. Please review the reason below and re-upload the corrected Excel file(s).
+        Traffic Department officer. Please review the reason below, correct the data, and re-upload
+        any required documents (photos and Aadhaar cards must be re-uploaded).
+        Your previously entered information will be pre-filled in the form for your convenience.
       </p>
 
       ${returnReason ? `

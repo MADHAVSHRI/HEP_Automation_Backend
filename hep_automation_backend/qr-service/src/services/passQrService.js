@@ -953,7 +953,12 @@ exports.generateBulkPass = async (batchId, options = {}) => {
 
   const response = await axios.get(
     `${USER_SERVICE}/api/bulk-pass/${batchId}/qr-data`,
-    { headers: { "x-service-name": "QR Service" } }
+    {
+      headers: {
+        "x-service-name": "QR Service",
+        "x-service-key": process.env.SERVICE_AUTH_KEY || "",
+      },
+    }
   );
 
   const payload = response.data?.data || {};

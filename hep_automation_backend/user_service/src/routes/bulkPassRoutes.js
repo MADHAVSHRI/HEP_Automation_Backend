@@ -160,7 +160,7 @@ router.post(
     // Vehicles: up to 20 × 6 docs = 120 files. Persons: up to 200 Aadhaar cards.
     const fields = [];
     for (let i = 0; i < 20; i++) {
-      ["rc", "insurance", "fitness", "permit", "roadTax", "emission", "driverAadhaarCard"].forEach((doc) => {
+      ["rc", "insurance", "fitness", "permit", "roadTax", "emission", "driverAadhaarCard", "driverLicense"].forEach((doc) => {
         fields.push({ name: `vehicle_${i}_${doc}`, maxCount: 1 });
       });
     }
@@ -175,7 +175,7 @@ router.post(
       },
       filename: (_req, file, cb) => cb(null, Date.now() + "_" + file.originalname.replace(/[^a-zA-Z0-9._-]/g, "_")),
     });
-    multer({ storage: docStorage, limits: { fileSize: 10 * 1024 * 1024, files: 340 } })
+    multer({ storage: docStorage, limits: { fileSize: 10 * 1024 * 1024, files: 360 } })
       .fields(fields)(req, res, (err) => {
         if (err) return res.status(400).json({ success: false, message: err.message || "File upload error" });
         next();
@@ -227,11 +227,12 @@ router.get("/scan/:id", bulkPassController.getPublicScanData);
 
 // ── Wildcard :id routes — keep these LAST among GET/POST on /:id ───────────
 
-// Internal per-person approve / reject — declared BEFORE /:id to prevent
+// Internal per-person approve / reject / undo — declared BEFORE /:id to prevent
 // "persons" being swallowed by a hypothetical /:id/persons pattern
 // C-03 fix: guarded by verifyService — requires x-service-key header.
 router.post("/:batchId/persons/:personId/approve", verifyService, bulkPassController.approvePersonInBatch);
 router.post("/:batchId/persons/:personId/reject",  verifyService, bulkPassController.rejectPersonInBatch);
+router.post("/:batchId/persons/:personId/undo",    verifyService, bulkPassController.undoPersonInBatch);
 
 // Internal finalize — called after all persons have been individually actioned
 // C-03 fix: guarded by verifyService — requires x-service-key header.
