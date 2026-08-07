@@ -2368,74 +2368,71 @@ const getAgentPassRequestsDetails = {
         LEFT JOIN (
           SELECT
             pp."passRequestId",
-            json_agg(
-              jsonb_build_object(
-        'id', pp.id,
-        'passRequestId', pp."passRequestId",
-        'status', pp.status,
-        'rejectedReason', pp."rejectedReason",
-        'revertReason', CASE WHEN pp.status = 'reverted' THEN pp."rejectedReason" ELSE NULL END,
-        'personPassNo', pp."personPassNo",
-        'passType', pp."passType",
-        'passPeriod', pp."passPeriod",
-        'dateFrom', pp."dateFrom",
-        'dateTo', pp."dateTo",
-        'amount', pp.amount,
-        'hepTypeId', COALESCE(pp."hepTypeId", mp."hepTypeId"),
-        'hepType', ht.name,
-        'srDtmApproved', COALESCE(pp."srDtmApproved", false),
-        'name', COALESCE(pp.name, mp.name),
-        'email', COALESCE(pp.email, mp.email),
-        'mobile', COALESCE(pp.mobile, mp.mobile),
-        'aadharNo', COALESCE(pp."aadharNo", mp."aadharNo"),
-
-        'photoFilePath', COALESCE(pp."photoFilePath", mp."photoFilePath"),
-        'photoFileName', COALESCE(pp."photoFileName", mp."photoFileName"),
-
-        'aadharPDFFilePATH', COALESCE(pp."aadharPDFFilePATH", mp."aadharPDFFilePATH"),
-        'aadharPDFFileName', COALESCE(pp."aadharPDFFileName", mp."aadharPDFFileName"),
-
-        'idProofFilePath', COALESCE(pp."idProofFilePath", mp."idProofFilePath"),
-        'idProofFileName', COALESCE(pp."idProofFileName", mp."idProofFileName"),
-
-        'driverLicensePath', COALESCE(pp."driverLicensePath", mp."driverLicensePath"),
-        'driverLicenseName', COALESCE(pp."driverLicenseName", mp."driverLicenseName"),
-
-        'policeVerificationPath', COALESCE(pp."policeVerificationPath", mp."policeVerificationPath"),
-        'policeVerificationName', COALESCE(pp."policeVerificationName", mp."policeVerificationName"),
-
-        'employmentProofPath', COALESCE(pp."employmentProofPath", mp."employmentProofPath"),
-        'employmentProofName', COALESCE(pp."employmentProofName", mp."employmentProofName"),
-
-        'chaLicensePath', COALESCE(pp."chaLicensePath", mp."chaLicensePath"),
-        'chaLicenseName', COALESCE(pp."chaLicenseName", mp."chaLicenseName"),
-
-        'passportPath', COALESCE(pp."passportPath", mp."passportPath"),
-        'passportName', COALESCE(pp."passportName", mp."passportName"),
-        'visaDocPath', COALESCE(pp."visaDocPath", mp."visaDocPath"),
-        'visaDocName', COALESCE(pp."visaDocName", mp."visaDocName"),
-        'immigrationDocPath', COALESCE(pp."immigrationDocPath", mp."immigrationDocPath"),
-        'immigrationDocName', COALESCE(pp."immigrationDocName", mp."immigrationDocName"),
-        'cdcNumber', COALESCE(pp."cdcNumber", mp."cdcNumber"),
-        'cdcDocumentPath', COALESCE(pp."cdcDocumentPath", mp."cdcDocumentPath"),
-        'cdcDocumentName', COALESCE(pp."cdcDocumentName", mp."cdcDocumentName"),
-
-        'visaNo', COALESCE(pp."visaNo", mp."visaNo"),
-        'nationality', COALESCE(pp.nationality::text, mp.nationality::text),
-        'dob', COALESCE(pp."dob"::text, mp."dob"::text),
-        'countryId', COALESCE(pp."countryId", mp."countryId"),
-
-        'designationId', COALESCE(d.name, pp."designationOther", mp."designationOther", pp."designationId"::text, mp."designationId"::text),
-        'designationOther', COALESCE(pp."designationOther", mp."designationOther"),
-        'accessAreaId', COALESCE(pp."accessAreaId"::TEXT, mp."accessAreaId"::TEXT),
-        'vehicleNo', COALESCE(pp."vehicleNo", mp."vehicleNo"),
-        'withTwoWheeler', COALESCE(pp."withTwoWheeler", mp."withTwoWheeler"),
-        'idProofType', COALESCE(pp."idProofType", mp."idProofType"),
-        'idProofNumber', COALESCE(pp."idProofNumber", mp."idProofNumber"),
-        'twoWheelerChangeCount', COALESCE(pp."twoWheelerChangeCount", 0)
-      )
-    ORDER BY pp.id ASC
-  ) AS persons,
+              json_agg(
+                (
+                  jsonb_build_object(
+                    'id', pp.id,
+                    'passRequestId', pp."passRequestId",
+                    'status', pp.status,
+                    'rejectedReason', pp."rejectedReason",
+                    'revertReason', CASE WHEN pp.status = 'reverted' THEN pp."rejectedReason" ELSE NULL END,
+                    'personPassNo', pp."personPassNo",
+                    'passType', pp."passType",
+                    'passPeriod', pp."passPeriod",
+                    'dateFrom', pp."dateFrom",
+                    'dateTo', pp."dateTo",
+                    'amount', pp.amount,
+                    'hepTypeId', COALESCE(pp."hepTypeId", mp."hepTypeId"),
+                    'hepType', ht.name,
+                    'srDtmApproved', COALESCE(pp."srDtmApproved", false),
+                    'name', COALESCE(pp.name, mp.name),
+                    'email', COALESCE(pp.email, mp.email),
+                    'mobile', COALESCE(pp.mobile, mp.mobile),
+                    'aadharNo', COALESCE(pp."aadharNo", mp."aadharNo")
+                  )
+                  ||
+                  jsonb_build_object(
+                    'photoFilePath', COALESCE(pp."photoFilePath", mp."photoFilePath"),
+                    'photoFileName', COALESCE(pp."photoFileName", mp."photoFileName"),
+                    'aadharPDFFilePATH', COALESCE(pp."aadharPDFFilePATH", mp."aadharPDFFilePATH"),
+                    'aadharPDFFileName', COALESCE(pp."aadharPDFFileName", mp."aadharPDFFileName"),
+                    'idProofFilePath', COALESCE(pp."idProofFilePath", mp."idProofFilePath"),
+                    'idProofFileName', COALESCE(pp."idProofFileName", mp."idProofFileName"),
+                    'driverLicensePath', COALESCE(pp."driverLicensePath", mp."driverLicensePath"),
+                    'driverLicenseName', COALESCE(pp."driverLicenseName", mp."driverLicenseName"),
+                    'policeVerificationPath', COALESCE(pp."policeVerificationPath", mp."policeVerificationPath"),
+                    'policeVerificationName', COALESCE(pp."policeVerificationName", mp."policeVerificationName"),
+                    'employmentProofPath', COALESCE(pp."employmentProofPath", mp."employmentProofPath"),
+                    'employmentProofName', COALESCE(pp."employmentProofName", mp."employmentProofName"),
+                    'chaLicensePath', COALESCE(pp."chaLicensePath", mp."chaLicensePath"),
+                    'chaLicenseName', COALESCE(pp."chaLicenseName", mp."chaLicenseName"),
+                    'passportPath', COALESCE(pp."passportPath", mp."passportPath"),
+                    'passportName', COALESCE(pp."passportName", mp."passportName"),
+                    'visaDocPath', COALESCE(pp."visaDocPath", mp."visaDocPath"),
+                    'visaDocName', COALESCE(pp."visaDocName", mp."visaDocName")
+                  )
+                  ||
+                  jsonb_build_object(
+                    'immigrationDocPath', COALESCE(pp."immigrationDocPath", mp."immigrationDocPath"),
+                    'immigrationDocName', COALESCE(pp."immigrationDocName", mp."immigrationDocName"),
+                    'cdcNumber', COALESCE(pp."cdcNumber", mp."cdcNumber"),
+                    'cdcDocumentPath', COALESCE(pp."cdcDocumentPath", mp."cdcDocumentPath"),
+                    'cdcDocumentName', COALESCE(pp."cdcDocumentName", mp."cdcDocumentName"),
+                    'visaNo', COALESCE(pp."visaNo", mp."visaNo"),
+                    'nationality', COALESCE(pp.nationality::text, mp.nationality::text),
+                    'dob', COALESCE(pp."dob"::text, mp."dob"::text),
+                    'countryId', COALESCE(pp."countryId", mp."countryId"),
+                    'designationId', COALESCE(d.name, pp."designationOther", mp."designationOther", pp."designationId"::text, mp."designationId"::text),
+                    'designationOther', COALESCE(pp."designationOther", mp."designationOther"),
+                    'accessAreaId', COALESCE(pp."accessAreaId"::TEXT, mp."accessAreaId"::TEXT),
+                    'vehicleNo', COALESCE(pp."vehicleNo", mp."vehicleNo"),
+                    'withTwoWheeler', COALESCE(pp."withTwoWheeler", mp."withTwoWheeler"),
+                    'idProofType', COALESCE(pp."idProofType", mp."idProofType"),
+                    'idProofNumber', COALESCE(pp."idProofNumber", mp."idProofNumber"),
+                    'twoWheelerChangeCount', COALESCE(pp."twoWheelerChangeCount", 0)
+                  )
+                ) ORDER BY pp.id ASC
+              ) AS persons,
             array_agg(ht.name) AS "hepTypes"
           FROM pass_persons pp
 
@@ -2458,7 +2455,8 @@ const getAgentPassRequestsDetails = {
         pv."passRequestId",
 
         json_agg(
-          jsonb_build_object(
+          (
+            jsonb_build_object(
               'id', pv.id,
               'passRequestId', pv."passRequestId",
               'status', pv.status,
@@ -2472,7 +2470,10 @@ const getAgentPassRequestsDetails = {
               'amount', pv.amount,
               'twistLockCertified', COALESCE(pv."twistLockCertified", false),
               'sparkArresterCertified', COALESCE(pv."sparkArresterCertified", false),
-              'srDtmApproved', COALESCE(pv."srDtmApproved", false),
+              'srDtmApproved', COALESCE(pv."srDtmApproved", false)
+            )
+            ||
+            jsonb_build_object(
               'registrationNo', COALESCE(pv."registrationNo", mv."registrationNo"),
               'vehicleTypeId', COALESCE(pv."vehicleTypeId", mv."vehicleTypeId"),
               'vehicleTypeName', vt.name,
@@ -2485,7 +2486,10 @@ const getAgentPassRequestsDetails = {
               'insuranceFileName', COALESCE(pv."insuranceFileName", mv."insuranceFileName"),
 
               'permitFilePath', COALESCE(pv."permitFilePath", mv."permitFilePath"),
-              'permitFileName', COALESCE(pv."permitFileName", mv."permitFileName"),
+              'permitFileName', COALESCE(pv."permitFileName", mv."permitFileName")
+            )
+            ||
+            jsonb_build_object(
 
               'fitnessFilePath', COALESCE(pv."fitnessFilePath", mv."fitnessFilePath"),
               'fitnessFileName', COALESCE(pv."fitnessFileName", mv."fitnessFileName"),
@@ -2501,7 +2505,10 @@ const getAgentPassRequestsDetails = {
               'emissionCertPath', COALESCE(pv."emissionCertPath", mv."emissionCertPath"),
               'emissionCertName', COALESCE(pv."emissionCertName", mv."emissionCertName"),
               'emissionFilePath', COALESCE(pv."emissionCertPath", mv."emissionCertPath"),
-              'emissionFileName', COALESCE(pv."emissionCertName", mv."emissionCertName"),
+              'emissionFileName', COALESCE(pv."emissionCertName", mv."emissionCertName")
+            )
+            ||
+            jsonb_build_object(
 
               'sparkArresterFilePath', pv."sparkArresterFilePath",
               'sparkArresterFileName', pv."sparkArresterFileName",
@@ -2512,7 +2519,8 @@ const getAgentPassRequestsDetails = {
               'insuranceExpiry', COALESCE(pv."insuranceExpiry", mv."insuranceExpiry"),
               'rcValidity', COALESCE(pv."rcValidity", mv."rcValidity"),
               'accessAreaId', COALESCE(pv."accessAreaId"::TEXT, mv."accessAreaId"::TEXT)
-            ) ORDER BY pv.id ASC
+            )
+          ) ORDER BY pv.id ASC
         ) AS vehicles
           FROM pass_vehicles pv
           LEFT JOIN master_vehicles mv
@@ -2552,7 +2560,8 @@ const getAgentPassRequestsDetails = {
         LEFT JOIN (
           SELECT vpp."vendorPassRequestId",
             json_agg(
-              jsonb_build_object(
+              (
+                jsonb_build_object(
                   'id', vpp.id,
                   'vendorPassRequestId', vpp."vendorPassRequestId",
                   'status', vpp.status,
@@ -2569,7 +2578,10 @@ const getAgentPassRequestsDetails = {
                   'dateTo', vpp."dateTo",
                   'amount', vpp.amount,
                   'accessAreaId', vpp."accessAreaId",
-                  'srDtmApproved', COALESCE(vpp."srDtmApproved", false),
+                  'srDtmApproved', COALESCE(vpp."srDtmApproved", false)
+                )
+                ||
+                jsonb_build_object(
                   'photoFilePath', vpp."photoFilePath",
                   'photoFileName', vpp."photoFileName",
                   'idProofFilePath', vpp."idProofFilePath",
@@ -2577,13 +2589,17 @@ const getAgentPassRequestsDetails = {
                   'driverLicensePath', vpp."driverLicensePath",
                   'driverLicenseName', vpp."driverLicenseName",
                   'passportPath', vpp."passportPath",
-                  'passportName', vpp."passportName",
+                  'passportName', vpp."passportName"
+                )
+                ||
+                jsonb_build_object(
                   'cdcDocumentPath', vpp."cdcDocumentPath",
                   'cdcDocumentName', vpp."cdcDocumentName",
                   'designationOther', vpp."designationOther",
                   'designationId', COALESCE(d.name, vpp."designationId"::TEXT),
                   'hepType', ht.name
-                ) ORDER BY vpp.id ASC
+                )
+              ) ORDER BY vpp.id ASC
             ) AS persons
           FROM vendor_pass_persons vpp
           LEFT JOIN designations d ON d.id = vpp."designationId"
@@ -2593,7 +2609,8 @@ const getAgentPassRequestsDetails = {
         LEFT JOIN (
           SELECT vpv."vendorPassRequestId",
             json_agg(
-              jsonb_build_object(
+              (
+                jsonb_build_object(
                   'id', vpv.id,
                   'vendorPassRequestId', vpv."vendorPassRequestId",
                   'status', vpv.status,
@@ -2614,7 +2631,10 @@ const getAgentPassRequestsDetails = {
                   'rcValidity', vpv."rcValidity",
                   'sparkArresterCertified', COALESCE(vpv."sparkArresterCertified", false),
                   'twistLockCertified', COALESCE(vpv."twistLockCertified", false),
-                  'srDtmApproved', COALESCE(vpv."srDtmApproved", false),
+                  'srDtmApproved', COALESCE(vpv."srDtmApproved", false)
+                )
+                ||
+                jsonb_build_object(
                   'scannedCopyFilePath', vpv."scannedCopyFilePath",
                   'scannedCopyFileName', vpv."scannedCopyFileName",
                   'insuranceFilePath', vpv."insuranceFilePath",
@@ -2623,7 +2643,10 @@ const getAgentPassRequestsDetails = {
                   'permitFileName', vpv."permitFileName",
                   'fitnessFilePath', vpv."fitnessFilePath",
                   'fitnessFileName', vpv."fitnessFileName",
-                  'requestLetterPath', vpv."requestLetterPath",
+                  'requestLetterPath', vpv."requestLetterPath"
+                )
+                ||
+                jsonb_build_object(
                   'requestLetterName', vpv."requestLetterName",
                   'taxDocPath', vpv."taxDocPath",
                   'taxDocName', vpv."taxDocName",
@@ -2634,7 +2657,8 @@ const getAgentPassRequestsDetails = {
                   'twistLockFilePath', vpv."twistLockFilePath",
                   'twistLockFileName', vpv."twistLockFileName",
                   'vehicleTypeName', vt.name
-                ) ORDER BY vpv.id ASC
+                )
+              ) ORDER BY vpv.id ASC
             ) AS vehicles
           FROM vendor_pass_vehicles vpv
           LEFT JOIN vehicle_types vt ON vt.id = vpv."vehicleTypeId"
