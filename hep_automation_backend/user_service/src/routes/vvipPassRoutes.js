@@ -57,6 +57,7 @@ const handleUpload = (req, res, next) => {
 
 router.post("/", verifyToken, handleUpload, vvipPassController.createVvipPass);
 router.get("/", verifyToken, vvipPassController.listVvipPasses);
+router.get("/queue", verifyToken, vvipPassController.listVvipPasses);
 router.get("/:id/qr-data", vvipPassController.getVvipQrData);
 router.get("/:id/pdf", verifyToken, vvipPassController.downloadVvipPdf);
 router.get("/:id", verifyToken, vvipPassController.getVvipPass);
