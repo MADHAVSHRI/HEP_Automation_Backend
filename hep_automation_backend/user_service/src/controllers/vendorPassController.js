@@ -271,13 +271,11 @@ exports.listIntakes = async (req, res) => {
       return {
         id: r.id,
         referenceNo: r.referenceNo,
-        token: r.token,
+        vendorLink: buildVendorLink(r.token),
         createdByUserName: r.createdByUserName,
         createdAt: r.createdAt,
         departmentName: r.departmentName,
         companyName: r.companyName,
-        vendorEmail: r.vendorEmail,
-        vendorMobile: r.vendorMobile,
         hasWorkOrder: r.hasWorkOrder,
         refDocNo: r.refDocNo,
         workOrderFileName: r.workOrderFileName,
@@ -429,11 +427,77 @@ exports.getPublicByToken = async (req, res) => {
 
     // Fetch existing persons and vehicles if any (e.g. reverted requests)
     const personsRes = await pool.query(
-      `SELECT * FROM "vendor_pass_persons" WHERE "vendorPassRequestId" = $1 ORDER BY id ASC`,
+      `SELECT
+         id,
+         "vendorPassRequestId",
+         "personPassNo",
+         "hepTypeId",
+         name,
+         "aadharNo",
+         mobile,
+         email,
+         nationality,
+         "countryId",
+         "visaNo",
+         "accessAreaId",
+         "designationId",
+         "designationOther",
+         "cardNumber",
+         "withTwoWheeler",
+         "vehicleNo",
+         "idProofType",
+         "idProofNumber",
+         "passType",
+         "passPeriod",
+         "dateFrom",
+         "dateTo",
+         amount,
+         status,
+         "revertReason",
+         "photoFileName",
+         "aadharPDFFileName",
+         "idProofFileName",
+         "driverLicenseName",
+         "policeVerificationName",
+         "employmentProofName",
+         "chaLicenseName",
+         "passportName",
+         "entryAuthorizationFileName"
+       FROM "vendor_pass_persons"
+       WHERE "vendorPassRequestId" = $1
+       ORDER BY id ASC`,
       [intake.id]
     );
     const vehiclesRes = await pool.query(
-      `SELECT * FROM "vendor_pass_vehicles" WHERE "vendorPassRequestId" = $1 ORDER BY id ASC`,
+      `SELECT
+         id,
+         "vendorPassRequestId",
+         "vehiclePassNo",
+         "vehicleRegistrationNo",
+         "vehicleType",
+         "vehicleTypeId",
+         "accessAreaId",
+         "insuranceExpiry",
+         "rcValidity",
+         "passType",
+         "passPeriod",
+         "dateFrom",
+         "dateTo",
+         amount,
+         status,
+         "revertReason",
+         "scannedCopyFileName",
+         "insuranceFileName",
+         "permitFileName",
+         "fitnessFileName",
+         "requestLetterName",
+         "taxFileName",
+         "emissionFileName",
+         "sparkArresterFileName",
+         "twistLockFileName"
+       FROM "vendor_pass_vehicles"
+       WHERE "vendorPassRequestId" = $1
+       ORDER BY id ASC`,
       [intake.id]
     );
 
@@ -453,7 +517,6 @@ exports.getPublicByToken = async (req, res) => {
         purposeOther: intake.purposeOther,
         hasWorkOrder: intake.hasWorkOrder,
         refDocNo: intake.refDocNo,
-        workOrderFilePath: intake.workOrderFilePath,
         workOrderFileName: intake.workOrderFileName,
         equipmentMaterialDetails: intake.equipmentMaterialDetails,
         remarks: intake.remarks,

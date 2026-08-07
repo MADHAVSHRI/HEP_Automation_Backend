@@ -1,6 +1,7 @@
 const { pool } = require("../dbconfig/db");
 const ReferenceNumber = require("./referenceNumberSchema");
 const crypto = require("crypto");
+const { sanitizePassRequestRow } = require("../utils/dataMasking"); // ADD THIS
 
 const Designation = {
   async getAllDesignations() {
@@ -1555,10 +1556,6 @@ const getPassRequest = {
         pr."grossTotal",
         pr."gstAmount",
         pr."netAmount",
-        pr."authLetterFilePath",
-        pr."authLetterFileName",
-        pr."requisitionLetterFilePath",
-        pr."requisitionLetterFileName",
 
         COALESCE(p.persons, '[]'::json) AS persons,
         COALESCE(v.vehicles, '[]'::json) AS vehicles
@@ -2337,19 +2334,21 @@ const getAgentPassRequestsDetails = {
           SELECT
             pp."passRequestId",
             json_agg(
-  (
-    to_jsonb(pp)
-
-    ||
-
-    jsonb_build_object(
-      'country', c.name,
-      'hepType', ht.name
-    )
-
-    ||
-
-      jsonb_build_object(
+              jsonb_build_object(
+        'id', pp.id,
+        'passRequestId', pp."passRequestId",
+        'status', pp.status,
+        'rejectedReason', pp."rejectedReason",
+        'revertReason', CASE WHEN pp.status = 'reverted' THEN pp."rejectedReason" ELSE NULL END,
+        'personPassNo', pp."personPassNo",
+        'passType', pp."passType",
+        'passPeriod', pp."passPeriod",
+        'dateFrom', pp."dateFrom",
+        'dateTo', pp."dateTo",
+        'amount', pp.amount,
+        'hepTypeId', COALESCE(pp."hepTypeId", mp."hepTypeId"),
+        'hepType', ht.name,
+        'srDtmApproved', COALESCE(pp."srDtmApproved", false),
         'name', COALESCE(pp.name, mp.name),
         'email', COALESCE(pp.email, mp.email),
         'mobile', COALESCE(pp.mobile, mp.mobile),
@@ -2396,7 +2395,6 @@ const getAgentPassRequestsDetails = {
         'idProofNumber', COALESCE(pp."idProofNumber", mp."idProofNumber"),
         'twoWheelerChangeCount', COALESCE(pp."twoWheelerChangeCount", 0)
       )
-    )
     ORDER BY pp.id ASC
   ) AS persons,
             array_agg(ht.name) AS "hepTypes"
@@ -2421,12 +2419,21 @@ const getAgentPassRequestsDetails = {
         pv."passRequestId",
 
         json_agg(
-          (
-            to_jsonb(pv)
-
-            ||
-
-            jsonb_build_object(
+          jsonb_build_object(
+              'id', pv.id,
+              'passRequestId', pv."passRequestId",
+              'status', pv.status,
+              'rejectedReason', pv."rejectedReason",
+              'revertReason', CASE WHEN pv.status = 'reverted' THEN pv."rejectedReason" ELSE NULL END,
+              'vehiclePassNo', pv."vehiclePassNo",
+              'passType', pv."passType",
+              'passPeriod', pv."passPeriod",
+              'dateFrom', pv."dateFrom",
+              'dateTo', pv."dateTo",
+              'amount', pv.amount,
+              'twistLockCertified', COALESCE(pv."twistLockCertified", false),
+              'sparkArresterCertified', COALESCE(pv."sparkArresterCertified", false),
+              'srDtmApproved', COALESCE(pv."srDtmApproved", false),
               'registrationNo', COALESCE(pv."registrationNo", mv."registrationNo"),
               'vehicleTypeId', COALESCE(pv."vehicleTypeId", mv."vehicleTypeId"),
               'vehicleTypeName', vt.name,
@@ -2466,8 +2473,7 @@ const getAgentPassRequestsDetails = {
               'insuranceExpiry', COALESCE(pv."insuranceExpiry", mv."insuranceExpiry"),
               'rcValidity', COALESCE(pv."rcValidity", mv."rcValidity"),
               'accessAreaId', COALESCE(pv."accessAreaId"::TEXT, mv."accessAreaId"::TEXT)
-            )
-          ) ORDER BY pv.id ASC
+            ) ORDER BY pv.id ASC
         ) AS vehicles
           FROM pass_vehicles pv
           LEFT JOIN master_vehicles mv
@@ -2507,14 +2513,38 @@ const getAgentPassRequestsDetails = {
         LEFT JOIN (
           SELECT vpp."vendorPassRequestId",
             json_agg(
-              (
-                to_jsonb(vpp)
-                ||
-                jsonb_build_object(
+              jsonb_build_object(
+                  'id', vpp.id,
+                  'vendorPassRequestId', vpp."vendorPassRequestId",
+                  'status', vpp.status,
+                  'rejectedReason', vpp."rejectedReason",
+                  'revertReason', vpp."revertReason",
+                  'name', vpp.name,
+                  'email', vpp.email,
+                  'mobile', vpp.mobile,
+                  'aadharNo', vpp."aadharNo",
+                  'personPassNo', vpp."personPassNo",
+                  'passType', vpp."passType",
+                  'passPeriod', vpp."passPeriod",
+                  'dateFrom', vpp."dateFrom",
+                  'dateTo', vpp."dateTo",
+                  'amount', vpp.amount,
+                  'accessAreaId', vpp."accessAreaId",
+                  'srDtmApproved', COALESCE(vpp."srDtmApproved", false),
+                  'photoFilePath', vpp."photoFilePath",
+                  'photoFileName', vpp."photoFileName",
+                  'idProofFilePath', vpp."idProofFilePath",
+                  'idProofFileName', vpp."idProofFileName",
+                  'driverLicensePath', vpp."driverLicensePath",
+                  'driverLicenseName', vpp."driverLicenseName",
+                  'passportPath', vpp."passportPath",
+                  'passportName', vpp."passportName",
+                  'cdcDocumentPath', vpp."cdcDocumentPath",
+                  'cdcDocumentName', vpp."cdcDocumentName",
+                  'designationOther', vpp."designationOther",
                   'designationId', COALESCE(d.name, vpp."designationId"::TEXT),
                   'hepType', ht.name
-                )
-              ) ORDER BY vpp.id ASC
+                ) ORDER BY vpp.id ASC
             ) AS persons
           FROM vendor_pass_persons vpp
           LEFT JOIN designations d ON d.id = vpp."designationId"
@@ -2524,13 +2554,48 @@ const getAgentPassRequestsDetails = {
         LEFT JOIN (
           SELECT vpv."vendorPassRequestId",
             json_agg(
-              (
-                to_jsonb(vpv)
-                ||
-                jsonb_build_object(
+              jsonb_build_object(
+                  'id', vpv.id,
+                  'vendorPassRequestId', vpv."vendorPassRequestId",
+                  'status', vpv.status,
+                  'rejectedReason', vpv."rejectedReason",
+                  'revertReason', vpv."revertReason",
+                  'vehiclePassNo', vpv."vehiclePassNo",
+                  'vehicleRegistrationNo', vpv."vehicleRegistrationNo",
+                  'registrationNo', vpv."vehicleRegistrationNo",
+                  'regNo', vpv."vehicleRegistrationNo",
+                  'vehicleTypeId', vpv."vehicleTypeId",
+                  'passType', vpv."passType",
+                  'passPeriod', vpv."passPeriod",
+                  'dateFrom', vpv."dateFrom",
+                  'dateTo', vpv."dateTo",
+                  'amount', vpv.amount,
+                  'accessAreaId', vpv."accessAreaId",
+                  'insuranceExpiry', vpv."insuranceExpiry",
+                  'rcValidity', vpv."rcValidity",
+                  'sparkArresterCertified', COALESCE(vpv."sparkArresterCertified", false),
+                  'twistLockCertified', COALESCE(vpv."twistLockCertified", false),
+                  'srDtmApproved', COALESCE(vpv."srDtmApproved", false),
+                  'scannedCopyFilePath', vpv."scannedCopyFilePath",
+                  'scannedCopyFileName', vpv."scannedCopyFileName",
+                  'insuranceFilePath', vpv."insuranceFilePath",
+                  'insuranceFileName', vpv."insuranceFileName",
+                  'permitFilePath', vpv."permitFilePath",
+                  'permitFileName', vpv."permitFileName",
+                  'fitnessFilePath', vpv."fitnessFilePath",
+                  'fitnessFileName', vpv."fitnessFileName",
+                  'requestLetterPath', vpv."requestLetterPath",
+                  'requestLetterName', vpv."requestLetterName",
+                  'taxDocPath', vpv."taxDocPath",
+                  'taxDocName', vpv."taxDocName",
+                  'emissionCertPath', vpv."emissionCertPath",
+                  'emissionCertName', vpv."emissionCertName",
+                  'sparkArresterFilePath', vpv."sparkArresterFilePath",
+                  'sparkArresterFileName', vpv."sparkArresterFileName",
+                  'twistLockFilePath', vpv."twistLockFilePath",
+                  'twistLockFileName', vpv."twistLockFileName",
                   'vehicleTypeName', vt.name
-                )
-              ) ORDER BY vpv.id ASC
+                ) ORDER BY vpv.id ASC
             ) AS vehicles
           FROM vendor_pass_vehicles vpv
           LEFT JOIN vehicle_types vt ON vt.id = vpv."vehicleTypeId"
@@ -2577,10 +2642,14 @@ const getAgentPassRequestsDetails = {
       return sortOrder === "DESC" ? db - da : da - db;
     });
 
-    return { data: allRows, counts };
+    const sanitizedRows = allRows.map((row) =>
+      sanitizePassRequestRow(row, role)
+    );
+
+    return { data: sanitizedRows, counts };
   },
 
-  async getPassById(passRequestId) {
+  async getPassById(passRequestId, requesterRole = null) {
     const query = `
     SELECT
       pr.id,
@@ -2739,7 +2808,8 @@ const getAgentPassRequestsDetails = {
     `;
 
     const result = await pool.query(query, [passRequestId]);
-    return result.rows[0] || null;
+    const row = result.rows[0] || null;
+    return row ? sanitizePassRequestRow(row, requesterRole) : null;
   },
 };
 

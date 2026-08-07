@@ -59,7 +59,8 @@ const RefreshToken = {
   async getSessionBySessionId(sessionId) {
 
     const query = `
-      SELECT * FROM "refresh_tokens"
+      SELECT "userId", "refreshToken", "sessionId", "expiresAt"
+      FROM "refresh_tokens"
       WHERE "sessionId" = $1
       LIMIT 1
     `;

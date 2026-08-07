@@ -82,7 +82,38 @@ const BulkPassSchema = {
   */
   async getById(id) {
     const result = await pool.query(
-      `SELECT * FROM "bulk_pass_batches" WHERE id = $1`,
+      `SELECT
+         id,
+         "refNo",
+         "token",
+         "tokenActive",
+         "createdByUserId",
+         "departmentId",
+         "departmentName",
+         "visitorType",
+         "companyName",
+         "applicantEmail",
+         "applicantMobile",
+         "refDocNo",
+         "workOrderRequired",
+         "noOfPersons",
+         "noOfVehicles",
+         "paymentMode",
+         "purpose",
+         "validityFrom",
+         "validityUpto",
+         remarks,
+         status,
+         "linkValidityHours",
+         "tokenExpiresAt",
+         "returnReason",
+         "rejectionReason",
+         "lastEmailSentAt",
+         "qrPdfPath",
+         "createdAt",
+         "updatedAt"
+       FROM "bulk_pass_batches"
+       WHERE id = $1`,
       [id]
     );
     return result.rows[0] || null;
@@ -95,7 +126,38 @@ const BulkPassSchema = {
   */
   async getByToken(token) {
     const result = await pool.query(
-      `SELECT * FROM "bulk_pass_batches" WHERE "token" = $1`,
+      `SELECT
+         id,
+         "refNo",
+         "token",
+         "tokenActive",
+         "createdByUserId",
+         "departmentId",
+         "departmentName",
+         "visitorType",
+         "companyName",
+         "applicantEmail",
+         "applicantMobile",
+         "refDocNo",
+         "workOrderRequired",
+         "noOfPersons",
+         "noOfVehicles",
+         "paymentMode",
+         "purpose",
+         "validityFrom",
+         "validityUpto",
+         remarks,
+         status,
+         "linkValidityHours",
+         "tokenExpiresAt",
+         "returnReason",
+         "rejectionReason",
+         "lastEmailSentAt",
+         "qrPdfPath",
+         "createdAt",
+         "updatedAt"
+       FROM "bulk_pass_batches"
+       WHERE "token" = $1`,
       [token]
     );
     const row = result.rows[0] || null;

@@ -1274,7 +1274,7 @@ const getPassDetails = async (req, res) => {
   try {
     const { passRequestId } = req.params;
 
-    const passData = await getAgentPassRequestsDetails.getPassById(passRequestId);
+    const passData = await getAgentPassRequestsDetails.getPassById(passRequestId, req.user.role );
 
     if (!passData) {
       return res.status(404).json({

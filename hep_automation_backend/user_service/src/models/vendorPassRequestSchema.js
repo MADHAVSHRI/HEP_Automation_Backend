@@ -85,7 +85,39 @@ const VendorPassRequest = {
 
   async getById(id) {
     const result = await pool.query(
-      `SELECT * FROM "vendor_pass_requests" WHERE id = $1`,
+      `SELECT
+         id,
+         "referenceNo",
+         "token",
+         "createdByUserId",
+         "departmentId",
+         "departmentName",
+         "visitorTypeId",
+         "visitorTypeOther",
+         "purposeOfVisitId",
+         "purposeOther",
+         "passApplyMode",
+         "companyName",
+         "vendorEmail",
+         "vendorMobile",
+         "hasWorkOrder",
+         "refDocNo",
+         "workOrderFilePath",
+         "workOrderFileName",
+         "equipmentMaterialDetails",
+         remarks,
+         "noOfPersonsAllowed",
+         "noOfVehiclesAllowed",
+         "paymentMode",
+         "allowAuctionPassOnly",
+         "validUpto",
+         status,
+         "lastEmailSentAt",
+         "createdAt",
+         "updatedAt",
+         "approvedBy"
+       FROM "vendor_pass_requests"
+       WHERE id = $1`,
       [id]
     );
     return result.rows[0] || null;
@@ -93,7 +125,39 @@ const VendorPassRequest = {
 
   async getByToken(token) {
     const result = await pool.query(
-      `SELECT * FROM "vendor_pass_requests" WHERE "token" = $1`,
+      `SELECT
+         id,
+         "referenceNo",
+         "token",
+         "createdByUserId",
+         "departmentId",
+         "departmentName",
+         "visitorTypeId",
+         "visitorTypeOther",
+         "purposeOfVisitId",
+         "purposeOther",
+         "passApplyMode",
+         "companyName",
+         "vendorEmail",
+         "vendorMobile",
+         "hasWorkOrder",
+         "refDocNo",
+         "workOrderFilePath",
+         "workOrderFileName",
+         "equipmentMaterialDetails",
+         remarks,
+         "noOfPersonsAllowed",
+         "noOfVehiclesAllowed",
+         "paymentMode",
+         "allowAuctionPassOnly",
+         "validUpto",
+         status,
+         "lastEmailSentAt",
+         "createdAt",
+         "updatedAt",
+         "approvedBy"
+       FROM "vendor_pass_requests"
+       WHERE "token" = $1`,
       [token]
     );
     return result.rows[0] || null;
