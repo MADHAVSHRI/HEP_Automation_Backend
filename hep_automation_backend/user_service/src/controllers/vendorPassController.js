@@ -697,6 +697,8 @@ exports.submitPublicVendorForm = async (req, res) => {
       attachFile(out, "employmentProof", i, "employmentProofPath", "employmentProofName");
       attachFile(out, "chaLicenseCopy", i, "chaLicensePath", "chaLicenseName");
       attachFile(out, "passportDoc", i, "passportPath", "passportName");
+      attachFile(out, "visaDoc", i, "visaDocPath", "visaDocName");
+      attachFile(out, "immigrationDoc", i, "immigrationDocPath", "immigrationDocName");
       attachFile(out, "entryAuthorization", i, "entryAuthorizationFilePath", "entryAuthorizationFileName");
       return out;
     });
@@ -885,6 +887,8 @@ exports.updateVendorPerson = async (req, res) => {
     attachFile(data, "employmentProof", "employmentProofPath", "employmentProofName");
     attachFile(data, "chaLicenseCopy", "chaLicensePath", "chaLicenseName");
     attachFile(data, "passportDoc", "passportPath", "passportName");
+    attachFile(data, "visaDoc", "visaDocPath", "visaDocName");
+    attachFile(data, "immigrationDoc", "immigrationDocPath", "immigrationDocName");
     attachFile(data, "cdcDocument", "cdcDocumentPath", "cdcDocumentName");
     attachFile(data, "declarationForm", "declarationFormPath", "declarationFormName");
     attachFile(data, "entryAuthorization", "entryAuthorizationFilePath", "entryAuthorizationFileName");

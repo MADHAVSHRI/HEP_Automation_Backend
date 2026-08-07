@@ -26,6 +26,8 @@ router.post(
       { name: "employmentProof", maxCount: 50 },
       { name: "chaLicenseCopy", maxCount: 50 },
       { name: "passportDoc", maxCount: 50 },
+      { name: "visaDoc", maxCount: 50 },
+      { name: "immigrationDoc", maxCount: 50 },
       { name: "vehicleRC", maxCount: 50 },
       { name: "vehicleInsurance", maxCount: 50 },
       { name: "vehiclePermit", maxCount: 50 },
@@ -63,7 +65,9 @@ router.put(
       { name: "employmentProof", maxCount: 1 },
       { name: "chaLicenseCopy", maxCount: 1 },
       { name: "passportDoc", maxCount: 1 },
-    { name: "entryAuthorization", maxCount: 1 },
+      { name: "visaDoc", maxCount: 1 },
+      { name: "immigrationDoc", maxCount: 1 },
+      { name: "entryAuthorization", maxCount: 1 },
     ])(req, res, (err) => {
       if (err) {
         if (err.code === "LIMIT_FILE_SIZE") {

@@ -10,7 +10,9 @@ const passRequestFolders = [
   "personPhotos",
   "personAadhar",
   "personIdProof",
-  "vehicleRC"
+  "vehicleRC",
+  "visaDoc",
+  "immigrationDoc"
 ];
 
 function initUploadDirs() {

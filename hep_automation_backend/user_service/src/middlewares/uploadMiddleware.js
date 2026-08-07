@@ -43,6 +43,8 @@ const DECLARATION_DIR = path.join(passRequestBaseDir,"declarationForm");
 const SPARK_ARRESTER_DIR = path.join(passRequestBaseDir, "sparkArrester");
 const TWIST_LOCK_DIR = path.join(passRequestBaseDir, "twistLock");
 const ENTRY_AUTHORIZATION_DIR = path.join(passRequestBaseDir, "entryAuthorization");
+const VISA_DIR = path.join(passRequestBaseDir, "visaDoc");
+const IMMIGRATION_DIR = path.join(passRequestBaseDir, "immigrationDoc");
 
 const VENDOR_WORK_ORDER_DIR = path.join(vendorPassBaseDir, "workOrder");
 
@@ -75,7 +77,9 @@ const passRequestFolders = [
   "declarationForm",
   "sparkArrester",
   "twistLock",
-  "entryAuthorization"
+  "entryAuthorization",
+  "visaDoc",
+  "immigrationDoc"
 ];
 
 folders.forEach((folder) => {
@@ -194,6 +198,14 @@ const storage = multer.diskStorage({
 
       case "passportDoc":
         cb(null, PASSPORT_DIR);
+        break;
+
+      case "visaDoc":
+        cb(null, VISA_DIR);
+        break;
+
+      case "immigrationDoc":
+        cb(null, IMMIGRATION_DIR);
         break;
 
       case "cdcDocument":
@@ -333,6 +345,14 @@ const storage = multer.diskStorage({
 
     else if (fieldPrefix === "passportDoc") {
       fileName = `PASSPORT${timestamp}.pdf`;
+    }
+
+    else if (fieldPrefix === "visaDoc") {
+      fileName = `VISA${timestamp}.pdf`;
+    }
+
+    else if (fieldPrefix === "immigrationDoc") {
+      fileName = `IMMIGRATION${timestamp}.pdf`;
     }
 
     else if (fieldPrefix === "vehicleInsurance") {

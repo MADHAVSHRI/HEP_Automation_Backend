@@ -1325,6 +1325,8 @@ const updatePassPerson = async (req, res) => {
     attachFile(updateData, "employmentProof", "employmentProofPath", "employmentProofName");
     attachFile(updateData, "chaLicenseCopy", "chaLicensePath", "chaLicenseName");
     attachFile(updateData, "passportDoc", "passportPath", "passportName");
+    attachFile(updateData, "visaDoc", "visaDocPath", "visaDocName");
+    attachFile(updateData, "immigrationDoc", "immigrationDocPath", "immigrationDocName");
     attachFile(updateData, "cdcDocument", "cdcDocumentPath", "cdcDocumentName");
     attachFile(updateData, "entryAuthorization", "entryAuthorizationFilePath", "entryAuthorizationFileName");
 

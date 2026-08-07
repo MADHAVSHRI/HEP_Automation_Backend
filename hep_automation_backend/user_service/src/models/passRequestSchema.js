@@ -261,6 +261,8 @@ const PassRequest = {
         const employFile = getFile("employmentProof", i);
         const chaFile = getFile("chaLicenseCopy", i);
         const passportFile = getFile("passportDoc", i);
+        const visaFile = getFile("visaDoc", i);
+        const immigrationFile = getFile("immigrationDoc", i);
         const cdcFile = getFile("cdcDocument", i);
         const entryAuthFile = getFile("entryAuthorization", i);
 
@@ -329,6 +331,12 @@ const PassRequest = {
               "passportPath",
               "passportName",
 
+              "visaDocPath",
+              "visaDocName",
+
+              "immigrationDocPath",
+              "immigrationDocName",
+
               "cdcNumber",
               "cdcDocumentPath",
               "cdcDocumentName",
@@ -343,7 +351,7 @@ const PassRequest = {
               $11,$12,$13,$14,$15,$16,$17,
               $18,$19,$20,$21,$22,$23,$24,$25,
               $26,$27,$28,$29,$30,$31,$32,$33,
-              $34,$35,$36,$37,
+              $34,$35,$36,$37,$38,$39,$40,$41,
               NOW(),NOW()
             )
             RETURNING id
@@ -390,6 +398,12 @@ const PassRequest = {
 
                 passportFile?.path || null,
                 passportFile?.originalname || null,
+
+                visaFile?.path || null,
+                visaFile?.originalname || null,
+
+                immigrationFile?.path || null,
+                immigrationFile?.originalname || null,
 
                 person.cdcNumber || null,
                 cdcFile?.path || null,
@@ -482,6 +496,10 @@ const PassRequest = {
           "chaLicenseName",
           "passportPath",
           "passportName",
+          "visaDocPath",
+          "visaDocName",
+          "immigrationDocPath",
+          "immigrationDocName",
           "cdcNumber",
           "cdcDocumentPath",
           "cdcDocumentName",
@@ -504,7 +522,7 @@ const PassRequest = {
           $11,$12,$13,$14,$15,$16,$17,$18,
           $19,$20,$21,$22,$23,$24,$25,$26,
           $27,$28,$29,$30,$31,$32,$33,$34,
-          $35,$36,$37,$38,$39,$40,$41,$42,$43,$44,$45,$46,$47,$48,$49,
+          $35,$36,$37,$38,$39,$40,$41,$42,$43,$44,$45,$46,$47,$48,$49,$50,$51,$52,$53,
           NOW(),NOW()
         )
         `,
@@ -545,6 +563,10 @@ const PassRequest = {
             chaFile?.originalname || mpData.chaLicenseName,
             passportFile?.path || mpData.passportPath,
             passportFile?.originalname || mpData.passportName,
+            visaFile?.path || mpData.visaDocPath,
+            visaFile?.originalname || mpData.visaDocName,
+            immigrationFile?.path || mpData.immigrationDocPath,
+            immigrationFile?.originalname || mpData.immigrationDocName,
             person.cdcNumber || mpData.cdcNumber,
             cdcFile?.path || mpData.cdcDocumentPath,
             cdcFile?.originalname || mpData.cdcDocumentName,
@@ -1159,6 +1181,8 @@ const PassRequest = {
         'employmentProofPath', 'employmentProofName',
         'chaLicensePath', 'chaLicenseName',
         'passportPath', 'passportName',
+        'visaDocPath', 'visaDocName',
+        'immigrationDocPath', 'immigrationDocName',
         'requisitionLetterPath', 'requisitionLetterName',
         'cdcNumber', 'cdcDocumentPath', 'cdcDocumentName',
         'declarationFormPath', 'declarationFormName',
@@ -1180,6 +1204,8 @@ const PassRequest = {
         'employmentProofPath', 'employmentProofName',
         'chaLicensePath', 'chaLicenseName',
         'passportPath', 'passportName',
+        'visaDocPath', 'visaDocName',
+        'immigrationDocPath', 'immigrationDocName',
         'requisitionLetterPath', 'requisitionLetterName',
         'cdcDocumentPath', 'cdcDocumentName',
         'declarationFormPath', 'declarationFormName',
@@ -1566,62 +1592,71 @@ const getPassRequest = {
         SELECT
           pp."passRequestId",
           json_agg(
-            jsonb_build_object(
-              'id',           pp.id,
-              'name',         COALESCE(pp.name, mp.name),
-              'email',        COALESCE(pp.email, mp.email),
-              'aadharNo',     COALESCE(pp."aadharNo", mp."aadharNo"),
-              'mobile',       COALESCE(pp.mobile, mp.mobile),
-              'hepTypeId',    pp."hepTypeId",
-              'passType',     pp."passType",
-              'passPeriod',   pp."passPeriod",
-              'dateFrom',     pp."dateFrom",
-              'dateTo',       pp."dateTo",
-              'amount',       pp.amount,
-              'status',       pp.status,
-              'rejectedReason', pp."rejectedReason",
-              'personPassNo', pp."personPassNo",
-              'designationId', COALESCE(d.name, pp."designationOther", mp."designationOther", pp."designationId"::text, mp."designationId"::text),
-              'designationOther', COALESCE(pp."designationOther", mp."designationOther"),
-              'accessAreaId', COALESCE(pp."accessAreaId"::TEXT, mp."accessAreaId"::TEXT),
-              'nationality', COALESCE(pp.nationality::text, mp.nationality::text),
-              'dob', COALESCE(pp."dob"::text, mp."dob"::text),
-              'countryId', COALESCE(pp."countryId", mp."countryId"),
-              'visaNo', COALESCE(pp."visaNo", mp."visaNo"),
-              'cardNumber', mp."cardNumber",
-              'withTwoWheeler', COALESCE(pp."withTwoWheeler", mp."withTwoWheeler"),
-              'vehicleNo', COALESCE(pp."vehicleNo", mp."vehicleNo"),
-              'idProofType', COALESCE(pp."idProofType", mp."idProofType"),
-              'idProofNumber', COALESCE(pp."idProofNumber", mp."idProofNumber"),
-              'photoFilePath', COALESCE(pp."photoFilePath", mp."photoFilePath"),
-              'photoFileName', COALESCE(pp."photoFileName", mp."photoFileName"),
+            (
+              jsonb_build_object(
+                'id',           pp.id,
+                'name',         COALESCE(pp.name, mp.name),
+                'email',        COALESCE(pp.email, mp.email),
+                'aadharNo',     COALESCE(pp."aadharNo", mp."aadharNo"),
+                'mobile',       COALESCE(pp.mobile, mp.mobile),
+                'hepTypeId',    pp."hepTypeId",
+                'passType',     pp."passType",
+                'passPeriod',   pp."passPeriod",
+                'dateFrom',     pp."dateFrom",
+                'dateTo',       pp."dateTo",
+                'amount',       pp.amount,
+                'status',       pp.status,
+                'rejectedReason', pp."rejectedReason",
+                'personPassNo', pp."personPassNo",
+                'designationId', COALESCE(d.name, pp."designationOther", mp."designationOther", pp."designationId"::text, mp."designationId"::text),
+                'designationOther', COALESCE(pp."designationOther", mp."designationOther"),
+                'accessAreaId', COALESCE(pp."accessAreaId"::TEXT, mp."accessAreaId"::TEXT),
+                'nationality', COALESCE(pp.nationality::text, mp.nationality::text),
+                'dob', COALESCE(pp."dob"::text, mp."dob"::text),
+                'countryId', COALESCE(pp."countryId", mp."countryId"),
+                'visaNo', COALESCE(pp."visaNo", mp."visaNo"),
+                'cardNumber', mp."cardNumber",
+                'withTwoWheeler', COALESCE(pp."withTwoWheeler", mp."withTwoWheeler"),
+                'vehicleNo', COALESCE(pp."vehicleNo", mp."vehicleNo"),
+                'idProofType', COALESCE(pp."idProofType", mp."idProofType"),
+                'idProofNumber', COALESCE(pp."idProofNumber", mp."idProofNumber")
+              )
+              ||
+              jsonb_build_object(
+                'photoFilePath', COALESCE(pp."photoFilePath", mp."photoFilePath"),
+                'photoFileName', COALESCE(pp."photoFileName", mp."photoFileName"),
 
-              'aadharPDFFilePATH', COALESCE(pp."aadharPDFFilePATH", mp."aadharPDFFilePATH"),
-              'aadharPDFFileName', COALESCE(pp."aadharPDFFileName", mp."aadharPDFFileName"),
+                'aadharPDFFilePATH', COALESCE(pp."aadharPDFFilePATH", mp."aadharPDFFilePATH"),
+                'aadharPDFFileName', COALESCE(pp."aadharPDFFileName", mp."aadharPDFFileName"),
 
-              'idProofFilePath', COALESCE(pp."idProofFilePath", mp."idProofFilePath"),
-              'idProofFileName', COALESCE(pp."idProofFileName", mp."idProofFileName"),
+                'idProofFilePath', COALESCE(pp."idProofFilePath", mp."idProofFilePath"),
+                'idProofFileName', COALESCE(pp."idProofFileName", mp."idProofFileName"),
 
-              'driverLicensePath', COALESCE(pp."driverLicensePath", mp."driverLicensePath"),
-              'driverLicenseName', COALESCE(pp."driverLicenseName", mp."driverLicenseName"),
+                'driverLicensePath', COALESCE(pp."driverLicensePath", mp."driverLicensePath"),
+                'driverLicenseName', COALESCE(pp."driverLicenseName", mp."driverLicenseName"),
 
-              'policeVerificationPath', COALESCE(pp."policeVerificationPath", mp."policeVerificationPath"),
-              'policeVerificationName', COALESCE(pp."policeVerificationName", mp."policeVerificationName"),
+                'policeVerificationPath', COALESCE(pp."policeVerificationPath", mp."policeVerificationPath"),
+                'policeVerificationName', COALESCE(pp."policeVerificationName", mp."policeVerificationName"),
 
-              'employmentProofPath', COALESCE(pp."employmentProofPath", mp."employmentProofPath"),
-              'employmentProofName', COALESCE(pp."employmentProofName", mp."employmentProofName"),
+                'employmentProofPath', COALESCE(pp."employmentProofPath", mp."employmentProofPath"),
+                'employmentProofName', COALESCE(pp."employmentProofName", mp."employmentProofName"),
 
-              'chaLicensePath', COALESCE(pp."chaLicensePath", mp."chaLicensePath"),
-              'chaLicenseName', COALESCE(pp."chaLicenseName", mp."chaLicenseName"),
+                'chaLicensePath', COALESCE(pp."chaLicensePath", mp."chaLicensePath"),
+                'chaLicenseName', COALESCE(pp."chaLicenseName", mp."chaLicenseName"),
 
-               'passportPath', COALESCE(pp."passportPath", mp."passportPath"),
-              'passportName', COALESCE(pp."passportName", mp."passportName"),
-              'cdcNumber', COALESCE(pp."cdcNumber", mp."cdcNumber"),
-              'cdcDocumentPath', COALESCE(pp."cdcDocumentPath", mp."cdcDocumentPath"),
-              'cdcDocumentName', COALESCE(pp."cdcDocumentName", mp."cdcDocumentName"),
-              'entryAuthorizationFilePath', pp."entryAuthorizationFilePath",
-              'entryAuthorizationFileName', pp."entryAuthorizationFileName",
-              'twoWheelerChangeCount', COALESCE(pp."twoWheelerChangeCount", 0)
+                'passportPath', COALESCE(pp."passportPath", mp."passportPath"),
+                'passportName', COALESCE(pp."passportName", mp."passportName"),
+                'visaDocPath', COALESCE(pp."visaDocPath", mp."visaDocPath"),
+                'visaDocName', COALESCE(pp."visaDocName", mp."visaDocName"),
+                'immigrationDocPath', COALESCE(pp."immigrationDocPath", mp."immigrationDocPath"),
+                'immigrationDocName', COALESCE(pp."immigrationDocName", mp."immigrationDocName"),
+                'cdcNumber', COALESCE(pp."cdcNumber", mp."cdcNumber"),
+                'cdcDocumentPath', COALESCE(pp."cdcDocumentPath", mp."cdcDocumentPath"),
+                'cdcDocumentName', COALESCE(pp."cdcDocumentName", mp."cdcDocumentName"),
+                'entryAuthorizationFilePath', pp."entryAuthorizationFilePath",
+                'entryAuthorizationFileName', pp."entryAuthorizationFileName",
+                'twoWheelerChangeCount', COALESCE(pp."twoWheelerChangeCount", 0)
+              )
             ) ORDER BY pp.id ASC
           ) AS persons
         FROM pass_persons pp
@@ -2377,6 +2412,10 @@ const getAgentPassRequestsDetails = {
 
         'passportPath', COALESCE(pp."passportPath", mp."passportPath"),
         'passportName', COALESCE(pp."passportName", mp."passportName"),
+        'visaDocPath', COALESCE(pp."visaDocPath", mp."visaDocPath"),
+        'visaDocName', COALESCE(pp."visaDocName", mp."visaDocName"),
+        'immigrationDocPath', COALESCE(pp."immigrationDocPath", mp."immigrationDocPath"),
+        'immigrationDocName', COALESCE(pp."immigrationDocName", mp."immigrationDocName"),
         'cdcNumber', COALESCE(pp."cdcNumber", mp."cdcNumber"),
         'cdcDocumentPath', COALESCE(pp."cdcDocumentPath", mp."cdcDocumentPath"),
         'cdcDocumentName', COALESCE(pp."cdcDocumentName", mp."cdcDocumentName"),
@@ -2845,6 +2884,8 @@ const viewPassRequestsDocuments = {
         employmentProof: "employmentProofPath",
         chaLicenseCopy: "chaLicensePath",
         passportDoc: "passportPath",
+        visaDoc: "visaDocPath",
+        immigrationDoc: "immigrationDocPath",
         cdcDocument: "cdcDocumentPath",
         entryAuthorization: "entryAuthorizationFilePath",
       };
@@ -2936,6 +2977,16 @@ const viewPassRequestsDocuments = {
 
       case "passportDoc":
         columnName = "passportPath";
+        tableName = "pass_persons";
+        break;
+
+      case "visaDoc":
+        columnName = "visaDocPath";
+        tableName = "pass_persons";
+        break;
+
+      case "immigrationDoc":
+        columnName = "immigrationDocPath";
         tableName = "pass_persons";
         break;
 
@@ -3045,6 +3096,8 @@ const viewPassRequestsDocuments = {
       "employmentProof",
       "chaLicenseCopy",
       "passportDoc",
+      "visaDoc",
+      "immigrationDoc",
       "cdcDocument",
       "entryAuthorization",
     ];
@@ -3124,6 +3177,8 @@ const viewPassRequestsDocuments = {
       employmentProof: "employmentProofPath",
       chaLicenseCopy: "chaLicensePath",
       passportDoc: "passportPath",
+      visaDoc: "visaDocPath",
+      immigrationDoc: "immigrationDocPath",
       cdcDocument: "cdcDocumentPath",
       entryAuthorization: "entryAuthorizationFilePath",
     };
