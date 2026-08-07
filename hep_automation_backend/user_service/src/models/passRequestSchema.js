@@ -2648,10 +2648,10 @@ const getAgentPassRequestsDetails = {
                 ||
                 jsonb_build_object(
                   'requestLetterName', vpv."requestLetterName",
-                  'taxDocPath', vpv."taxDocPath",
-                  'taxDocName', vpv."taxDocName",
-                  'emissionCertPath', vpv."emissionCertPath",
-                  'emissionCertName', vpv."emissionCertName",
+                  'taxDocPath', vpv."taxFilePath",
+                  'taxDocName', vpv."taxFileName",
+                  'emissionCertPath', vpv."emissionFilePath",
+                  'emissionCertName', vpv."emissionFileName",
                   'sparkArresterFilePath', vpv."sparkArresterFilePath",
                   'sparkArresterFileName', vpv."sparkArresterFileName",
                   'twistLockFilePath', vpv."twistLockFilePath",
