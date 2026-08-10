@@ -14,9 +14,19 @@ function normalizeLimit(value) {
 const Report = {
   async getRegisteredUserOptions() {
     const result = await pool.query(`
-      SELECT id, name
-      FROM "User_types"
-      WHERE name IS NOT NULL AND TRIM(name) <> ''
+      SELECT MIN(id) AS id, name
+      FROM (
+        SELECT id, TRIM(name) AS name
+        FROM "User_types"
+        WHERE name IS NOT NULL AND TRIM(name) <> ''
+
+        UNION
+
+        SELECT NULL::integer AS id, TRIM(a."userTypeName") AS name
+        FROM "Agents" a
+        WHERE a."userTypeName" IS NOT NULL AND TRIM(a."userTypeName") <> ''
+      ) company_types
+      GROUP BY name
       ORDER BY name ASC
     `);
 
