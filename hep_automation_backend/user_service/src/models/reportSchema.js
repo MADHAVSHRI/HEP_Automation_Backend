@@ -149,11 +149,11 @@ const Report = {
     }
 
     if (filters.passType) {
-      params.push(filters.passType.trim().toUpperCase());
+      params.push(filters.passType.trim());
       where.push(`entry."passType" = $${params.length}`);
     }
 
-    if (filters.passRequestType && filters.passRequestType !== "Both") {
+    if (filters.passRequestType) {
       params.push(filters.passRequestType.trim());
       where.push(`entry."passRequestType" = $${params.length}`);
     }
@@ -163,9 +163,17 @@ const Report = {
         SELECT
           pr.id AS "passRequestId",
           pr."referenceNo" AS "requestNumber",
-          'Person' AS "passRequestType",
-          pp.name AS "vehicleOrPersonName",
-          pp."passType"::text AS "passType",
+          CASE
+            WHEN pr."originType"::text = 'AGENT' THEN 'Online Transporter'
+            WHEN pr."originType"::text = 'VENDOR' THEN 'Vendor Pass'
+            ELSE 'On Gate pass'
+          END AS "passRequestType",
+          COALESCE(pp.name, mp.name) AS "vehicleOrPersonName",
+          CASE
+            WHEN ht.name ILIKE 'Driver%' THEN 'Driver'
+            ELSE 'Person'
+          END AS "passType",
+          pp."passType"::text AS "passDuration",
           pp."dateFrom",
           pp."dateTo",
           pp.amount,
@@ -176,15 +184,22 @@ const Report = {
         FROM pass_persons pp
         JOIN pass_requests pr ON pr.id = pp."passRequestId"
         LEFT JOIN "Agents" a ON a.id = pr."agentId"
+        LEFT JOIN master_persons mp ON mp.id = pp."masterPersonId"
+        LEFT JOIN hep_types ht ON ht.id = COALESCE(pp."hepTypeId", mp."hepTypeId")
 
         UNION ALL
 
         SELECT
           pr.id AS "passRequestId",
           pr."referenceNo" AS "requestNumber",
-          'Vehicle' AS "passRequestType",
-          pv."registrationNo" AS "vehicleOrPersonName",
-          pv."passType"::text AS "passType",
+          CASE
+            WHEN pr."originType"::text = 'AGENT' THEN 'Online Transporter'
+            WHEN pr."originType"::text = 'VENDOR' THEN 'Vendor Pass'
+            ELSE 'On Gate pass'
+          END AS "passRequestType",
+          COALESCE(pv."registrationNo", mv."registrationNo") AS "vehicleOrPersonName",
+          'Vehicle' AS "passType",
+          pv."passType"::text AS "passDuration",
           pv."dateFrom",
           pv."dateTo",
           pv.amount,
@@ -195,6 +210,49 @@ const Report = {
         FROM pass_vehicles pv
         JOIN pass_requests pr ON pr.id = pv."passRequestId"
         LEFT JOIN "Agents" a ON a.id = pr."agentId"
+        LEFT JOIN master_vehicles mv ON mv.id = pv."masterVehicleId"
+
+        UNION ALL
+
+        SELECT
+          vpr.id AS "passRequestId",
+          vpr."referenceNo" AS "requestNumber",
+          'Vendor Pass' AS "passRequestType",
+          vpp.name AS "vehicleOrPersonName",
+          CASE
+            WHEN ht.name ILIKE 'Driver%' THEN 'Driver'
+            ELSE 'Person'
+          END AS "passType",
+          vpp."passType"::text AS "passDuration",
+          vpp."dateFrom",
+          vpp."dateTo",
+          vpp.amount,
+          vpp.status::text AS status,
+          vpp."createdAt",
+          vpr."companyName" AS "transporterName",
+          vpr."referenceNo" AS "transporterCode"
+        FROM vendor_pass_persons vpp
+        JOIN vendor_pass_requests vpr ON vpr.id = vpp."vendorPassRequestId"
+        LEFT JOIN hep_types ht ON ht.id = vpp."hepTypeId"
+
+        UNION ALL
+
+        SELECT
+          vpr.id AS "passRequestId",
+          vpr."referenceNo" AS "requestNumber",
+          'Vendor Pass' AS "passRequestType",
+          vpv."vehicleRegistrationNo" AS "vehicleOrPersonName",
+          'Vehicle' AS "passType",
+          vpv."passType"::text AS "passDuration",
+          vpv."dateFrom",
+          vpv."dateTo",
+          vpv.amount,
+          vpv.status::text AS status,
+          vpv."createdAt",
+          vpr."companyName" AS "transporterName",
+          vpr."referenceNo" AS "transporterCode"
+        FROM vendor_pass_vehicles vpv
+        JOIN vendor_pass_requests vpr ON vpr.id = vpv."vendorPassRequestId"
       )
     `;
 

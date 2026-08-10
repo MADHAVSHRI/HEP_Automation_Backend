@@ -1,5 +1,6 @@
 const fs = require("fs");
 const path = require("path");
+const axios = require("axios");
 const VvipPassSchema = require("../models/vvipPassSchema");
 
 const parseJsonArray = (value) => {
@@ -38,6 +39,9 @@ const generateReferenceNo = () => {
   ].join("");
   return `VVIP${stamp}`;
 };
+
+const QR_SERVICE_URL = process.env.QR_SERVICE_URL || "http://localhost:5007";
+const SERVICE_AUTH_KEY = process.env.SERVICE_AUTH_KEY || "";
 
 const getUserId = (user = {}) =>
   user.userId || user.id || user.user_id || user.employeeId || null;
@@ -300,7 +304,7 @@ exports.getVvipQrData = async (req, res) => {
 
 exports.downloadVvipPdf = async (req, res) => {
   try {
-    const row = await VvipPassSchema.getById(req.params.id);
+    let row = await VvipPassSchema.getById(req.params.id);
 
     if (!row) {
       return res.status(404).json({ success: false, message: "VVIP pass not found." });
@@ -314,7 +318,37 @@ exports.downloadVvipPdf = async (req, res) => {
     }
 
     if (!row.qrPdfPath) {
-      return res.status(404).json({ success: false, message: "QR PDF not yet generated." });
+      if (!SERVICE_AUTH_KEY) {
+        return res.status(500).json({
+          success: false,
+          message: "QR service key is not configured.",
+        });
+      }
+
+      const qrResponse = await axios.post(
+        `${QR_SERVICE_URL}/api/qr/vvip-pass/${row.id}`,
+        {},
+        {
+          headers: {
+            "x-service-key": SERVICE_AUTH_KEY,
+            "x-service-name": "USER-SERVICE",
+          },
+          responseType: "arraybuffer",
+        },
+      );
+      const generatedPath = qrResponse.headers["x-pdf-path"];
+
+      if (generatedPath) {
+        await VvipPassSchema.updateQrPdfPath(row.id, generatedPath);
+        row = await VvipPassSchema.getById(req.params.id);
+      }
+    }
+
+    if (!row.qrPdfPath) {
+      return res.status(404).json({
+        success: false,
+        message: "QR PDF not yet generated.",
+      });
     }
 
     const absolutePath = path.resolve(row.qrPdfPath);
@@ -358,9 +392,18 @@ exports.approveVvipPass = async (req, res) => {
 
 exports.rejectVvipPass = async (req, res) => {
   try {
+    const reason = String(req.body.reason || req.body.rejectedReason || "").trim();
+
+    if (!reason) {
+      return res.status(400).json({
+        success: false,
+        message: "Please enter rejection reason.",
+      });
+    }
+
     const updated = await VvipPassSchema.updateStatus(req.params.id, {
       status: "REJECTED",
-      rejectedReason: req.body.reason || req.body.rejectedReason || null,
+      rejectedReason: reason,
     });
 
     if (!updated) {

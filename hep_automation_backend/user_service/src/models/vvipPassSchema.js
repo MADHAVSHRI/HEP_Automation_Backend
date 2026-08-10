@@ -315,6 +315,21 @@ const VvipPassSchema = {
 
     return result.rows[0] || null;
   },
+
+  async updateQrPdfPath(id, qrPdfPath) {
+    const result = await pool.query(
+      `
+        UPDATE "vvip_pass_requests"
+        SET "qrPdfPath" = $2,
+            "updatedAt" = NOW()
+        WHERE id = $1
+        RETURNING *;
+      `,
+      [id, qrPdfPath],
+    );
+
+    return result.rows[0] || null;
+  },
 };
 
 module.exports = VvipPassSchema;
