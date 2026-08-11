@@ -4,6 +4,7 @@ const verifyToken = require("../middlewares/verifyToken");
 const vvipPassApprovalController = require("../controllers/vvipPassApprovalController");
 
 router.get("/queue", verifyToken, vvipPassApprovalController.getQueue);
+router.get("/:id/pdf", verifyToken, vvipPassApprovalController.downloadPdf);
 router.get("/:id", verifyToken, vvipPassApprovalController.getDetail);
 router.post("/:id/approve", verifyToken, vvipPassApprovalController.approveRequest);
 router.post("/:id/reject", verifyToken, vvipPassApprovalController.rejectRequest);

@@ -43,6 +43,26 @@ const generateReferenceNo = () => {
 const QR_SERVICE_URL = process.env.QR_SERVICE_URL || "http://localhost:5007";
 const SERVICE_AUTH_KEY = process.env.SERVICE_AUTH_KEY || "";
 
+const requestVvipQrPdf = async (requestId) => {
+  if (!SERVICE_AUTH_KEY) {
+    const error = new Error("QR service key is not configured.");
+    error.statusCode = 500;
+    throw error;
+  }
+
+  return axios.post(
+    `${QR_SERVICE_URL}/api/qr/vvip-pass/${requestId}`,
+    {},
+    {
+      headers: {
+        "x-service-key": SERVICE_AUTH_KEY,
+        "x-service-name": "USER-SERVICE",
+      },
+      responseType: "arraybuffer",
+    },
+  );
+};
+
 const getUserId = (user = {}) =>
   user.userId || user.id || user.user_id || user.employeeId || null;
 
@@ -317,53 +337,33 @@ exports.downloadVvipPdf = async (req, res) => {
       });
     }
 
-    if (!row.qrPdfPath) {
-      if (!SERVICE_AUTH_KEY) {
-        return res.status(500).json({
-          success: false,
-          message: "QR service key is not configured.",
-        });
-      }
-
-      const qrResponse = await axios.post(
-        `${QR_SERVICE_URL}/api/qr/vvip-pass/${row.id}`,
-        {},
-        {
-          headers: {
-            "x-service-key": SERVICE_AUTH_KEY,
-            "x-service-name": "USER-SERVICE",
-          },
-          responseType: "arraybuffer",
-        },
-      );
-      const generatedPath = qrResponse.headers["x-pdf-path"];
-
-      if (generatedPath) {
-        await VvipPassSchema.updateQrPdfPath(row.id, generatedPath);
-        row = await VvipPassSchema.getById(req.params.id);
+    if (row.qrPdfPath) {
+      const absolutePath = path.resolve(row.qrPdfPath);
+      if (fs.existsSync(absolutePath)) {
+        res.setHeader("Content-Type", "application/pdf");
+        res.setHeader("Content-Disposition", `attachment; filename="${row.referenceNo}.pdf"`);
+        return res.sendFile(absolutePath);
       }
     }
 
-    if (!row.qrPdfPath) {
-      return res.status(404).json({
-        success: false,
-        message: "QR PDF not yet generated.",
-      });
-    }
+    const qrResponse = await requestVvipQrPdf(row.id);
+    const generatedPath = qrResponse.headers["x-pdf-path"];
 
-    const absolutePath = path.resolve(row.qrPdfPath);
-    if (!fs.existsSync(absolutePath)) {
-      return res.status(404).json({ success: false, message: "QR PDF not yet generated." });
+    if (generatedPath) {
+      await VvipPassSchema.updateQrPdfPath(row.id, generatedPath);
     }
 
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", `attachment; filename="${row.referenceNo}.pdf"`);
-    return res.sendFile(absolutePath);
+    return res.send(Buffer.from(qrResponse.data));
   } catch (error) {
     console.error("Download VVIP PDF error:", error);
-    return res.status(500).json({
+    return res.status(error.statusCode || error.response?.status || 500).json({
       success: false,
-      message: error.message || "Failed to download VVIP QR PDF.",
+      message:
+        error.response?.data?.message ||
+        error.message ||
+        "Failed to download VVIP QR PDF.",
     });
   }
 };
