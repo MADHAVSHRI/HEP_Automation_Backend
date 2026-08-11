@@ -180,7 +180,7 @@ exports.pushForm13 = async (req, res) => {
         containerNumber: item.containerNumber || null,
         containerSize: item.containerSize || null,
         containerISO: item.containerISO || null,
-        containerType: item.containerType || null,
+        containerType: (item.containerType && !item.containerType.includes("/")) ? item.containerType : null,
         movementType: item.movementType,
       }));
 

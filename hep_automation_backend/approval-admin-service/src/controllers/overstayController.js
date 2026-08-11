@@ -276,6 +276,8 @@ exports.levyCharge = async (req, res) => {
             agent_id,
             identifier,
             entity_type,
+            pass_no: charge.pass_no,
+            date_to: charge.date_to,
             total_amount: charge.total_amount,
             overstay_days: charge.overstay_days,
             charge_id: charge.id,

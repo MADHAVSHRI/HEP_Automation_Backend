@@ -221,6 +221,8 @@ const startConsumer = async () => {
               agent_id: data.agent_id,
               identifier: data.identifier,
               entity_type: data.entity_type,
+              pass_no: data.pass_no,
+              date_to: data.date_to,
               overstay_days: data.overstay_days,
               total_amount: data.total_amount,
               charge_id: data.charge_id
