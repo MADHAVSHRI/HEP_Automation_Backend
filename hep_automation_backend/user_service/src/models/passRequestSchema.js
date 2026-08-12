@@ -78,7 +78,6 @@ const cities = {
   },
 };
 
-
 const hepTypes = {
   async getAllHepTypes() {
     const query = `
@@ -109,8 +108,7 @@ const visitPurpose = {
   },
 };
 
-const PassRequest = { 
-
+const PassRequest = {
   async createPassRequest(payload, files) {
     const client = await pool.connect();
 
@@ -118,16 +116,20 @@ const PassRequest = {
       if (!files) return null;
       if (Array.isArray(files)) {
         if (index !== null) {
-          const indexedFile = files.find(f => f.fieldname === `${fieldname}_${index}`);
+          const indexedFile = files.find(
+            (f) => f.fieldname === `${fieldname}_${index}`,
+          );
           if (indexedFile) return indexedFile;
-          const list = files.filter(f => f.fieldname === fieldname);
+          const list = files.filter((f) => f.fieldname === fieldname);
           return list[index];
         } else {
-          return files.find(f => f.fieldname === fieldname);
+          return files.find((f) => f.fieldname === fieldname);
         }
       } else {
         if (index !== null) {
-          return files[`${fieldname}_${index}`]?.[0] || files[fieldname]?.[index];
+          return (
+            files[`${fieldname}_${index}`]?.[0] || files[fieldname]?.[index]
+          );
         } else {
           return files[fieldname]?.[0];
         }
@@ -153,27 +155,29 @@ const PassRequest = {
       const passRequisitionLetter = getFile("passRequisitionLetter");
 
       /* ===== CHANGE START =====
-          Generate Pass Request Reference Number
-        ===== */
+            Generate Pass Request Reference Number
+          ===== */
 
       /* ===== CHANGE START =====
-   SAFE REFERENCE NUMBER GENERATION (Retry Logic)
-===== */
+    SAFE REFERENCE NUMBER GENERATION (Retry Logic)
+  ===== */
 
       const isOilDockArea = (val) => {
         if (!val) return false;
         const str = String(val).toUpperCase();
-        return str === "1" || str.includes("OIL JETTY") || str.includes("OIL_JETTY");
+        return (
+          str === "1" || str.includes("OIL JETTY") || str.includes("OIL_JETTY")
+        );
       };
 
-      const hasMonthlyYearlyVehicle = (vehicles || []).some(v => 
-        ["MONTHLY", "YEARLY", "ANNUAL"].includes(v.passType)
+      const hasMonthlyYearlyVehicle = (vehicles || []).some((v) =>
+        ["MONTHLY", "YEARLY", "ANNUAL"].includes(v.passType),
       );
-      const hasOilDockVehicle = (vehicles || []).some(v => 
-        isOilDockArea(v.accessAreaId || v.accessArea)
+      const hasOilDockVehicle = (vehicles || []).some((v) =>
+        isOilDockArea(v.accessAreaId || v.accessArea),
       );
-      const hasOilDockPerson = (persons || []).some(p => 
-        isOilDockArea(p.accessAreaId || p.accessArea)
+      const hasOilDockPerson = (persons || []).some((p) =>
+        isOilDockArea(p.accessAreaId || p.accessArea),
       );
 
       const isOilDock = hasOilDockVehicle || hasOilDockPerson;
@@ -198,13 +202,13 @@ const PassRequest = {
         try {
           const passRequestResult = await client.query(
             `
-            INSERT INTO pass_requests
-            ("referenceNo","agentId","purposeOfVisitId","authLetterFilePath","authLetterFileName","requisitionLetterFilePath",
-            "requisitionLetterFileName","paymentMode","baseTotal",
-            "grossTotal","gstAmount","netAmount","status","originType","isOilDock","workflowState","submittedAt","createdAt","updatedAt")
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'SUBMITTED','AGENT',$13,$14,NOW(),NOW(),NOW())
-            RETURNING id
-            `,
+              INSERT INTO pass_requests
+              ("referenceNo","agentId","purposeOfVisitId","authLetterFilePath","authLetterFileName","requisitionLetterFilePath",
+              "requisitionLetterFileName","paymentMode","baseTotal",
+              "grossTotal","gstAmount","netAmount","status","originType","isOilDock","workflowState","submittedAt","createdAt","updatedAt")
+              VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'SUBMITTED','AGENT',$13,$14,NOW(),NOW(),NOW())
+              RETURNING id
+              `,
             [
               referenceNo,
               agentId,
@@ -244,10 +248,10 @@ const PassRequest = {
       // const passRequestId = passRequestResult.rows[0].id;
 
       /*
-        ===============================
-        INSERT PERSON PASSES
-        ===============================
-        */
+          ===============================
+          INSERT PERSON PASSES
+          ===============================
+          */
 
       for (let i = 0; i < persons.length; i++) {
         const person = persons[i];
@@ -271,13 +275,13 @@ const PassRequest = {
           if (person.aadharNo && String(person.aadharNo).trim() !== "") {
             existingPerson = await client.query(
               `
-            SELECT id
-            FROM master_persons
-            WHERE "agentId" = $1
-            AND "aadharNo" = $2
-            AND LOWER(TRIM("name")) = LOWER(TRIM($3))
-            LIMIT 1
-            `,
+              SELECT id
+              FROM master_persons
+              WHERE "agentId" = $1
+              AND "aadharNo" = $2
+              AND LOWER(TRIM("name")) = LOWER(TRIM($3))
+              LIMIT 1
+              `,
               [agentId, person.aadharNo, person.name],
             );
           }
@@ -287,46 +291,46 @@ const PassRequest = {
           } else {
             const masterInsert = await client.query(
               `
-            INSERT INTO master_persons
-            (
-              "agentId",
-              "hepTypeId",
-              "name",
-              "aadharNo",
-              "mobile",
-              "email",
-              "nationality",
-              "countryId",
-              "visaNo",
-              "designationId",
-              "designationOther",
-              "cardNumber",
-              "accessAreaId",
-              "withTwoWheeler",
-              "vehicleNo",
-              "idProofType",
-              "idProofNumber",
+              INSERT INTO master_persons
+              (
+                "agentId",
+                "hepTypeId",
+                "name",
+                "aadharNo",
+                "mobile",
+                "email",
+                "nationality",
+                "countryId",
+                "visaNo",
+                "designationId",
+                "designationOther",
+                "cardNumber",
+                "accessAreaId",
+                "withTwoWheeler",
+                "vehicleNo",
+                "idProofType",
+                "idProofNumber",
 
-              "aadharPDFFilePATH",
-              "aadharPDFFileName",
+                "aadharPDFFilePATH",
+                "aadharPDFFileName",
 
-              "idProofFilePath",
-              "idProofFileName",
+                "idProofFilePath",
+                "idProofFileName",
 
-              "photoFilePath",
-              "photoFileName",
+                "photoFilePath",
+                "photoFileName",
 
-              "driverLicensePath",
-              "driverLicenseName",
+                "driverLicensePath",
+                "driverLicenseName",
 
-              "policeVerificationPath",
-              "policeVerificationName",
+                "policeVerificationPath",
+                "policeVerificationName",
 
-              "employmentProofPath",
-              "employmentProofName",
+                "employmentProofPath",
+                "employmentProofName",
 
-              "chaLicensePath",
-              "chaLicenseName",
+                "chaLicensePath",
+                "chaLicenseName",
 
               "passportPath",
               "passportName",
@@ -337,10 +341,10 @@ const PassRequest = {
               "immigrationDocPath",
               "immigrationDocName",
 
-              "cdcNumber",
-              "cdcDocumentPath",
-              "cdcDocumentName",
-              "dob",
+                "cdcNumber",
+                "cdcDocumentPath",
+                "cdcDocumentName",
+                "dob",
 
               "createdAt",
               "updatedAt"
@@ -362,7 +366,7 @@ const PassRequest = {
                 person.name,
                 person.aadharNo || null,
                 person.mobile,
-                person.email || '',
+                person.email || "",
                 person.nationality,
                 person.countryId,
                 person.visaNo,
@@ -419,7 +423,7 @@ const PassRequest = {
         // Fetch all details from master_persons to copy into pass_persons snapshot
         const masterPersonRes = await client.query(
           `SELECT * FROM master_persons WHERE id = $1`,
-          [masterPersonId]
+          [masterPersonId],
         );
         const mpData = masterPersonRes.rows[0];
 
@@ -427,7 +431,7 @@ const PassRequest = {
 
         // Check age and designation for auto-rejection rule
         const personDob = person.dob || mpData?.dob || null;
-        let initialPersonStatus = 'pending';
+        let initialPersonStatus = "pending";
         let initialRejectedReason = null;
 
         if (personDob) {
@@ -436,22 +440,38 @@ const PassRequest = {
             const today = new Date();
             let age = today.getFullYear() - dobDate.getFullYear();
             const monthDiff = today.getMonth() - dobDate.getMonth();
-            if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < dobDate.getDate())) {
+            if (
+              monthDiff < 0 ||
+              (monthDiff === 0 && today.getDate() < dobDate.getDate())
+            ) {
               age--;
             }
 
-            let desigName = '';
-            const desigIdToFetch = person.designationId || mpData?.designationId;
+            let desigName = "";
+            const desigIdToFetch =
+              person.designationId || mpData?.designationId;
             if (desigIdToFetch) {
-              const desigRes = await client.query(`SELECT name FROM designations WHERE id = $1`, [desigIdToFetch]);
-              desigName = desigRes.rows[0]?.name || '';
+              const desigRes = await client.query(
+                `SELECT name FROM designations WHERE id = $1`,
+                [desigIdToFetch],
+              );
+              desigName = desigRes.rows[0]?.name || "";
             }
-            const desigStr = String(desigName || person.designation || person.designationOther || mpData?.designationOther || '').trim().toLowerCase();
-            const isVisitor = desigStr.includes('visitor');
+            const desigStr = String(
+              desigName ||
+                person.designation ||
+                person.designationOther ||
+                mpData?.designationOther ||
+                "",
+            )
+              .trim()
+              .toLowerCase();
+            const isVisitor = desigStr.includes("visitor");
 
             if (age < 18 && !isVisitor) {
-              initialPersonStatus = 'rejected';
-              initialRejectedReason = 'Automatically rejected: Person is below 18 years of age and designation is not Visitor.';
+              initialPersonStatus = "rejected";
+              initialRejectedReason =
+                "Automatically rejected: Person is below 18 years of age and designation is not Visitor.";
             }
           }
         }
@@ -543,7 +563,9 @@ const PassRequest = {
             person.designationOther || mpData.designationOther,
             person.cardNumber || mpData.cardNumber,
             person.accessAreaId || mpData.accessAreaId,
-            person.withTwoWheeler !== undefined ? person.withTwoWheeler : mpData.withTwoWheeler,
+            person.withTwoWheeler !== undefined
+              ? person.withTwoWheeler
+              : mpData.withTwoWheeler,
             person.vehicleNo || mpData.vehicleNo,
             person.idProofType || mpData.idProofType,
             person.idProofNumber || mpData.idProofNumber,
@@ -585,16 +607,17 @@ const PassRequest = {
       }
 
       /*
-        ===============================
-        INSERT VEHICLE PASSES
-        ===============================
-        */
+          ===============================
+          INSERT VEHICLE PASSES
+          ===============================
+          */
 
       for (let i = 0; i < vehicles.length; i++) {
         const vehicle = vehicles[i];
         let masterVehicleId = vehicle.masterVehicleId;
 
-        const fileIdx = vehicle.originalIndex !== undefined ? vehicle.originalIndex : i;
+        const fileIdx =
+          vehicle.originalIndex !== undefined ? vehicle.originalIndex : i;
         const vehicleFile = getFile("vehicleRC", fileIdx);
         const insuranceFile = getFile("vehicleInsurance", fileIdx);
         const permitFile = getFile("vehiclePermit", fileIdx);
@@ -607,15 +630,18 @@ const PassRequest = {
 
         if (!masterVehicleId) {
           let existingVehicle = { rows: [] };
-          if (vehicle.registrationNo && String(vehicle.registrationNo).trim() !== "") {
+          if (
+            vehicle.registrationNo &&
+            String(vehicle.registrationNo).trim() !== ""
+          ) {
             existingVehicle = await client.query(
               `
-              SELECT id
-              FROM master_vehicles
-              WHERE "agentId" = $1
-              AND "registrationNo" = $2
-              LIMIT 1
-              `,
+                SELECT id
+                FROM master_vehicles
+                WHERE "agentId" = $1
+                AND "registrationNo" = $2
+                LIMIT 1
+                `,
               [agentId, vehicle.registrationNo],
             );
           }
@@ -625,50 +651,53 @@ const PassRequest = {
           } else {
             const vehicleInsert = await client.query(
               `
-              INSERT INTO master_vehicles
-              (
-                "agentId",
-                "vehicleTypeId",
-                "registrationNo",
-                "rfidCardNumber",
+                INSERT INTO master_vehicles
+                (
+                  "agentId",
+                  "vehicleTypeId",
+                  "registrationNo",
+                  "rfidCardNumber",
 
-                "scannedCopyFilePath",
-                "scannedCopyFileName",
+                  "scannedCopyFilePath",
+                  "scannedCopyFileName",
 
-                "insuranceFilePath",
-                "insuranceFileName",
+                  "insuranceFilePath",
+                  "insuranceFileName",
 
-                "permitFilePath",
-                "permitFileName",
+                  "permitFilePath",
+                  "permitFileName",
 
-                "fitnessFilePath",
-                "fitnessFileName",
+                  "fitnessFilePath",
+                  "fitnessFileName",
 
-                "requestLetterPath",
-                "requestLetterName",
+                  "requestLetterPath",
+                  "requestLetterName",
 
-                "taxDocPath",
-                "taxDocName",
+                  "taxDocPath",
+                  "taxDocName",
 
-                "emissionCertPath",
-                "emissionCertName",
+                  "emissionCertPath",
+                  "emissionCertName",
 
-                "insuranceExpiry",
-                "rcValidity",
-                "accessAreaId",
+                  "insuranceExpiry",
+                  "rcValidity",
+                  "accessAreaId",
+                  "ulip_verified",
+                  "vehicle_status",
+                  "ulip_verified_at",
 
-                "createdAt",
-                "updatedAt"
-              )
-              VALUES
-              (
-                $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,
-                $11,$12,$13,$14,$15,$16,$17,$18,
-                $19,$20,$21,
-                NOW(),NOW()
-              )
-              RETURNING id
-              `,
+                  "createdAt",
+                  "updatedAt"
+                )
+                VALUES
+                (
+                  $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,
+                  $11,$12,$13,$14,$15,$16,$17,$18,
+                  $19,$20,$21,$22,$23,$24,
+                  NOW(),NOW()
+                )
+                RETURNING id
+                `,
               [
                 agentId,
                 vehicle.vehicleTypeId,
@@ -699,6 +728,9 @@ const PassRequest = {
                 vehicle.insuranceExpiry,
                 vehicle.rcValidity,
                 vehicle.accessAreaId,
+                vehicle.ulipVerified || false,
+                vehicle.vehicleStatus || "INACTIVE",
+                vehicle.ulipVerifiedAt || null,
               ],
             );
 
@@ -709,7 +741,7 @@ const PassRequest = {
         // Fetch all details from master_vehicles to copy into pass_vehicles snapshot
         const masterVehicleRes = await client.query(
           `SELECT * FROM master_vehicles WHERE id = $1`,
-          [masterVehicleId]
+          [masterVehicleId],
         );
         const mvData = masterVehicleRes.rows[0];
 
@@ -718,53 +750,56 @@ const PassRequest = {
 
         await client.query(
           `
-          INSERT INTO pass_vehicles
-          (
-            "vehiclePassNo",
-            "passRequestId",
-            "masterVehicleId",
-            "rateId",
-            "vehicleTypeId",
-            "registrationNo",
-            "rfidCardNumber",
-            "scannedCopyFilePath",
-            "scannedCopyFileName",
-            "insuranceExpiry",
-            "rcValidity",
-            "accessAreaId",
-            "insuranceFilePath",
-            "insuranceFileName",
-            "permitFilePath",
-            "permitFileName",
-            "fitnessFilePath",
-            "fitnessFileName",
-            "requestLetterPath",
-            "requestLetterName",
-            "taxDocPath",
-            "taxDocName",
-            "emissionCertPath",
-            "emissionCertName",
-            "passType",
-            "passPeriod",
-            "dateFrom",
-            "dateTo",
-            "amount",
-            "sparkArresterFilePath",
-            "sparkArresterFileName",
-            "twistLockFilePath",
-            "twistLockFileName",
-            "createdAt",
-            "updatedAt"
-          )
-          VALUES
-          (
-            $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,
-            $11,$12,$13,$14,$15,$16,$17,$18,
-            $19,$20,$21,$22,$23,$24,$25,$26,
-            $27,$28,$29,$30,$31,$32,$33,
-            NOW(),NOW()
-          )
-          `,
+            INSERT INTO pass_vehicles
+            (
+              "vehiclePassNo",
+              "passRequestId",
+              "masterVehicleId",
+              "rateId",
+              "vehicleTypeId",
+              "registrationNo",
+              "rfidCardNumber",
+              "scannedCopyFilePath",
+              "scannedCopyFileName",
+              "insuranceExpiry",
+              "rcValidity",
+              "accessAreaId",
+              "insuranceFilePath",
+              "insuranceFileName",
+              "permitFilePath",
+              "permitFileName",
+              "fitnessFilePath",
+              "fitnessFileName",
+              "requestLetterPath",
+              "requestLetterName",
+              "taxDocPath",
+              "taxDocName",
+              "emissionCertPath",
+              "emissionCertName",
+              "passType",
+              "passPeriod",
+              "dateFrom",
+              "dateTo",
+              "amount",
+              "sparkArresterFilePath",
+              "sparkArresterFileName",
+              "twistLockFilePath",
+              "twistLockFileName",
+              "ulip_verified",
+              "vehicle_status",
+              "ulip_verified_at",
+              "createdAt",
+              "updatedAt"
+            )
+            VALUES
+            (
+              $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,
+              $11,$12,$13,$14,$15,$16,$17,$18,
+              $19,$20,$21,$22,$23,$24,$25,$26,
+              $27,$28,$29,$30,$31,$32,$33,$34,$35,$36,
+              NOW(),NOW()
+            )
+            `,
           [
             vehiclePassNo,
             passRequestId,
@@ -799,6 +834,9 @@ const PassRequest = {
             sparkArresterFile?.originalname || null,
             twistLockFile?.path || null,
             twistLockFile?.originalname || null,
+            vehicle.ulipVerified || false,
+            vehicle.vehicleStatus || "INACTIVE",
+            vehicle.ulipVerifiedAt || null,
           ],
         );
       }
@@ -856,7 +894,6 @@ const PassRequest = {
   },
 
   async approveVehicle(vehicleId) {
-
     const query = `
       UPDATE pass_vehicles
       SET
@@ -925,7 +962,12 @@ const PassRequest = {
     return result.rows[0];
   },
 
-  async completePassReview(passRequestId, approvedByUserId, role, roleId = null) {
+  async completePassReview(
+    passRequestId,
+    approvedByUserId,
+    role,
+    roleId = null,
+  ) {
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
@@ -933,7 +975,7 @@ const PassRequest = {
       // Fetch request details
       const requestRes = await client.query(
         `SELECT id, status, "isOilDock" FROM "pass_requests" WHERE id = $1`,
-        [passRequestId]
+        [passRequestId],
       );
       const request = requestRes.rows[0];
       if (!request) {
@@ -944,11 +986,11 @@ const PassRequest = {
       const [personsRes, vehiclesRes] = await Promise.all([
         client.query(
           `SELECT id, status, "srDtmApproved" FROM "pass_persons" WHERE "passRequestId" = $1`,
-          [passRequestId]
+          [passRequestId],
         ),
         client.query(
           `SELECT id, status, "passType", "twistLockCertified", "sparkArresterCertified" FROM "pass_vehicles" WHERE "passRequestId" = $1`,
-          [passRequestId]
+          [passRequestId],
         ),
       ]);
 
@@ -956,14 +998,17 @@ const PassRequest = {
       const vehicles = vehiclesRes.rows;
 
       // Check if any reverted entities
-      const hasRevertedPerson = persons.some(p => p.status === 'reverted');
-      const hasRevertedVehicle = vehicles.some(v => v.status === 'reverted');
+      const hasRevertedPerson = persons.some((p) => p.status === "reverted");
+      const hasRevertedVehicle = vehicles.some((v) => v.status === "reverted");
       const isReverted = hasRevertedPerson || hasRevertedVehicle;
 
       let approvedBy = null;
       if (approvedByUserId) {
         try {
-          const userRes = await client.query('SELECT "userName" FROM "users" WHERE id = $1', [approvedByUserId]);
+          const userRes = await client.query(
+            'SELECT "userName" FROM "users" WHERE id = $1',
+            [approvedByUserId],
+          );
           if (userRes.rows.length > 0) {
             approvedBy = userRes.rows[0].userName;
           }
@@ -983,14 +1028,15 @@ const PassRequest = {
                "updatedAt" = NOW()
            WHERE id = $1
            RETURNING *`,
-          [passRequestId, approvedBy]
+          [passRequestId, approvedBy],
         );
         await client.query("COMMIT");
         client.release();
         return {
           ...result.rows[0],
-          reviewStatus: 'REVERTED',
-          message: 'Review saved. Pass request has reverted entities that need correction.'
+          reviewStatus: "REVERTED",
+          message:
+            "Review saved. Pass request has reverted entities that need correction.",
         };
       }
 
@@ -1001,128 +1047,176 @@ const PassRequest = {
       const isOilDockArea = (val) => {
         if (!val) return false;
         const str = String(val).toUpperCase();
-        return str === "1" || str.includes("OIL JETTY") || str.includes("OIL_JETTY");
+        return (
+          str === "1" || str.includes("OIL JETTY") || str.includes("OIL_JETTY")
+        );
       };
 
       if (isSafety) {
-        const uncertifiedVehicles = vehicles.filter(v => 
-          v.status !== 'rejected' && 
-          v.status !== 'reverted' &&
-          (v.passType === 'MONTHLY' || v.passType === 'YEARLY' || v.passType === 'ANNUAL') && 
-          !v.twistLockCertified
+        const uncertifiedVehicles = vehicles.filter(
+          (v) =>
+            v.status !== "rejected" &&
+            v.status !== "reverted" &&
+            (v.passType === "MONTHLY" ||
+              v.passType === "YEARLY" ||
+              v.passType === "ANNUAL") &&
+            !v.twistLockCertified,
         );
         if (uncertifiedVehicles.length > 0) {
-          throw new Error("All monthly/yearly/annual vehicles must be certified by the Safety Officer.");
+          throw new Error(
+            "All monthly/yearly/annual vehicles must be certified by the Safety Officer.",
+          );
         }
 
         const isOilDock = request.isOilDock;
-        const nextState = isOilDock ? 'PENDING_FIRE_SAFETY' : 'PENDING_PASS_SECTION';
+        const nextState = isOilDock
+          ? "PENDING_FIRE_SAFETY"
+          : "PENDING_PASS_SECTION";
 
         // Reset entity statuses to 'pending' when entering Pass Section queue
-        if (nextState === 'PENDING_PASS_SECTION') {
-          await client.query(`
+        if (nextState === "PENDING_PASS_SECTION") {
+          await client.query(
+            `
             UPDATE "pass_persons" SET status = 'pending', "updatedAt" = NOW()
             WHERE "passRequestId" = $1 AND status = 'approved'
-          `, [passRequestId]);
-          await client.query(`
+          `,
+            [passRequestId],
+          );
+          await client.query(
+            `
             UPDATE "pass_vehicles" SET status = 'pending', "updatedAt" = NOW()
             WHERE "passRequestId" = $1 AND status = 'approved'
-          `, [passRequestId]);
+          `,
+            [passRequestId],
+          );
         }
 
-        const result = await client.query(`
+        const result = await client.query(
+          `
           UPDATE "pass_requests"
           SET "workflowState" = $2, "approvedBy" = $3, "updatedAt" = NOW()
           WHERE id = $1
           RETURNING *
-        `, [passRequestId, nextState, approvedBy]);
+        `,
+          [passRequestId, nextState, approvedBy],
+        );
         await client.query("COMMIT");
         client.release();
         return {
           ...result.rows[0],
-          reviewStatus: 'PENDING_NEXT',
-          message: 'Safety Officer pre-approval completed.'
+          reviewStatus: "PENDING_NEXT",
+          message: "Safety Officer pre-approval completed.",
         };
       }
 
       if (isFireSafety) {
-        const oilDockVehicles = vehicles.filter(v => isOilDockArea(v.accessAreaId));
-        const uncertifiedVehicles = oilDockVehicles.filter(v => 
-          v.status !== 'rejected' && 
-          v.status !== 'reverted' &&
-          !v.sparkArresterCertified
+        const oilDockVehicles = vehicles.filter((v) =>
+          isOilDockArea(v.accessAreaId),
+        );
+        const uncertifiedVehicles = oilDockVehicles.filter(
+          (v) =>
+            v.status !== "rejected" &&
+            v.status !== "reverted" &&
+            !v.sparkArresterCertified,
         );
         if (uncertifiedVehicles.length > 0) {
-          throw new Error("All vehicles must be certified by the Fire Safety Officer.");
+          throw new Error(
+            "All vehicles must be certified by the Fire Safety Officer.",
+          );
         }
 
-        const result = await client.query(`
+        const result = await client.query(
+          `
           UPDATE "pass_requests"
           SET "workflowState" = 'PENDING_SR_DTM', "approvedBy" = $2, "updatedAt" = NOW()
           WHERE id = $1
           RETURNING *
-        `, [passRequestId, approvedBy]);
+        `,
+          [passRequestId, approvedBy],
+        );
         await client.query("COMMIT");
         client.release();
         return {
           ...result.rows[0],
-          reviewStatus: 'PENDING_NEXT',
-          message: 'Fire Safety Officer pre-approval completed.'
+          reviewStatus: "PENDING_NEXT",
+          message: "Fire Safety Officer pre-approval completed.",
         };
       }
 
       if (isSrDtm) {
-        const oilDockPersons = persons.filter(p => isOilDockArea(p.accessAreaId));
-        const unapprovedPersons = oilDockPersons.filter(p => 
-          p.status !== 'rejected' && 
-          p.status !== 'reverted' &&
-          !p.srDtmApproved
+        const oilDockPersons = persons.filter((p) =>
+          isOilDockArea(p.accessAreaId),
+        );
+        const unapprovedPersons = oilDockPersons.filter(
+          (p) =>
+            p.status !== "rejected" &&
+            p.status !== "reverted" &&
+            !p.srDtmApproved,
         );
         if (unapprovedPersons.length > 0) {
-          throw new Error("All persons must be approved by the Senior Deputy Traffic Manager.");
+          throw new Error(
+            "All persons must be approved by the Senior Deputy Traffic Manager.",
+          );
         }
 
-        const oilDockVehicles = vehicles.filter(v => isOilDockArea(v.accessAreaId));
-        const unapprovedVehicles = oilDockVehicles.filter(v => 
-          !['approved', 'rejected', 'reverted'].includes(v.status)
+        const oilDockVehicles = vehicles.filter((v) =>
+          isOilDockArea(v.accessAreaId),
+        );
+        const unapprovedVehicles = oilDockVehicles.filter(
+          (v) => !["approved", "rejected", "reverted"].includes(v.status),
         );
         if (unapprovedVehicles.length > 0) {
-          throw new Error("All vehicles must be approved by the Senior Deputy Traffic Manager.");
+          throw new Error(
+            "All vehicles must be approved by the Senior Deputy Traffic Manager.",
+          );
         }
 
         // Reset entity statuses to 'pending' when entering Pass Section queue
-        await client.query(`
+        await client.query(
+          `
           UPDATE "pass_persons" SET status = 'pending', "updatedAt" = NOW()
           WHERE "passRequestId" = $1 AND status = 'approved'
-        `, [passRequestId]);
-        await client.query(`
+        `,
+          [passRequestId],
+        );
+        await client.query(
+          `
           UPDATE "pass_vehicles" SET status = 'pending', "updatedAt" = NOW()
           WHERE "passRequestId" = $1 AND status = 'approved'
-        `, [passRequestId]);
+        `,
+          [passRequestId],
+        );
 
-        const result = await client.query(`
+        const result = await client.query(
+          `
           UPDATE "pass_requests"
           SET "workflowState" = 'PENDING_PASS_SECTION', "approvedBy" = $2, "updatedAt" = NOW()
           WHERE id = $1
           RETURNING *
-        `, [passRequestId, approvedBy]);
+        `,
+          [passRequestId, approvedBy],
+        );
         await client.query("COMMIT");
         client.release();
         return {
           ...result.rows[0],
-          reviewStatus: 'PENDING_NEXT',
-          message: 'Senior Deputy Traffic Manager pre-approval completed.'
+          reviewStatus: "PENDING_NEXT",
+          message: "Senior Deputy Traffic Manager pre-approval completed.",
         };
       }
 
       // Check if all reviewed
-      const allPersonsReviewed = persons.every(p => ['approved', 'rejected', 'reverted'].includes(p.status));
-      const allVehiclesReviewed = vehicles.every(v => ['approved', 'rejected', 'reverted'].includes(v.status));
+      const allPersonsReviewed = persons.every((p) =>
+        ["approved", "rejected", "reverted"].includes(p.status),
+      );
+      const allVehiclesReviewed = vehicles.every((v) =>
+        ["approved", "rejected", "reverted"].includes(v.status),
+      );
       const allReviewed = allPersonsReviewed && allVehiclesReviewed;
 
-      let finalStatus = 'SUBMITTED';
+      let finalStatus = "SUBMITTED";
       if (allReviewed) {
-        finalStatus = 'COMPLETED';
+        finalStatus = "COMPLETED";
       }
 
       // Update pass request status
@@ -1131,14 +1225,18 @@ const PassRequest = {
          SET status=$1, "approvedBy" = $3, "updatedAt" = NOW()
          WHERE id=$2
          RETURNING *`,
-        [finalStatus, passRequestId, approvedBy]
+        [finalStatus, passRequestId, approvedBy],
       );
       await client.query("COMMIT");
       client.release();
       return {
         ...result.rows[0],
-        reviewStatus: finalStatus === 'COMPLETED' ? 'COMPLETED' : 'PENDING_NEXT',
-        message: finalStatus === 'COMPLETED' ? 'Review completed successfully.' : 'Partial review submitted successfully.'
+        reviewStatus:
+          finalStatus === "COMPLETED" ? "COMPLETED" : "PENDING_NEXT",
+        message:
+          finalStatus === "COMPLETED"
+            ? "Review completed successfully."
+            : "Partial review submitted successfully.",
       };
     } catch (error) {
       await client.query("ROLLBACK");
@@ -1154,7 +1252,7 @@ const PassRequest = {
   async updateRevertedPerson(personId, updateData) {
     const client = await pool.connect();
     try {
-      await client.query('BEGIN');
+      await client.query("BEGIN");
 
       // Check if person exists
       const checkQuery = `
@@ -1163,30 +1261,62 @@ const PassRequest = {
       const checkResult = await client.query(checkQuery, [personId]);
 
       if (checkResult.rows.length === 0) {
-        return { success: false, message: 'Person not found' };
+        return { success: false, message: "Person not found" };
       }
 
       // Build update query dynamically based on provided fields
       // Only include fields that exist in pass_persons table
       const allowedFields = [
-        'name', 'email', 'mobile', 'aadharNo', 'hepTypeId', 'passType',
-        'designationId', 'designationOther', 'visaNo', 'nationality', 'dob',
-        'passPeriod', 'dateFrom', 'dateTo', 'amount', 'countryId',
-        'idProofType', 'idProofNumber', 'withTwoWheeler', 'vehicleNo', 'accessAreaId',
-        'photoFilePath', 'photoFileName',
-        'aadharPDFFilePATH', 'aadharPDFFileName',
-        'idProofFilePath', 'idProofFileName',
-        'driverLicensePath', 'driverLicenseName',
-        'policeVerificationPath', 'policeVerificationName',
-        'employmentProofPath', 'employmentProofName',
-        'chaLicensePath', 'chaLicenseName',
-        'passportPath', 'passportName',
-        'visaDocPath', 'visaDocName',
-        'immigrationDocPath', 'immigrationDocName',
-        'requisitionLetterPath', 'requisitionLetterName',
-        'cdcNumber', 'cdcDocumentPath', 'cdcDocumentName',
-        'declarationFormPath', 'declarationFormName',
-        'entryAuthorizationFilePath', 'entryAuthorizationFileName'
+        "name",
+        "email",
+        "mobile",
+        "aadharNo",
+        "hepTypeId",
+        "passType",
+        "designationId",
+        "designationOther",
+        "visaNo",
+        "nationality",
+        "dob",
+        "passPeriod",
+        "dateFrom",
+        "dateTo",
+        "amount",
+        "countryId",
+        "idProofType",
+        "idProofNumber",
+        "withTwoWheeler",
+        "vehicleNo",
+        "accessAreaId",
+        "photoFilePath",
+        "photoFileName",
+        "aadharPDFFilePATH",
+        "aadharPDFFileName",
+        "idProofFilePath",
+        "idProofFileName",
+        "driverLicensePath",
+        "driverLicenseName",
+        "policeVerificationPath",
+        "policeVerificationName",
+        "employmentProofPath",
+        "employmentProofName",
+        "chaLicensePath",
+        "chaLicenseName",
+        "passportPath",
+        "passportName",
+        "visaDocPath",
+        "visaDocName",
+        "immigrationDocPath",
+        "immigrationDocName",
+        "requisitionLetterPath",
+        "requisitionLetterName",
+        "cdcNumber",
+        "cdcDocumentPath",
+        "cdcDocumentName",
+        "declarationFormPath",
+        "declarationFormName",
+        "entryAuthorizationFilePath",
+        "entryAuthorizationFileName",
       ];
 
       const updates = [];
@@ -1196,26 +1326,40 @@ const PassRequest = {
       // File-related fields should only be updated if they have a real value
       // (skip empty strings to avoid overwriting existing file paths)
       const fileFields = new Set([
-        'photoFilePath', 'photoFileName',
-        'aadharPDFFilePATH', 'aadharPDFFileName',
-        'idProofFilePath', 'idProofFileName',
-        'driverLicensePath', 'driverLicenseName',
-        'policeVerificationPath', 'policeVerificationName',
-        'employmentProofPath', 'employmentProofName',
-        'chaLicensePath', 'chaLicenseName',
-        'passportPath', 'passportName',
-        'visaDocPath', 'visaDocName',
-        'immigrationDocPath', 'immigrationDocName',
-        'requisitionLetterPath', 'requisitionLetterName',
-        'cdcDocumentPath', 'cdcDocumentName',
-        'declarationFormPath', 'declarationFormName',
-        'entryAuthorizationFilePath', 'entryAuthorizationFileName'
+        "photoFilePath",
+        "photoFileName",
+        "aadharPDFFilePATH",
+        "aadharPDFFileName",
+        "idProofFilePath",
+        "idProofFileName",
+        "driverLicensePath",
+        "driverLicenseName",
+        "policeVerificationPath",
+        "policeVerificationName",
+        "employmentProofPath",
+        "employmentProofName",
+        "chaLicensePath",
+        "chaLicenseName",
+        "passportPath",
+        "passportName",
+        "visaDocPath",
+        "visaDocName",
+        "immigrationDocPath",
+        "immigrationDocName",
+        "requisitionLetterPath",
+        "requisitionLetterName",
+        "cdcDocumentPath",
+        "cdcDocumentName",
+        "declarationFormPath",
+        "declarationFormName",
+        "entryAuthorizationFilePath",
+        "entryAuthorizationFileName",
       ]);
 
       for (const field of allowedFields) {
         if (updateData[field] !== undefined) {
           // Skip empty strings for file fields to avoid wiping existing paths
-          if (fileFields.has(field) && updateData[field] === '') continue;
+          if (fileFields.has(field) && updateData[field] === "") continue;
           // Use exact column names from DB schema (camelCase)
           updates.push(`"${field}" = $${paramIndex}`);
           values.push(updateData[field]);
@@ -1233,23 +1377,22 @@ const PassRequest = {
 
       const updateQuery = `
         UPDATE pass_persons
-        SET ${updates.join(', ')}
+        SET ${updates.join(", ")}
         WHERE id = $${paramIndex}
         RETURNING *
       `;
 
       const result = await client.query(updateQuery, values);
-      await client.query('COMMIT');
+      await client.query("COMMIT");
 
       return {
         success: true,
         data: result.rows[0],
-        message: 'Person updated successfully'
+        message: "Person updated successfully",
       };
-
     } catch (error) {
-      await client.query('ROLLBACK');
-      console.error('UPDATE REVERTED PERSON ERROR:', error);
+      await client.query("ROLLBACK");
+      console.error("UPDATE REVERTED PERSON ERROR:", error);
       return { success: false, message: error.message };
     } finally {
       client.release();
@@ -1259,10 +1402,13 @@ const PassRequest = {
   async updateRevertedVehicle(vehicleId, updateData) {
     const client = await pool.connect();
     try {
-      await client.query('BEGIN');
+      await client.query("BEGIN");
 
-      console.log('UPDATE REVERTED VEHICLE - vehicleId:', vehicleId);
-      console.log('UPDATE REVERTED VEHICLE - updateData:', JSON.stringify(updateData));
+      console.log("UPDATE REVERTED VEHICLE - vehicleId:", vehicleId);
+      console.log(
+        "UPDATE REVERTED VEHICLE - updateData:",
+        JSON.stringify(updateData),
+      );
 
       // Check if vehicle exists
       const checkQuery = `
@@ -1271,23 +1417,39 @@ const PassRequest = {
       const checkResult = await client.query(checkQuery, [vehicleId]);
 
       if (checkResult.rows.length === 0) {
-        return { success: false, message: 'Vehicle not found' };
+        return { success: false, message: "Vehicle not found" };
       }
 
       // Build update query dynamically
       // Only include fields that exist in pass_vehicles table
       const allowedFields = [
-        'registrationNo', 'vehicleTypeId', 'insuranceExpiry',
-        'rcValidity', 'passType', 'passPeriod', 'dateFrom', 'dateTo', 'amount',
-        'scannedCopyFilePath', 'scannedCopyFileName',
-        'insuranceFilePath', 'insuranceFileName',
-        'permitFilePath', 'permitFileName',
-        'fitnessFilePath', 'fitnessFileName',
-        'requestLetterPath', 'requestLetterName',
-        'taxDocPath', 'taxDocName',
-        'emissionCertPath', 'emissionCertName',
-        'sparkArresterFilePath', 'sparkArresterFileName',
-        'twistLockFilePath', 'twistLockFileName'
+        "registrationNo",
+        "vehicleTypeId",
+        "insuranceExpiry",
+        "rcValidity",
+        "passType",
+        "passPeriod",
+        "dateFrom",
+        "dateTo",
+        "amount",
+        "scannedCopyFilePath",
+        "scannedCopyFileName",
+        "insuranceFilePath",
+        "insuranceFileName",
+        "permitFilePath",
+        "permitFileName",
+        "fitnessFilePath",
+        "fitnessFileName",
+        "requestLetterPath",
+        "requestLetterName",
+        "taxDocPath",
+        "taxDocName",
+        "emissionCertPath",
+        "emissionCertName",
+        "sparkArresterFilePath",
+        "sparkArresterFileName",
+        "twistLockFilePath",
+        "twistLockFileName",
       ];
 
       const updates = [];
@@ -1300,28 +1462,37 @@ const PassRequest = {
       // File-related fields should only be updated if they have a real value
       // (skip empty strings to avoid overwriting existing file paths)
       const fileFields = new Set([
-        'scannedCopyFilePath', 'scannedCopyFileName',
-        'insuranceFilePath', 'insuranceFileName',
-        'permitFilePath', 'permitFileName',
-        'fitnessFilePath', 'fitnessFileName',
-        'requestLetterPath', 'requestLetterName',
-        'taxDocPath', 'taxDocName',
-        'emissionCertPath', 'emissionCertName',
-        'sparkArresterFilePath', 'sparkArresterFileName',
-        'twistLockFilePath', 'twistLockFileName'
+        "scannedCopyFilePath",
+        "scannedCopyFileName",
+        "insuranceFilePath",
+        "insuranceFileName",
+        "permitFilePath",
+        "permitFileName",
+        "fitnessFilePath",
+        "fitnessFileName",
+        "requestLetterPath",
+        "requestLetterName",
+        "taxDocPath",
+        "taxDocName",
+        "emissionCertPath",
+        "emissionCertName",
+        "sparkArresterFilePath",
+        "sparkArresterFileName",
+        "twistLockFilePath",
+        "twistLockFileName",
       ]);
 
       for (const field of allowedFields) {
         let fieldValue = updateData[field];
 
         // Handle special case for registrationNo/regNo
-        if (field === 'registrationNo') {
+        if (field === "registrationNo") {
           fieldValue = regNo;
         }
 
         if (fieldValue !== undefined) {
           // Skip empty strings for file fields to avoid wiping existing paths
-          if (fileFields.has(field) && fieldValue === '') continue;
+          if (fileFields.has(field) && fieldValue === "") continue;
           // Use exact column names from DB schema (camelCase)
           updates.push(`"${field}" = $${paramIndex}`);
           values.push(fieldValue);
@@ -1329,8 +1500,8 @@ const PassRequest = {
         }
       }
 
-      console.log('UPDATE REVERTED VEHICLE - updates:', updates);
-      console.log('UPDATE REVERTED VEHICLE - values:', values);
+      console.log("UPDATE REVERTED VEHICLE - updates:", updates);
+      console.log("UPDATE REVERTED VEHICLE - values:", values);
 
       // Only update updatedAt, not status
       updates.push(`"updatedAt" = $${paramIndex}`);
@@ -1342,23 +1513,22 @@ const PassRequest = {
 
       const updateQuery = `
         UPDATE pass_vehicles
-        SET ${updates.join(', ')}
+        SET ${updates.join(", ")}
         WHERE id = $${paramIndex}
         RETURNING *
       `;
 
       const result = await client.query(updateQuery, values);
-      await client.query('COMMIT');
+      await client.query("COMMIT");
 
       return {
         success: true,
         data: result.rows[0],
-        message: 'Vehicle updated successfully'
+        message: "Vehicle updated successfully",
       };
-
     } catch (error) {
-      await client.query('ROLLBACK');
-      console.error('UPDATE REVERTED VEHICLE ERROR:', error);
+      await client.query("ROLLBACK");
+      console.error("UPDATE REVERTED VEHICLE ERROR:", error);
       return { success: false, message: error.message };
     } finally {
       client.release();
@@ -1368,7 +1538,7 @@ const PassRequest = {
   async resubmitRevertedPassRequest(passRequestId) {
     const client = await pool.connect();
     try {
-      await client.query('BEGIN');
+      await client.query("BEGIN");
 
       // Check if pass exists and is in REVERTED status
       const checkQuery = `
@@ -1377,37 +1547,39 @@ const PassRequest = {
       const checkResult = await client.query(checkQuery, [passRequestId]);
 
       if (checkResult.rows.length === 0) {
-        return { success: false, message: 'Pass request not found' };
+        return { success: false, message: "Pass request not found" };
       }
 
-      if (checkResult.rows[0].status !== 'REVERTED') {
-        return { success: false, message: 'Pass is not in reverted status' };
+      if (checkResult.rows[0].status !== "REVERTED") {
+        return { success: false, message: "Pass is not in reverted status" };
       }
 
       // Fetch all persons and vehicles to determine workflowState
       const personsRes = await client.query(
         `SELECT "accessAreaId" FROM pass_persons WHERE "passRequestId" = $1`,
-        [passRequestId]
+        [passRequestId],
       );
       const vehiclesRes = await client.query(
         `SELECT "accessAreaId", "passType" FROM pass_vehicles WHERE "passRequestId" = $1`,
-        [passRequestId]
+        [passRequestId],
       );
 
       const isOilDockArea = (val) => {
         if (!val) return false;
         const str = String(val).toUpperCase();
-        return str === "1" || str.includes("OIL JETTY") || str.includes("OIL_JETTY");
+        return (
+          str === "1" || str.includes("OIL JETTY") || str.includes("OIL_JETTY")
+        );
       };
 
-      const hasMonthlyYearlyVehicle = vehiclesRes.rows.some(v => 
-        ["MONTHLY", "YEARLY", "ANNUAL"].includes(v.passType)
+      const hasMonthlyYearlyVehicle = vehiclesRes.rows.some((v) =>
+        ["MONTHLY", "YEARLY", "ANNUAL"].includes(v.passType),
       );
-      const hasOilDockVehicle = vehiclesRes.rows.some(v => 
-        isOilDockArea(v.accessAreaId)
+      const hasOilDockVehicle = vehiclesRes.rows.some((v) =>
+        isOilDockArea(v.accessAreaId),
       );
-      const hasOilDockPerson = personsRes.rows.some(p => 
-        isOilDockArea(p.accessAreaId)
+      const hasOilDockPerson = personsRes.rows.some((p) =>
+        isOilDockArea(p.accessAreaId),
       );
 
       const isOilDock = hasOilDockVehicle || hasOilDockPerson;
@@ -1422,16 +1594,20 @@ const PassRequest = {
       }
 
       // Reset reverted persons and vehicles to 'pending' so only they need re-review
-      await client.query(`
+      await client.query(
+        `
         UPDATE pass_persons
         SET status = 'pending',
             "rejectedReason" = NULL,
             "srDtmApproved" = false,
             "updatedAt" = NOW()
         WHERE "passRequestId" = $1 AND status = 'reverted'
-      `, [passRequestId]);
+      `,
+        [passRequestId],
+      );
 
-      await client.query(`
+      await client.query(
+        `
         UPDATE pass_vehicles
         SET status = 'pending',
             "rejectedReason" = NULL,
@@ -1443,7 +1619,9 @@ const PassRequest = {
             "srDtmRemarks" = NULL,
             "updatedAt" = NOW()
         WHERE "passRequestId" = $1 AND status = 'reverted'
-      `, [passRequestId]);
+      `,
+        [passRequestId],
+      );
 
       // Per-entity visibility: Pass Section query evaluates readiness via entity flags directly
       // No need to reset already-approved entities — only reverted ones were reset above
@@ -1460,18 +1638,21 @@ const PassRequest = {
         RETURNING *
       `;
 
-      const result = await client.query(updateQuery, [passRequestId, isOilDock, workflowState]);
-      await client.query('COMMIT');
+      const result = await client.query(updateQuery, [
+        passRequestId,
+        isOilDock,
+        workflowState,
+      ]);
+      await client.query("COMMIT");
 
       return {
         success: true,
         data: result.rows[0],
-        message: 'Pass resubmitted successfully'
+        message: "Pass resubmitted successfully",
       };
-
     } catch (error) {
-      await client.query('ROLLBACK');
-      console.error('RESUBMIT REVERTED PASS ERROR:', error);
+      await client.query("ROLLBACK");
+      console.error("RESUBMIT REVERTED PASS ERROR:", error);
       return { success: false, message: error.message };
     } finally {
       client.release();
@@ -1480,6 +1661,265 @@ const PassRequest = {
 };
 
 const getPassRequest = {
+  // async getAgentPassRequests(agentId, pagination = {}) {
+  //   const {
+  //     page = 1,
+  //     limit = 20,
+  //     offset = 0,
+  //     search = "",
+  //     status = "",
+  //     sortOrder = "DESC",
+  //   } = pagination;
+
+  //   // ─── Search filter SQL builder ───
+  //   let searchFilter = "";
+  //   const params = [agentId];
+  //   let paramIdx = 2;
+
+  //   if (search) {
+  //     const searchParam = `%${search}%`;
+  //     params.push(searchParam);
+  //     searchFilter = `
+  //       AND (
+  //         pr."referenceNo" ILIKE $${paramIdx}
+  //         OR EXISTS (
+  //           SELECT 1 FROM pass_persons pp
+  //           WHERE pp."passRequestId" = pr.id
+  //             AND (pp.name ILIKE $${paramIdx} OR pp."aadharNo" ILIKE $${paramIdx})
+  //         )
+  //         OR EXISTS (
+  //           SELECT 1 FROM pass_vehicles pv
+  //           WHERE pv."passRequestId" = pr.id
+  //             AND pv."registrationNo" ILIKE $${paramIdx}
+  //         )
+  //       )`;
+  //     paramIdx++;
+  //   }
+
+  //   // ─── Status filter SQL builder ───
+  //   let statusFilter = "";
+  //   if (status === "reverted") {
+  //     statusFilter = `AND (pr.status::TEXT = 'REVERTED' OR pr."hasRevertedEntities" = true)`;
+  //   } else if (status && status !== "all") {
+  //     params.push(status.toUpperCase());
+  //     statusFilter = `AND pr.status::TEXT = $${paramIdx}`;
+  //     paramIdx++;
+  //   }
+
+  //   /* =============================================
+  //      QUERY 1 — Global Counts for Agent's Dashboard
+  //   ============================================= */
+  //   const countQuery = `
+  //     SELECT
+  //       COUNT(*) AS total,
+  //       COUNT(CASE WHEN pr.status::TEXT = 'REVERTED' OR pr."hasRevertedEntities" = true THEN 1 END) AS reverted
+  //     FROM pass_requests pr
+  //     WHERE pr."agentId" = $1 AND pr."isActive" = true AND pr."isCancelled"=false
+  //   `;
+  //   const countRes = await pool.query(countQuery, [agentId]);
+  //   const cnt = countRes.rows[0];
+  //   const counts = {
+  //     total: parseInt(cnt.total || 0),
+  //     reverted: parseInt(cnt.reverted || 0),
+  //   };
+
+  //   /* =============================================
+  //      QUERY 2 — Paginated IDs
+  //      We pass limit and offset as parameters to prevent SQL injection.
+  //   ============================================= */
+  //   const limitIdx = paramIdx;
+  //   const offsetIdx = paramIdx + 1;
+  //   const pagParams = [...params, limit, offset];
+
+  //   const idQuery = `
+  //     SELECT id
+  //     FROM pass_requests pr
+  //     WHERE pr."agentId"=$1
+  //     AND pr."isActive"=true
+  //     AND pr."isCancelled"=false
+  //       ${searchFilter}
+  //       ${statusFilter}
+  //     ORDER BY pr."createdAt" ${sortOrder}
+  //     LIMIT $${limitIdx} OFFSET $${offsetIdx}
+  //   `;
+
+  //   const idRes = await pool.query(idQuery, pagParams);
+  //   const passIds = idRes.rows.map((r) => r.id);
+
+  //   if (passIds.length === 0) {
+  //     return { data: [], counts };
+  //   }
+
+  //   /* =============================================
+  //      QUERY 3 — Full Detail Hydration
+  //   ============================================= */
+  //   const placeholders = passIds.map((_, i) => `$${i + 1}`).join(",");
+  //   const detailQuery = `
+  //     SELECT
+  //       pr.id,
+  //       pr."referenceNo",
+  //       pr.status,
+  //       pr."submittedAt",
+  //       pr."paymentMode",
+  //       pr."grossTotal",
+  //       pr."gstAmount",
+  //       pr."netAmount",
+  //       pr."authLetterFilePath",
+  //       pr."authLetterFileName",
+  //       pr."requisitionLetterFilePath",
+  //       pr."requisitionLetterFileName",
+
+  //       COALESCE(p.persons, '[]'::json) AS persons,
+  //       COALESCE(v.vehicles, '[]'::json) AS vehicles
+
+  //     FROM pass_requests pr
+
+  //     LEFT JOIN (
+  //       SELECT
+  //         pp."passRequestId",
+  //         json_agg(
+  //           jsonb_build_object(
+  //             'id',           pp.id,
+  //             'name',         COALESCE(pp.name, mp.name),
+  //             'email',        COALESCE(pp.email, mp.email),
+  //             'aadharNo',     COALESCE(pp."aadharNo", mp."aadharNo"),
+  //             'mobile',       COALESCE(pp.mobile, mp.mobile),
+  //             'hepTypeId',    pp."hepTypeId",
+  //             'passType',     pp."passType",
+  //             'passPeriod',   pp."passPeriod",
+  //             'dateFrom',     pp."dateFrom",
+  //             'dateTo',       pp."dateTo",
+  //             'amount',       pp.amount,
+  //             'status',       pp.status,
+  //             'passStatus',pp."passStatus",
+  //             'disabledReason',pp."disabledReason",
+  //             'disabledAt',pp."disabledAt",
+  //             'rejectedReason', pp."rejectedReason",
+  //             'personPassNo', pp."personPassNo",
+  //             'designationId', COALESCE(d.name, pp."designationOther", mp."designationOther", pp."designationId"::text, mp."designationId"::text),
+  //             'designationOther', COALESCE(pp."designationOther", mp."designationOther"),
+  //             'accessAreaId', COALESCE(pp."accessAreaId"::TEXT, mp."accessAreaId"::TEXT),
+  //             'nationality', COALESCE(pp.nationality::text, mp.nationality::text),
+  //             'dob', COALESCE(pp."dob"::text, mp."dob"::text),
+  //             'countryId', COALESCE(pp."countryId", mp."countryId"),
+  //             'visaNo', COALESCE(pp."visaNo", mp."visaNo"),
+  //             'cardNumber', mp."cardNumber",
+  //             'withTwoWheeler', COALESCE(pp."withTwoWheeler", mp."withTwoWheeler"),
+  //             'vehicleNo', COALESCE(pp."vehicleNo", mp."vehicleNo"),
+  //             'idProofType', COALESCE(pp."idProofType", mp."idProofType"),
+  //             'idProofNumber', COALESCE(pp."idProofNumber", mp."idProofNumber"),
+  //             'photoFilePath', COALESCE(pp."photoFilePath", mp."photoFilePath"),
+  //             'photoFileName', COALESCE(pp."photoFileName", mp."photoFileName"),
+
+  //             'aadharPDFFilePATH', COALESCE(pp."aadharPDFFilePATH", mp."aadharPDFFilePATH"),
+  //             'aadharPDFFileName', COALESCE(pp."aadharPDFFileName", mp."aadharPDFFileName"),
+
+  //             'idProofFilePath', COALESCE(pp."idProofFilePath", mp."idProofFilePath"),
+  //             'idProofFileName', COALESCE(pp."idProofFileName", mp."idProofFileName"),
+
+  //             'driverLicensePath', COALESCE(pp."driverLicensePath", mp."driverLicensePath"),
+  //             'driverLicenseName', COALESCE(pp."driverLicenseName", mp."driverLicenseName"),
+
+  //             'policeVerificationPath', COALESCE(pp."policeVerificationPath", mp."policeVerificationPath"),
+  //             'policeVerificationName', COALESCE(pp."policeVerificationName", mp."policeVerificationName"),
+
+  //             'employmentProofPath', COALESCE(pp."employmentProofPath", mp."employmentProofPath"),
+  //             'employmentProofName', COALESCE(pp."employmentProofName", mp."employmentProofName"),
+
+  //             'chaLicensePath', COALESCE(pp."chaLicensePath", mp."chaLicensePath"),
+  //             'chaLicenseName', COALESCE(pp."chaLicenseName", mp."chaLicenseName"),
+
+  //              'passportPath', COALESCE(pp."passportPath", mp."passportPath"),
+  //             'passportName', COALESCE(pp."passportName", mp."passportName"),
+  //             'cdcNumber', COALESCE(pp."cdcNumber", mp."cdcNumber"),
+  //             'cdcDocumentPath', COALESCE(pp."cdcDocumentPath", mp."cdcDocumentPath"),
+  //             'cdcDocumentName', COALESCE(pp."cdcDocumentName", mp."cdcDocumentName"),
+  //             'entryAuthorizationFilePath', pp."entryAuthorizationFilePath",
+  //             'entryAuthorizationFileName', pp."entryAuthorizationFileName",
+  //             'twoWheelerChangeCount', COALESCE(pp."twoWheelerChangeCount", 0)
+  //           ) ORDER BY pp.id ASC
+  //         ) AS persons
+  //       FROM pass_persons pp
+
+  //       LEFT JOIN master_persons mp
+  //         ON mp.id = pp."masterPersonId"
+
+  //       LEFT JOIN designations d
+  //         ON d.id = COALESCE(pp."designationId", mp."designationId")
+
+  //       GROUP BY pp."passRequestId"
+  //     ) p ON p."passRequestId" = pr.id
+
+  //     LEFT JOIN (
+  //       SELECT
+  //         pv."passRequestId",
+  //         json_agg(
+  //           jsonb_build_object(
+  //             'id',               pv.id,
+  //             'registrationNo',   COALESCE(pv."registrationNo", mv."registrationNo"),
+  //             'vehicleTypeId',    COALESCE(pv."vehicleTypeId", mv."vehicleTypeId"),
+  //             'rfidCardNumber',   mv."rfidCardNumber",
+  //             'passType',         pv."passType",
+  //             'passPeriod',       pv."passPeriod",
+  //             'dateFrom',         pv."dateFrom",
+  //             'dateTo',           pv."dateTo",
+  //             'amount',           pv.amount,
+  //             'status',           pv.status,
+  //             'passStatus',pv."passStatus",
+  //             'disabledReason',pv."disabledReason",
+  //             'disabledAt',pv."disabledAt",
+  //             'rejectedReason',   pv."rejectedReason",
+  //             'vehiclePassNo',    pv."vehiclePassNo",
+  //             'insuranceExpiry',  COALESCE(pv."insuranceExpiry", mv."insuranceExpiry"),
+  //             'rcValidity',       COALESCE(pv."rcValidity", mv."rcValidity"),
+  //             'accessAreaId',     COALESCE(pv."accessAreaId"::TEXT, mv."accessAreaId"::TEXT),
+  //             'scannedCopyFilePath', COALESCE(pv."scannedCopyFilePath", mv."scannedCopyFilePath"),
+  //             'scannedCopyFileName', COALESCE(pv."scannedCopyFileName", mv."scannedCopyFileName"),
+
+  //             'insuranceFilePath', COALESCE(pv."insuranceFilePath", mv."insuranceFilePath"),
+  //             'insuranceFileName', COALESCE(pv."insuranceFileName", mv."insuranceFileName"),
+
+  //             'permitFilePath', COALESCE(pv."permitFilePath", mv."permitFilePath"),
+  //             'permitFileName', COALESCE(pv."permitFileName", mv."permitFileName"),
+
+  //             'fitnessFilePath', COALESCE(pv."fitnessFilePath", mv."fitnessFilePath"),
+  //             'fitnessFileName', COALESCE(pv."fitnessFileName", mv."fitnessFileName"),
+
+  //             'requestLetterPath', COALESCE(pv."requestLetterPath", mv."requestLetterPath"),
+  //             'requestLetterName', COALESCE(pv."requestLetterName", mv."requestLetterName"),
+
+  //             'taxDocPath', COALESCE(pv."taxDocPath", mv."taxDocPath"),
+  //             'taxDocName', COALESCE(pv."taxDocName", mv."taxDocName"),
+  //             'taxFilePath', COALESCE(pv."taxDocPath", mv."taxDocPath"),
+  //             'taxFileName', COALESCE(pv."taxDocName", mv."taxDocName"),
+
+  //             'emissionCertPath', COALESCE(pv."emissionCertPath", mv."emissionCertPath"),
+  //             'emissionCertName', COALESCE(pv."emissionCertName", mv."emissionCertName"),
+  //             'emissionFilePath', COALESCE(pv."emissionCertPath", mv."emissionCertPath"),
+  //             'emissionFileName', COALESCE(pv."emissionCertName", mv."emissionCertName"),
+
+  //             'sparkArresterFilePath', pv."sparkArresterFilePath",
+  //             'sparkArresterFileName', pv."sparkArresterFileName",
+
+  //             'twistLockFilePath', pv."twistLockFilePath",
+  //             'twistLockFileName', pv."twistLockFileName"
+  //           ) ORDER BY pv.id ASC
+  //         ) AS vehicles
+  //       FROM pass_vehicles pv
+
+  //       LEFT JOIN master_vehicles mv
+  //         ON mv.id = pv."masterVehicleId"
+
+  //       GROUP BY pv."passRequestId"
+  //     ) v ON v."passRequestId" = pr.id
+
+  //     WHERE pr.id IN (${placeholders})
+  //     ORDER BY pr."createdAt" ${sortOrder}
+  //   `;
+
+  //   const detailRes = await pool.query(detailQuery, passIds);
+  //   return { data: detailRes.rows, counts };
+  // },
 
   async getAgentPassRequests(agentId, pagination = {}) {
     const {
@@ -1532,9 +1972,33 @@ const getPassRequest = {
     const countQuery = `
       SELECT
         COUNT(*) AS total,
-        COUNT(CASE WHEN pr.status::TEXT = 'REVERTED' OR pr."hasRevertedEntities" = true THEN 1 END) AS reverted
+        COUNT(
+          CASE
+            WHEN pr.status::TEXT = 'REVERTED'
+              OR pr."hasRevertedEntities" = true
+            THEN 1
+          END
+        ) AS reverted
       FROM pass_requests pr
-      WHERE pr."agentId" = $1 AND pr."isActive" = true
+      WHERE pr."agentId" = $1
+        AND pr."isActive" = true
+        AND (
+          pr."isCancelled" = false
+
+          OR EXISTS (
+            SELECT 1
+            FROM pass_persons pp
+            WHERE pp."passRequestId" = pr.id
+              AND UPPER(TRIM(COALESCE(pp."passStatus"::TEXT, ''))) = 'DISABLED'
+          )
+
+          OR EXISTS (
+            SELECT 1
+            FROM pass_vehicles pv
+            WHERE pv."passRequestId" = pr.id
+              AND UPPER(TRIM(COALESCE(pv."passStatus"::TEXT, ''))) = 'DISABLED'
+          )
+        )
     `;
     const countRes = await pool.query(countQuery, [agentId]);
     const cnt = countRes.rows[0];
@@ -1554,7 +2018,25 @@ const getPassRequest = {
     const idQuery = `
       SELECT id
       FROM pass_requests pr
-      WHERE pr."agentId" = $1 AND pr."isActive" = true
+      WHERE pr."agentId" = $1
+        AND pr."isActive" = true
+        AND (
+          pr."isCancelled" = false
+
+          OR EXISTS (
+            SELECT 1
+            FROM pass_persons pp
+            WHERE pp."passRequestId" = pr.id
+              AND UPPER(TRIM(COALESCE(pp."passStatus"::TEXT, ''))) = 'DISABLED'
+          )
+
+          OR EXISTS (
+            SELECT 1
+            FROM pass_vehicles pv
+            WHERE pv."passRequestId" = pr.id
+              AND UPPER(TRIM(COALESCE(pv."passStatus"::TEXT, ''))) = 'DISABLED'
+          )
+        )
         ${searchFilter}
         ${statusFilter}
       ORDER BY pr."createdAt" ${sortOrder}
@@ -1562,7 +2044,7 @@ const getPassRequest = {
     `;
 
     const idRes = await pool.query(idQuery, pagParams);
-    const passIds = idRes.rows.map(r => r.id);
+    const passIds = idRes.rows.map((r) => r.id);
 
     if (passIds.length === 0) {
       return { data: [], counts };
@@ -1674,52 +2156,65 @@ const getPassRequest = {
         SELECT
           pv."passRequestId",
           json_agg(
+            (
             jsonb_build_object(
-              'id',               pv.id,
-              'registrationNo',   COALESCE(pv."registrationNo", mv."registrationNo"),
-              'vehicleTypeId',    COALESCE(pv."vehicleTypeId", mv."vehicleTypeId"),
-              'rfidCardNumber',   mv."rfidCardNumber",
-              'passType',         pv."passType",
-              'passPeriod',       pv."passPeriod",
-              'dateFrom',         pv."dateFrom",
-              'dateTo',           pv."dateTo",
-              'amount',           pv.amount,
-              'status',           pv.status,
-              'rejectedReason',   pv."rejectedReason",
-              'vehiclePassNo',    pv."vehiclePassNo",
-              'insuranceExpiry',  COALESCE(pv."insuranceExpiry", mv."insuranceExpiry"),
-              'rcValidity',       COALESCE(pv."rcValidity", mv."rcValidity"),
-              'accessAreaId',     COALESCE(pv."accessAreaId"::TEXT, mv."accessAreaId"::TEXT),
-              'scannedCopyFilePath', COALESCE(pv."scannedCopyFilePath", mv."scannedCopyFilePath"),
-              'scannedCopyFileName', COALESCE(pv."scannedCopyFileName", mv."scannedCopyFileName"),
 
-              'insuranceFilePath', COALESCE(pv."insuranceFilePath", mv."insuranceFilePath"),
-              'insuranceFileName', COALESCE(pv."insuranceFileName", mv."insuranceFileName"),
+            'id', pv.id,
+            'registrationNo', COALESCE(pv."registrationNo", mv."registrationNo"),
+            'vehicleTypeId', COALESCE(pv."vehicleTypeId", mv."vehicleTypeId"),
+            'rfidCardNumber', mv."rfidCardNumber",
+            'passType', pv."passType",
+            'passPeriod', pv."passPeriod",
+            'dateFrom', pv."dateFrom",
+            'dateTo', pv."dateTo",
+            'amount', pv.amount,
+            'status', pv.status,
+            'passStatus', pv."passStatus",
+            'disabledReason', pv."disabledReason",
+            'disabledAt', pv."disabledAt",
+            'rejectedReason', pv."rejectedReason",
+            'vehiclePassNo', pv."vehiclePassNo",
+            'insuranceExpiry', COALESCE(pv."insuranceExpiry", mv."insuranceExpiry"),
+            'rcValidity', COALESCE(pv."rcValidity", mv."rcValidity"),
+            'accessAreaId', COALESCE(pv."accessAreaId"::TEXT,mv."accessAreaId"::TEXT),
+            'scannedCopyFilePath', COALESCE(pv."scannedCopyFilePath",mv."scannedCopyFilePath"),
+            'scannedCopyFileName', COALESCE(pv."scannedCopyFileName",mv."scannedCopyFileName")
 
-              'permitFilePath', COALESCE(pv."permitFilePath", mv."permitFilePath"),
-              'permitFileName', COALESCE(pv."permitFileName", mv."permitFileName"),
+            )
 
-              'fitnessFilePath', COALESCE(pv."fitnessFilePath", mv."fitnessFilePath"),
-              'fitnessFileName', COALESCE(pv."fitnessFileName", mv."fitnessFileName"),
+            ||
 
-              'requestLetterPath', COALESCE(pv."requestLetterPath", mv."requestLetterPath"),
-              'requestLetterName', COALESCE(pv."requestLetterName", mv."requestLetterName"),
+            jsonb_build_object(
 
-              'taxDocPath', COALESCE(pv."taxDocPath", mv."taxDocPath"),
-              'taxDocName', COALESCE(pv."taxDocName", mv."taxDocName"),
-              'taxFilePath', COALESCE(pv."taxDocPath", mv."taxDocPath"),
-              'taxFileName', COALESCE(pv."taxDocName", mv."taxDocName"),
+            'insuranceFilePath', COALESCE(pv."insuranceFilePath",mv."insuranceFilePath"),
+            'insuranceFileName', COALESCE(pv."insuranceFileName",mv."insuranceFileName"),
 
-              'emissionCertPath', COALESCE(pv."emissionCertPath", mv."emissionCertPath"),
-              'emissionCertName', COALESCE(pv."emissionCertName", mv."emissionCertName"),
-              'emissionFilePath', COALESCE(pv."emissionCertPath", mv."emissionCertPath"),
-              'emissionFileName', COALESCE(pv."emissionCertName", mv."emissionCertName"),
+            'permitFilePath', COALESCE(pv."permitFilePath",mv."permitFilePath"),
+            'permitFileName', COALESCE(pv."permitFileName",mv."permitFileName"),
 
-              'sparkArresterFilePath', pv."sparkArresterFilePath",
-              'sparkArresterFileName', pv."sparkArresterFileName",
+            'fitnessFilePath', COALESCE(pv."fitnessFilePath",mv."fitnessFilePath"),
+            'fitnessFileName', COALESCE(pv."fitnessFileName",mv."fitnessFileName"),
 
-              'twistLockFilePath', pv."twistLockFilePath",
-              'twistLockFileName', pv."twistLockFileName"
+            'requestLetterPath', COALESCE(pv."requestLetterPath",mv."requestLetterPath"),
+            'requestLetterName', COALESCE(pv."requestLetterName",mv."requestLetterName"),
+
+            'taxDocPath', COALESCE(pv."taxDocPath",mv."taxDocPath"),
+            'taxDocName', COALESCE(pv."taxDocName",mv."taxDocName"),
+            'taxFilePath', COALESCE(pv."taxDocPath",mv."taxDocPath"),
+            'taxFileName', COALESCE(pv."taxDocName",mv."taxDocName"),
+
+            'emissionCertPath', COALESCE(pv."emissionCertPath",mv."emissionCertPath"),
+            'emissionCertName', COALESCE(pv."emissionCertName",mv."emissionCertName"),
+            'emissionFilePath', COALESCE(pv."emissionCertPath",mv."emissionCertPath"),
+            'emissionFileName', COALESCE(pv."emissionCertName",mv."emissionCertName"),
+
+            'sparkArresterFilePath', pv."sparkArresterFilePath",
+            'sparkArresterFileName', pv."sparkArresterFileName",
+
+            'twistLockFilePath', pv."twistLockFilePath",
+            'twistLockFileName', pv."twistLockFileName"
+
+            )
             ) ORDER BY pv.id ASC
           ) AS vehicles
         FROM pass_vehicles pv
@@ -1736,6 +2231,797 @@ const getPassRequest = {
 
     const detailRes = await pool.query(detailQuery, passIds);
     return { data: detailRes.rows, counts };
+  },
+
+  async disablePersonPass(agentId, passPersonId, reason) {
+    const client = await pool.connect();
+
+    try {
+      await client.query("BEGIN");
+
+      const check = await client.query(
+        `
+        SELECT
+            pp.id,
+            pp."passRequestId",
+            pp.status,
+            pp."passStatus",
+            pp."dateFrom",
+            pp."dateTo",
+            pr."agentId"
+        FROM pass_persons pp
+        INNER JOIN pass_requests pr
+            ON pr.id=pp."passRequestId"
+        WHERE
+            pp.id=$1
+        `,
+        [passPersonId],
+      );
+
+      if (!check.rows.length) {
+        await client.query("ROLLBACK");
+
+        return {
+          success: false,
+          message: "Pass not found",
+        };
+      }
+
+      const row = check.rows[0];
+
+      if (Number(row.agentId) !== Number(agentId)) {
+        await client.query("ROLLBACK");
+
+        return {
+          success: false,
+          message: "Unauthorized",
+        };
+      }
+
+      const workflowStatus = String(row.status || "")
+        .trim()
+        .toUpperCase();
+
+      const passStatus = String(row.passStatus || "")
+        .trim()
+        .toUpperCase();
+
+      if (workflowStatus !== "APPROVED" || passStatus !== "ACTIVE") {
+        await client.query("ROLLBACK");
+
+        return {
+          success: false,
+          message: "Only approved and active passes can be disabled.",
+        };
+      }
+
+      // if(row.passStatus==="DISABLED"){
+
+      //   await client.query("ROLLBACK");
+
+      //   return{
+      //     success:false,
+      //     message:"Pass already disabled."
+      //   };
+
+      // }
+
+      const today = new Date();
+
+      const from = new Date(row.dateFrom);
+
+      const to = new Date(row.dateTo);
+
+      today.setHours(0, 0, 0, 0);
+      from.setHours(0, 0, 0, 0);
+      to.setHours(0, 0, 0, 0);
+
+      if (today < from || today > to) {
+        await client.query("ROLLBACK");
+
+        return {
+          success: false,
+          message: "Only currently active passes can be disabled.",
+        };
+      }
+
+      // await client.query(
+      //   `
+      //   UPDATE pass_persons
+      //   SET
+      //   "passStatus"='DISABLED',
+      //   "disabledReason"=$1,
+      //   "disabledAt"=NOW(),
+      //   "disabledBy"=$2,
+      //   "updatedAt"=NOW()
+      //   WHERE id=$3 AND "passStatus"='ACTIVE'
+      //   `,
+      //   [reason, agentId, passPersonId],
+      // );
+      const updateResult = await client.query(
+        `
+        UPDATE pass_persons
+        SET
+          "passStatus" = 'DISABLED',
+          "disabledReason" = $1,
+          "disabledAt" = NOW(),
+          "disabledBy" = $2,
+          "updatedAt" = NOW()
+        WHERE
+          id = $3
+          AND UPPER(TRIM(COALESCE("passStatus"::TEXT, ''))) = 'ACTIVE'
+        `,
+        [reason.trim(), agentId, passPersonId],
+      );
+
+      if (updateResult.rowCount === 0) {
+        await client.query("ROLLBACK");
+
+        return {
+          success: false,
+          message:
+            "Person pass could not be disabled. It may already be disabled.",
+        };
+      }
+
+      // Count remaining active persons
+
+      // const activePersons = await client.query(
+      //   `
+      //   SELECT COUNT(*)
+      //   FROM pass_persons
+      //   WHERE
+      //   "passRequestId"=$1
+      //   AND status='APPROVED'
+      //   AND "passStatus"='ACTIVE'
+      //   `,
+      //   [row.passRequestId],
+      // );
+      const activePersons = await client.query(
+        `
+        SELECT COUNT(*) AS count
+        FROM pass_persons
+        WHERE
+          "passRequestId" = $1
+          AND UPPER(TRIM(COALESCE(status::TEXT, ''))) = 'APPROVED'
+          AND UPPER(TRIM(COALESCE("passStatus"::TEXT, ''))) = 'ACTIVE'
+        `,
+        [row.passRequestId],
+      );
+
+      // Count remaining active vehicles
+
+      const activeVehicles = await client.query(
+        `
+        SELECT COUNT(*) AS count
+        FROM pass_vehicles
+        WHERE
+          "passRequestId" = $1
+          AND UPPER(TRIM(COALESCE(status::TEXT, ''))) = 'APPROVED'
+          AND UPPER(TRIM(COALESCE("passStatus"::TEXT, ''))) = 'ACTIVE'
+        `,
+        [row.passRequestId],
+      );
+
+      const personCount = parseInt(activePersons.rows[0].count);
+
+      const vehicleCount = parseInt(activeVehicles.rows[0].count);
+
+      if (personCount === 0 && vehicleCount === 0) {
+        await client.query(
+          `
+            UPDATE pass_requests
+            SET
+
+            "isCancelled"=true,
+            "cancelReason"=$1,
+            "cancelledAt"=NOW(),
+            "cancelledBy"=$2,
+            "updatedAt"=NOW()
+
+            WHERE id=$3
+            `,
+          [reason, agentId, row.passRequestId],
+        );
+      }
+
+      await client.query("COMMIT");
+
+      return {
+        success: true,
+
+        message: "Person Pass disabled successfully.",
+
+        passRequestId: row.passRequestId,
+      };
+    } catch (err) {
+      await client.query("ROLLBACK");
+
+      throw err;
+    } finally {
+      client.release();
+    }
+  },
+
+  async disableVehiclePass(agentId, passVehicleId, reason) {
+    const client = await pool.connect();
+
+    try {
+      await client.query("BEGIN");
+
+      // =========================================================
+      // 1. FETCH VEHICLE PASS + OWNERSHIP DETAILS
+      // =========================================================
+      const check = await client.query(
+        `
+          SELECT
+            pv.id,
+            pv."passRequestId",
+            pv.status,
+            pv."passStatus",
+            pv."dateFrom",
+            pv."dateTo",
+            pr."agentId"
+          FROM pass_vehicles pv
+          INNER JOIN pass_requests pr
+            ON pr.id = pv."passRequestId"
+          WHERE pv.id = $1
+        `,
+        [passVehicleId],
+      );
+
+      // =========================================================
+      // 2. PASS NOT FOUND
+      // =========================================================
+      if (!check.rows.length) {
+        await client.query("ROLLBACK");
+
+        return {
+          success: false,
+          message: "Vehicle pass not found",
+        };
+      }
+
+      const row = check.rows[0];
+
+      // =========================================================
+      // 3. OWNERSHIP CHECK
+      // =========================================================
+      if (Number(row.agentId) !== Number(agentId)) {
+        await client.query("ROLLBACK");
+
+        return {
+          success: false,
+          message: "Unauthorized",
+        };
+      }
+
+      // =========================================================
+      // 4. APPROVED + ACTIVE CHECK
+      //
+      // IMPORTANT:
+      // Database currently contains values such as:
+      //     approved
+      //
+      // while some records may contain:
+      //     APPROVED
+      //
+      // Therefore compare case-insensitively.
+      // =========================================================
+      const passStatus = String(row.status || "")
+        .trim()
+        .toUpperCase();
+      const activeStatus = String(row.passStatus || "")
+        .trim()
+        .toUpperCase();
+
+      console.log("========== DISABLE VEHICLE PASS ==========");
+      console.log("Vehicle Pass ID :", passVehicleId);
+      console.log("Agent ID        :", agentId);
+      console.log("DB status       :", row.status);
+      console.log("DB passStatus   :", row.passStatus);
+      console.log("Normalized status     :", passStatus);
+      console.log("Normalized passStatus :", activeStatus);
+      console.log("Date From       :", row.dateFrom);
+      console.log("Date To         :", row.dateTo);
+      console.log("==========================================");
+
+      if (passStatus !== "APPROVED" || activeStatus !== "ACTIVE") {
+        await client.query("ROLLBACK");
+
+        return {
+          success: false,
+          message: "Only approved and active passes can be disabled.",
+        };
+      }
+
+      // =========================================================
+      // 5. CURRENT DATE CHECK
+      // =========================================================
+      const today = new Date();
+
+      const from = new Date(row.dateFrom);
+      const to = new Date(row.dateTo);
+
+      today.setHours(0, 0, 0, 0);
+      from.setHours(0, 0, 0, 0);
+      to.setHours(0, 0, 0, 0);
+
+      console.log("Today :", today);
+      console.log("From  :", from);
+      console.log("To    :", to);
+
+      if (today < from || today > to) {
+        await client.query("ROLLBACK");
+
+        return {
+          success: false,
+          message: "Only currently active passes can be disabled.",
+        };
+      }
+
+      // =========================================================
+      // 6. DISABLE VEHICLE PASS
+      // =========================================================
+      const updateResult = await client.query(
+        `
+          UPDATE pass_vehicles
+          SET
+            "passStatus" = 'DISABLED',
+            "disabledReason" = $1,
+            "disabledAt" = NOW(),
+            "disabledBy" = $2,
+            "updatedAt" = NOW()
+          WHERE
+            id = $3
+            AND UPPER(TRIM(COALESCE("passStatus"::TEXT, ''))) = 'ACTIVE'
+        `,
+        [reason.trim(), agentId, passVehicleId],
+      );
+
+      // =========================================================
+      // 7. SAFETY CHECK
+      // =========================================================
+      if (updateResult.rowCount === 0) {
+        await client.query("ROLLBACK");
+
+        return {
+          success: false,
+          message:
+            "Vehicle pass could not be disabled. It may already be disabled.",
+        };
+      }
+
+      // =========================================================
+      // 8. COUNT REMAINING ACTIVE PERSON PASSES
+      // =========================================================
+      const activePersons = await client.query(
+        `
+          SELECT COUNT(*) AS count
+          FROM pass_persons
+          WHERE
+            "passRequestId" = $1
+            AND UPPER(TRIM(COALESCE(status::TEXT, ''))) = 'APPROVED'
+            AND UPPER(TRIM(COALESCE("passStatus"::TEXT, ''))) = 'ACTIVE'
+        `,
+        [row.passRequestId],
+      );
+
+      // =========================================================
+      // 9. COUNT REMAINING ACTIVE VEHICLE PASSES
+      // =========================================================
+      const activeVehicles = await client.query(
+        `
+          SELECT COUNT(*) AS count
+          FROM pass_vehicles
+          WHERE
+            "passRequestId" = $1
+            AND UPPER(TRIM(COALESCE(status::TEXT, ''))) = 'APPROVED'
+            AND UPPER(TRIM(COALESCE("passStatus"::TEXT, ''))) = 'ACTIVE'
+        `,
+        [row.passRequestId],
+      );
+
+      const personCount = parseInt(activePersons.rows[0].count, 10);
+
+      const vehicleCount = parseInt(activeVehicles.rows[0].count, 10);
+
+      console.log("Remaining active persons :", personCount);
+      console.log("Remaining active vehicles:", vehicleCount);
+
+      // =========================================================
+      // 10. CANCEL PARENT REQUEST ONLY IF
+      //     NO ACTIVE PERSON + NO ACTIVE VEHICLE REMAINS
+      //
+      // IMPORTANT:
+      // A request can contain BOTH persons and vehicles.
+      // Therefore we must check BOTH tables.
+      // =========================================================
+      if (personCount === 0 && vehicleCount === 0) {
+        await client.query(
+          `
+            UPDATE pass_requests
+            SET
+              "isCancelled" = true,
+              "cancelReason" = $1,
+              "cancelledAt" = NOW(),
+              "cancelledBy" = $2,
+              "updatedAt" = NOW()
+            WHERE id = $3
+          `,
+          [reason.trim(), agentId, row.passRequestId],
+        );
+
+        console.log(
+          "Parent pass request cancelled because no active entities remain.",
+        );
+      }
+
+      // =========================================================
+      // 11. COMMIT
+      // =========================================================
+      await client.query("COMMIT");
+
+      return {
+        success: true,
+        message: "Vehicle pass disabled successfully.",
+        passRequestId: row.passRequestId,
+        passVehicleId: passVehicleId,
+      };
+    } catch (err) {
+      await client.query("ROLLBACK");
+      throw err;
+    } finally {
+      client.release();
+    }
+  },
+
+  async getDisabledPasses(agentId) {
+    const query = `
+
+      SELECT
+
+          pr.id AS "passRequestId",
+
+          pr."referenceNo",
+
+          pr."submittedAt",
+
+          pp.id,
+
+          pp.name,
+
+          pp."personPassNo" AS "passNo",
+
+          pp."disabledReason",
+
+          pp."disabledAt",
+          pp."dateFrom",
+          pp."dateTo",
+          pp."passType",
+
+          'PERSON' AS type
+
+      FROM pass_persons pp
+
+      INNER JOIN pass_requests pr
+
+          ON pr.id=pp."passRequestId"
+
+      WHERE
+
+          pr."agentId"=$1
+
+          AND pp."passStatus"='DISABLED'
+
+      UNION ALL
+
+      SELECT
+
+          pr.id,
+
+          pr."referenceNo",
+
+          pr."submittedAt",
+
+          pv.id,
+
+          pv."registrationNo",
+
+          pv."vehiclePassNo",
+
+          pv."disabledReason",
+
+          pv."disabledAt",
+          pv."dateFrom",
+          pv."dateTo",
+          pv."passType",
+
+          'VEHICLE'
+
+      FROM pass_vehicles pv
+
+      INNER JOIN pass_requests pr
+
+          ON pr.id=pv."passRequestId"
+
+      WHERE
+
+          pr."agentId"=$1
+
+          AND pv."passStatus"='DISABLED'
+
+      ORDER BY "disabledAt" DESC
+
+      `;
+
+    const result = await pool.query(query, [agentId]);
+
+    return result.rows;
+  },
+  async enableVehiclePass(agentId, passVehicleId) {
+    const client = await pool.connect();
+
+    try {
+      await client.query("BEGIN");
+
+      const check = await client.query(
+        `
+          SELECT
+            pv.id,
+            pv."passRequestId",
+            pv.status,
+            pv."passStatus",
+            pv."dateFrom",
+            pv."dateTo",
+            pr."agentId"
+          FROM pass_vehicles pv
+          INNER JOIN pass_requests pr
+            ON pr.id = pv."passRequestId"
+          WHERE pv.id = $1
+        `,
+        [passVehicleId],
+      );
+
+      if (!check.rows.length) {
+        await client.query("ROLLBACK");
+
+        return {
+          success: false,
+          message: "Vehicle pass not found.",
+        };
+      }
+
+      const row = check.rows[0];
+
+      // Ownership check
+      if (Number(row.agentId) !== Number(agentId)) {
+        await client.query("ROLLBACK");
+
+        return {
+          success: false,
+          message: "Unauthorized.",
+        };
+      }
+
+      const workflowStatus = String(row.status || "")
+        .trim()
+        .toUpperCase();
+
+      const currentPassStatus = String(row.passStatus || "")
+        .trim()
+        .toUpperCase();
+
+      // Must be approved + disabled
+      if (workflowStatus !== "APPROVED" || currentPassStatus !== "DISABLED") {
+        await client.query("ROLLBACK");
+
+        return {
+          success: false,
+          message: "Only approved and disabled vehicle passes can be enabled.",
+        };
+      }
+
+      // Check validity
+      const now = new Date();
+      const from = new Date(row.dateFrom);
+      const to = new Date(row.dateTo);
+
+      if (now < from || now > to) {
+        await client.query("ROLLBACK");
+
+        return {
+          success: false,
+          message:
+            "This pass is outside its validity period and cannot be enabled.",
+        };
+      }
+
+      // Enable vehicle pass
+      const updateResult = await client.query(
+        `
+          UPDATE pass_vehicles
+          SET
+            "passStatus" = 'ACTIVE',
+            "disabledReason" = NULL,
+            "disabledAt" = NULL,
+            "disabledBy" = NULL,
+            "updatedAt" = NOW()
+          WHERE
+            id = $1
+            AND UPPER(TRIM(COALESCE("passStatus"::TEXT, ''))) = 'DISABLED'
+        `,
+        [passVehicleId],
+      );
+
+      if (updateResult.rowCount === 0) {
+        await client.query("ROLLBACK");
+
+        return {
+          success: false,
+          message: "Vehicle pass could not be enabled.",
+        };
+      }
+
+      // Parent request becomes active again
+      await client.query(
+        `
+          UPDATE pass_requests
+          SET
+            "isCancelled" = false,
+            "cancelReason" = NULL,
+            "cancelledAt" = NULL,
+            "cancelledBy" = NULL,
+            "updatedAt" = NOW()
+          WHERE id = $1
+        `,
+        [row.passRequestId],
+      );
+
+      await client.query("COMMIT");
+
+      return {
+        success: true,
+        message: "Vehicle pass enabled successfully.",
+        passRequestId: row.passRequestId,
+        passVehicleId,
+      };
+    } catch (err) {
+      await client.query("ROLLBACK");
+      throw err;
+    } finally {
+      client.release();
+    }
+  },
+
+  async enablePersonPass(agentId, passPersonId) {
+    const client = await pool.connect();
+
+    try {
+      await client.query("BEGIN");
+
+      const check = await client.query(
+        `
+          SELECT
+            pp.id,
+            pp."passRequestId",
+            pp.status,
+            pp."passStatus",
+            pp."dateFrom",
+            pp."dateTo",
+            pr."agentId"
+          FROM pass_persons pp
+          INNER JOIN pass_requests pr
+            ON pr.id = pp."passRequestId"
+          WHERE pp.id = $1
+        `,
+        [passPersonId],
+      );
+
+      if (!check.rows.length) {
+        await client.query("ROLLBACK");
+
+        return {
+          success: false,
+          message: "Person pass not found.",
+        };
+      }
+
+      const row = check.rows[0];
+
+      if (Number(row.agentId) !== Number(agentId)) {
+        await client.query("ROLLBACK");
+
+        return {
+          success: false,
+          message: "Unauthorized.",
+        };
+      }
+
+      const workflowStatus = String(row.status || "")
+        .trim()
+        .toUpperCase();
+
+      const currentPassStatus = String(row.passStatus || "")
+        .trim()
+        .toUpperCase();
+
+      if (workflowStatus !== "APPROVED" || currentPassStatus !== "DISABLED") {
+        await client.query("ROLLBACK");
+
+        return {
+          success: false,
+          message: "Only approved and disabled person passes can be enabled.",
+        };
+      }
+
+      const now = new Date();
+      const from = new Date(row.dateFrom);
+      const to = new Date(row.dateTo);
+
+      if (now < from || now > to) {
+        await client.query("ROLLBACK");
+
+        return {
+          success: false,
+          message:
+            "This pass is outside its validity period and cannot be enabled.",
+        };
+      }
+
+      const updateResult = await client.query(
+        `
+          UPDATE pass_persons
+          SET
+            "passStatus" = 'ACTIVE',
+            "disabledReason" = NULL,
+            "disabledAt" = NULL,
+            "disabledBy" = NULL,
+            "updatedAt" = NOW()
+          WHERE
+            id = $1
+            AND UPPER(TRIM(COALESCE("passStatus"::TEXT, ''))) = 'DISABLED'
+        `,
+        [passPersonId],
+      );
+
+      if (updateResult.rowCount === 0) {
+        await client.query("ROLLBACK");
+
+        return {
+          success: false,
+          message: "Person pass could not be enabled.",
+        };
+      }
+
+      await client.query(
+        `
+          UPDATE pass_requests
+          SET
+            "isCancelled" = false,
+            "cancelReason" = NULL,
+            "cancelledAt" = NULL,
+            "cancelledBy" = NULL,
+            "updatedAt" = NOW()
+          WHERE id = $1
+        `,
+        [row.passRequestId],
+      );
+
+      await client.query("COMMIT");
+
+      return {
+        success: true,
+        message: "Person pass enabled successfully.",
+        passRequestId: row.passRequestId,
+        passPersonId,
+      };
+    } catch (err) {
+      await client.query("ROLLBACK");
+      throw err;
+    } finally {
+      client.release();
+    }
   },
 };
 
@@ -1954,15 +3240,155 @@ const Master = {
     const result = await pool.query(query, params);
 
     return parseInt(result.rows[0].vehicleCount || 0);
-  }
+  },
+
+  async updatePersonStatus(agentId, masterPersonId, isActive) {
+    const client = await pool.connect();
+
+    try {
+      await client.query("BEGIN");
+
+      const checkQuery = `
+        SELECT id
+        FROM master_persons
+        WHERE id = $1
+        AND "agentId" = $2
+      `;
+
+      const checkResult = await client.query(checkQuery, [
+        masterPersonId,
+        agentId,
+      ]);
+
+      if (checkResult.rows.length === 0) {
+        await client.query("ROLLBACK");
+
+        return {
+          success: false,
+          message: "Person not found",
+        };
+      }
+
+      await client.query(
+        `
+        UPDATE master_persons
+        SET
+          "isActive" = $1,
+          "updatedAt" = NOW()
+        WHERE id = $2
+        `,
+        [isActive, masterPersonId],
+      );
+
+      await client.query(
+        `
+        UPDATE pass_persons
+        SET
+          "isActive" = $1,
+          "updatedAt" = NOW()
+        WHERE "masterPersonId" = $2
+        `,
+        [isActive, masterPersonId],
+      );
+
+      await client.query("COMMIT");
+
+      return {
+        success: true,
+
+        message: isActive
+          ? "Person activated successfully"
+          : "Person deactivated successfully",
+      };
+    } catch (error) {
+      await client.query("ROLLBACK");
+
+      throw error;
+    } finally {
+      client.release();
+    }
+  },
+
+  async updateVehicleStatus(agentId, masterVehicleId, isActive) {
+    const client = await pool.connect();
+
+    try {
+      await client.query("BEGIN");
+
+      const checkQuery = `
+      SELECT id
+      FROM master_vehicles
+      WHERE id = $1
+      AND "agentId" = $2
+    `;
+
+      const checkResult = await client.query(checkQuery, [
+        masterVehicleId,
+        agentId,
+      ]);
+
+      if (checkResult.rows.length === 0) {
+        await client.query("ROLLBACK");
+
+        return {
+          success: false,
+          message: "Vehicle not found",
+        };
+      }
+
+      await client.query(
+        `
+      UPDATE master_vehicles
+      SET
+        "isActive" = $1,
+        "updatedAt" = NOW()
+      WHERE id = $2
+      `,
+        [isActive, masterVehicleId],
+      );
+
+      await client.query(
+        `
+      UPDATE pass_vehicles pv
+      SET
+        "isActive" = $1,
+        "updatedAt" = NOW()
+      FROM pass_requests pr
+      WHERE pr.id = pv."passRequestId"
+      AND pr.status = 'APPROVED'
+      AND pv."masterVehicleId" = $2
+      `,
+        [isActive, masterVehicleId],
+      );
+
+      await client.query("COMMIT");
+
+      return {
+        success: true,
+
+        message: isActive
+          ? "Vehicle activated successfully"
+          : "Vehicle deactivated successfully",
+      };
+    } catch (error) {
+      await client.query("ROLLBACK");
+
+      throw error;
+    } finally {
+      client.release();
+    }
+  },
 };
 
 const getAgentPassRequestsDetails = {
-
-  async getAgentPassRequestsToApproverAdmin(role, departmentId, pagination = {}) {
+  async getAgentPassRequestsToApproverAdmin(
+    role,
+    departmentId,
+    pagination = {},
+  ) {
     const {
-      page   = 1,
-      limit  = 20,
+      page = 1,
+      limit = 20,
       offset = 0,
       search = "",
       status = "",
@@ -1975,7 +3401,10 @@ const getAgentPassRequestsDetails = {
     let approvedByUserName = null;
     if (processedByMe && userId) {
       try {
-        const userRes = await pool.query('SELECT "userName" FROM "users" WHERE id = $1', [userId]);
+        const userRes = await pool.query(
+          'SELECT "userName" FROM "users" WHERE id = $1',
+          [userId],
+        );
         if (userRes.rows.length > 0) {
           approvedByUserName = userRes.rows[0].userName;
         }
@@ -1984,10 +3413,16 @@ const getAgentPassRequestsDetails = {
       }
     }
 
-    const PENDING_STATUSES  = ["SUBMITTED", "PENDING", "IN_REVIEW"];
-    const PROCESSED_STATUSES = ["APPROVED", "REJECTED", "REVERTED", "PROCESSED", "COMPLETED"];
-    const VENDOR_PENDING    = ["VENDOR_SUBMITTED"];
-    const VENDOR_PROCESSED  = ["APPROVED", "REJECTED", "REVERTED", "COMPLETED"];
+    const PENDING_STATUSES = ["SUBMITTED", "PENDING", "IN_REVIEW"];
+    const PROCESSED_STATUSES = [
+      "APPROVED",
+      "REJECTED",
+      "REVERTED",
+      "PROCESSED",
+      "COMPLETED",
+    ];
+    const VENDOR_PENDING = ["VENDOR_SUBMITTED"];
+    const VENDOR_PROCESSED = ["APPROVED", "REJECTED", "REVERTED", "COMPLETED"];
     const ALL_VENDOR_STATUSES = [...VENDOR_PENDING, ...VENDOR_PROCESSED];
 
     let includeVendor = role === "Approval" && departmentId !== 7;
@@ -1998,12 +3433,15 @@ const getAgentPassRequestsDetails = {
     const isPassSection = role === "Approval";
 
     // Define SQL conditions for pending/processed normal requests
-    let normalPendingCond = "pr.status::TEXT IN ('SUBMITTED','PENDING','IN_REVIEW','UNDER_REVIEW')";
-    let normalProcessedCond = "pr.status::TEXT IN ('APPROVED','REJECTED','REVERTED','PROCESSED','COMPLETED')";
+    let normalPendingCond =
+      "pr.status::TEXT IN ('SUBMITTED','PENDING','IN_REVIEW','UNDER_REVIEW')";
+    let normalProcessedCond =
+      "pr.status::TEXT IN ('APPROVED','REJECTED','REVERTED','PROCESSED','COMPLETED')";
 
     // Define SQL conditions for pending/processed vendor requests
     let vendorPendingCond = "v.status = 'VENDOR_SUBMITTED'";
-    let vendorProcessedCond = "v.status IN ('APPROVED','REJECTED','REVERTED','COMPLETED')";
+    let vendorProcessedCond =
+      "v.status IN ('APPROVED','REJECTED','REVERTED','COMPLETED')";
 
     if (isSafety) {
       normalPendingCond += `
@@ -2156,7 +3594,11 @@ const getAgentPassRequestsDetails = {
       `;
     }
 
-    includeVendor = (role === "Approval" && departmentId !== 7) || isSafety || isFireSafety || isSrDtm;
+    includeVendor =
+      (role === "Approval" && departmentId !== 7) ||
+      isSafety ||
+      isFireSafety ||
+      isSrDtm;
 
     // ─── Department filter SQL for normal passes ───
     let deptFilter = "";
@@ -2233,7 +3675,7 @@ const getAgentPassRequestsDetails = {
     } else if (status === "processed") {
       normalStatusFilter = `AND ${normalProcessedCond}`;
       vendorStatusFilter = `AND ${vendorProcessedCond}`;
-      
+
       if (processedByMe && approvedByUserName) {
         normalStatusFilter += ` AND pr."approvedBy" = $${paramIdx} `;
         vendorStatusFilter += ` AND v."approvedBy" = $${paramIdx} `;
@@ -2281,10 +3723,12 @@ const getAgentPassRequestsDetails = {
     ]);
 
     const nc = normalCountRes.rows[0];
-    const vc = vendorCountRes ? vendorCountRes.rows[0] : { total: "0", pending: "0", processed: "0" };
+    const vc = vendorCountRes
+      ? vendorCountRes.rows[0]
+      : { total: "0", pending: "0", processed: "0" };
 
     const counts = {
-      pending:   parseInt(nc.pending) + parseInt(vc.pending),
+      pending: parseInt(nc.pending) + parseInt(vc.pending),
       processed: parseInt(nc.processed) + parseInt(vc.processed),
     };
     counts.total = counts.pending + counts.processed;
@@ -2325,8 +3769,12 @@ const getAgentPassRequestsDetails = {
     }
 
     // Split IDs by origin
-    const normalIds = pageIds.filter(r => r.origin === "NORMAL").map(r => r.id);
-    const vendorIds = pageIds.filter(r => r.origin === "VENDOR").map(r => r.id);
+    const normalIds = pageIds
+      .filter((r) => r.origin === "NORMAL")
+      .map((r) => r.id);
+    const vendorIds = pageIds
+      .filter((r) => r.origin === "VENDOR")
+      .map((r) => r.id);
 
     /* =============================================
        QUERY 3 — Full Detail Hydration
@@ -2682,16 +4130,18 @@ const getAgentPassRequestsDetails = {
         mobileNo: v.mobileNo,
         gstinNumber: null,
         panNumber: null,
-        persons: (Array.isArray(v.persons) ? v.persons : []).map(
-          (p, i) => ({ ...p, id: `vpr-${v.id}-p-${i}` })
-        ),
+        persons: (Array.isArray(v.persons) ? v.persons : []).map((p, i) => ({
+          ...p,
+          id: `vpr-${v.id}-p-${i}`,
+        })),
         vehicles: (Array.isArray(v.vehicles) ? v.vehicles : []).map(
           (veh, i) => ({
             ...veh,
-            registrationNo: veh.vehicleRegistrationNo || veh.registrationNo || veh.regNo,
+            registrationNo:
+              veh.vehicleRegistrationNo || veh.registrationNo || veh.regNo,
             regNo: veh.vehicleRegistrationNo || veh.registrationNo || veh.regNo,
-            id: `vpr-${v.id}-v-${i}`
-          })
+            id: `vpr-${v.id}-v-${i}`,
+          }),
         ),
         originType: "VENDOR",
       }));
@@ -2706,7 +4156,7 @@ const getAgentPassRequestsDetails = {
     });
 
     const sanitizedRows = allRows.map((row) =>
-      sanitizePassRequestRow(row, role)
+      sanitizePassRequestRow(row, role),
     );
 
     return { data: sanitizedRows, counts };
@@ -2877,7 +4327,12 @@ const getAgentPassRequestsDetails = {
 };
 
 const viewPassRequestsDocuments = {
-  async getPassDocumentPath(passRequestId, documentType, entityIndex = 0, isVendorPass = false) {
+  async getPassDocumentPath(
+    passRequestId,
+    documentType,
+    entityIndex = 0,
+    isVendorPass = false,
+  ) {
     // Vendor pass documents are stored in relational tables
     if (isVendorPass) {
       let resolvedId = passRequestId;
@@ -2891,7 +4346,7 @@ const viewPassRequestsDocuments = {
         } else {
           const tokenRes = await pool.query(
             `SELECT id FROM "vendor_pass_requests" WHERE "token" = $1`,
-            [finalTokenOrId]
+            [finalTokenOrId],
           );
           resolvedId = tokenRes.rows[0]?.id || null;
         }
@@ -2934,7 +4389,7 @@ const viewPassRequestsDocuments = {
            FROM "vendor_pass_persons" 
            WHERE "vendorPassRequestId" = $1 
            ORDER BY id ASC`,
-          [resolvedId]
+          [resolvedId],
         );
         const row = res.rows[entityIndex];
         if (row && row.path) {
@@ -2947,7 +4402,7 @@ const viewPassRequestsDocuments = {
            FROM "vendor_pass_vehicles" 
            WHERE "vendorPassRequestId" = $1 
            ORDER BY id ASC`,
-          [resolvedId]
+          [resolvedId],
         );
         const row = res.rows[entityIndex];
         if (row && row.path) {
@@ -3127,9 +4582,10 @@ const viewPassRequestsDocuments = {
     ];
 
     if (personDocuments.includes(documentType)) {
-      const selectExpr = (documentType === "entryAuthorization")
-        ? `pp."${columnName}" AS "${columnName}"`
-        : `COALESCE(pp."${columnName}", mp."${columnName}") AS "${columnName}"`;
+      const selectExpr =
+        documentType === "entryAuthorization"
+          ? `pp."${columnName}" AS "${columnName}"`
+          : `COALESCE(pp."${columnName}", mp."${columnName}") AS "${columnName}"`;
 
       const query = `
           SELECT
@@ -3166,9 +4622,10 @@ const viewPassRequestsDocuments = {
     ];
 
     if (vehicleDocuments.includes(documentType)) {
-      const selectExpr = (documentType === "sparkArrester" || documentType === "twistLock")
-        ? `pv."${columnName}" AS "${columnName}"`
-        : `COALESCE(pv."${columnName}", mv."${columnName}") AS "${columnName}"`;
+      const selectExpr =
+        documentType === "sparkArrester" || documentType === "twistLock"
+          ? `pv."${columnName}" AS "${columnName}"`
+          : `COALESCE(pv."${columnName}", mv."${columnName}") AS "${columnName}"`;
 
       const query = `
           SELECT

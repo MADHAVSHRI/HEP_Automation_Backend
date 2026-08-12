@@ -4,11 +4,23 @@ const {
   PASS_TYPES,
   NATIONALITIES,
   ID_PROOF_TYPES,
-  ACCESS_AREAS
+  ACCESS_AREAS,
 } = require("../constants/constants");
 const passRequestService = require("../services/passRequestService");
-const { Designation, vehicleTypes, PassRequest, hepTypes,
-        countries, states, cities, visitPurpose, getPassRequest, Master, getAgentPassRequestsDetails, viewPassRequestsDocuments } = require("../models/passRequestSchema");
+const {
+  Designation,
+  vehicleTypes,
+  PassRequest,
+  hepTypes,
+  countries,
+  states,
+  cities,
+  visitPurpose,
+  getPassRequest,
+  Master,
+  getAgentPassRequestsDetails,
+  viewPassRequestsDocuments,
+} = require("../models/passRequestSchema");
 const { pool } = require("../dbconfig/db");
 const { sendEmailEvent } = require("../utils/kafka/producer");
 
@@ -174,7 +186,6 @@ const getCities = async (req, res) => {
   }
 };
 
-
 const getVisitPurposes = async (req, res) => {
   try {
     const purposes = await visitPurpose.getAllVisitPurposes();
@@ -194,7 +205,6 @@ const getVisitPurposes = async (req, res) => {
 };
 
 const createPassRequest = async (req, res) => {
-
   const deleteFiles = () => {
     const files = req.files;
     if (!files) return;
@@ -224,11 +234,9 @@ const createPassRequest = async (req, res) => {
   };
 
   try {
-
     const payload = JSON.parse(req.body.payload);
 
     payload.agentId = req.user.userId; // from JWT
-
 
     /* ===== CHANGE START =====
        Normalize passType values coming from frontend
@@ -236,7 +244,6 @@ const createPassRequest = async (req, res) => {
     ===== */
 
     const normalizePassType = (type) => {
-
       if (!type) return null;
 
       const map = {
@@ -246,30 +253,24 @@ const createPassRequest = async (req, res) => {
         YEARLY: "YEARLY",
         1: "DAILY",
         2: "MONTHLY",
-        3: "YEARLY"
+        3: "YEARLY",
       };
 
       return map[type] || type;
-
     };
 
-
     if (payload.persons && Array.isArray(payload.persons)) {
-
       payload.persons = payload.persons.map((p) => ({
         ...p,
-        passType: normalizePassType(p.passType)
+        passType: normalizePassType(p.passType),
       }));
-
     }
 
     if (payload.vehicles && Array.isArray(payload.vehicles)) {
-
       payload.vehicles = payload.vehicles.map((v) => ({
         ...v,
-        passType: normalizePassType(v.passType)
+        passType: normalizePassType(v.passType),
       }));
-
     }
 
     /* ===== CHANGE END ===== */
@@ -278,11 +279,17 @@ const createPassRequest = async (req, res) => {
     if (payload.agentId) {
       const agentRes = await pool.query(
         'SELECT id, "isLifetimeLicense", TO_CHAR("licenseValidityDate", \'YYYY-MM-DD\') AS "licenseValidityDate", "entityName" FROM "Agents" WHERE id = $1',
-        [payload.agentId]
+        [payload.agentId],
       );
-      if (agentRes.rows.length > 0 && !agentRes.rows[0].isLifetimeLicense && agentRes.rows[0].licenseValidityDate) {
-        const licenseValidityStr = String(agentRes.rows[0].licenseValidityDate).split('T')[0];
-        const [yyyy, mm, dd] = licenseValidityStr.split('-').map(Number);
+      if (
+        agentRes.rows.length > 0 &&
+        !agentRes.rows[0].isLifetimeLicense &&
+        agentRes.rows[0].licenseValidityDate
+      ) {
+        const licenseValidityStr = String(
+          agentRes.rows[0].licenseValidityDate,
+        ).split("T")[0];
+        const [yyyy, mm, dd] = licenseValidityStr.split("-").map(Number);
 
         if (yyyy && mm && dd) {
           const today = new Date();
@@ -293,22 +300,31 @@ const createPassRequest = async (req, res) => {
 
           const diffMs = licenseExpStart.getTime() - today.getTime();
           const remainingDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
-          const formattedExpDate = `${String(dd).padStart(2, '0')}/${String(mm).padStart(2, '0')}/${yyyy}`;
+          const formattedExpDate = `${String(dd).padStart(2, "0")}/${String(mm).padStart(2, "0")}/${yyyy}`;
 
           // Calculate max requested pass end date from persons and vehicles
           let maxRequestedDate = new Date();
-          const allItems = [...(payload.persons || []), ...(payload.vehicles || [])];
+          const allItems = [
+            ...(payload.persons || []),
+            ...(payload.vehicles || []),
+          ];
           for (const item of allItems) {
             let itemTo = null;
             if (item.toDate) {
               itemTo = new Date(item.toDate);
             } else {
-              const start = item.fromDate ? new Date(item.fromDate) : new Date(today);
+              const start = item.fromDate
+                ? new Date(item.fromDate)
+                : new Date(today);
               itemTo = new Date(start);
               const pType = String(item.passType || "").toUpperCase();
               if (pType === "MONTHLY" || pType === "2") {
                 itemTo.setMonth(itemTo.getMonth() + 1);
-              } else if (pType === "YEARLY" || pType === "ANNUAL" || pType === "3") {
+              } else if (
+                pType === "YEARLY" ||
+                pType === "ANNUAL" ||
+                pType === "3"
+              ) {
                 itemTo.setFullYear(itemTo.getFullYear() + 1);
               } else {
                 const p = parseInt(item.passPeriod || 1, 10);
@@ -322,7 +338,7 @@ const createPassRequest = async (req, res) => {
             return res.status(403).json({
               success: false,
               code: "LICENSE_EXPIRED",
-              message: `Your company license expired on ${formattedExpDate}. Pass generation is blocked. Please submit a Profile/License Update Request to update your license.`
+              message: `Your company license expired on ${formattedExpDate}. Pass generation is blocked. Please submit a Profile/License Update Request to update your license.`,
             });
           }
 
@@ -330,7 +346,7 @@ const createPassRequest = async (req, res) => {
             return res.status(403).json({
               success: false,
               code: "PASS_EXCEEDS_LICENSE",
-              message: `Your company license expires in ${remainingDays} days (on ${formattedExpDate}). You cannot apply for a pass valid beyond your license expiry date. Please update your company license.`
+              message: `Your company license expires in ${remainingDays} days (on ${formattedExpDate}). You cannot apply for a pass valid beyond your license expiry date. Please update your company license.`,
             });
           }
         }
@@ -356,7 +372,8 @@ const createPassRequest = async (req, res) => {
         if (overstayBlock.rows.length > 0) {
           return res.status(403).json({
             success: false,
-            message: "You have unpaid overstay charges. Please clear them before applying for a new pass.",
+            message:
+              "You have unpaid overstay charges. Please clear them before applying for a new pass.",
             overstay_charges: overstayBlock.rows,
           });
         }
@@ -388,28 +405,39 @@ const createPassRequest = async (req, res) => {
         `SELECT identifier, entity_type, date_to FROM overstay_charges
          WHERE agent_id = $1 AND status IN ('PAID','EXCEPTION_APPROVED','WAIVED')
          ORDER BY date_to DESC`,
-        [payload.agentId]
+        [payload.agentId],
       );
       if (cleared.rows.length > 0) {
         const today = new Date().toISOString().slice(0, 10);
         const clearedMap = {};
         for (const row of cleared.rows) {
-          const key = row.identifier.toUpperCase().replace(/[\s-]/g, '');
+          const key = row.identifier.toUpperCase().replace(/[\s-]/g, "");
           if (!clearedMap[key]) {
             const dt = row.date_to;
-            clearedMap[key] = dt instanceof Date ? dt.toISOString().slice(0, 10) : String(dt).slice(0, 10);
+            clearedMap[key] =
+              dt instanceof Date
+                ? dt.toISOString().slice(0, 10)
+                : String(dt).slice(0, 10);
           }
         }
         if (payload.persons) {
           for (const p of payload.persons) {
-            const key = (p.aadharNo || '').toUpperCase().replace(/[\s-]/g, '');
-            if (clearedMap[key]) { p.dateFrom = clearedMap[key]; p.dateTo = today; }
+            const key = (p.aadharNo || "").toUpperCase().replace(/[\s-]/g, "");
+            if (clearedMap[key]) {
+              p.dateFrom = clearedMap[key];
+              p.dateTo = today;
+            }
           }
         }
         if (payload.vehicles) {
           for (const v of payload.vehicles) {
-            const key = (v.registrationNo || '').toUpperCase().replace(/[\s-]/g, '');
-            if (clearedMap[key]) { v.dateFrom = clearedMap[key]; v.dateTo = today; }
+            const key = (v.registrationNo || "")
+              .toUpperCase()
+              .replace(/[\s-]/g, "");
+            if (clearedMap[key]) {
+              v.dateFrom = clearedMap[key];
+              v.dateTo = today;
+            }
           }
         }
       }
@@ -417,18 +445,21 @@ const createPassRequest = async (req, res) => {
 
     // 1. Check Company blacklisting
     if (payload.agentId) {
-      const agentRes = await pool.query('SELECT id, "loginId" FROM "Agents" WHERE id = $1', [payload.agentId]);
+      const agentRes = await pool.query(
+        'SELECT id, "loginId" FROM "Agents" WHERE id = $1',
+        [payload.agentId],
+      );
       if (agentRes.rows.length > 0) {
         const companyName = agentRes.rows[0].loginId;
         const companyIdStr = String(agentRes.rows[0].id || payload.agentId);
         const blacklistRes = await pool.query(
           "SELECT id, reason FROM blacklist_entries WHERE entity_type = 'COMPANY' AND (UPPER(identifier) = UPPER($1) OR identifier = $2) AND status IN ('BLACKLISTED', 'UNBLACKLIST_REQUESTED')",
-          [companyName, companyIdStr]
+          [companyName, companyIdStr],
         );
         if (blacklistRes.rows.length > 0) {
           return res.status(403).json({
             success: false,
-            message: `Pass application blocked. Your company (${companyName}) is blacklisted. Reason: ${blacklistRes.rows[0].reason}`
+            message: `Pass application blocked. Your company (${companyName}) is blacklisted. Reason: ${blacklistRes.rows[0].reason}`,
           });
         }
       }
@@ -443,12 +474,12 @@ const createPassRequest = async (req, res) => {
           const identifier = person.aadharNo.toUpperCase().trim();
           const blacklistRes = await pool.query(
             "SELECT id, reason, entity_type FROM blacklist_entries WHERE entity_type IN ('PERSON', 'DRIVER') AND identifier = $1 AND status IN ('BLACKLISTED', 'UNBLACKLIST_REQUESTED', 'PENDING_BLACKLIST')",
-            [identifier]
+            [identifier],
           );
           if (blacklistRes.rows.length > 0) {
             return res.status(403).json({
               success: false,
-              message: `Pass application blocked. Person/Driver with Primary ID (${identifier}) is blacklisted as ${blacklistRes.rows[0].entity_type}. Reason: ${blacklistRes.rows[0].reason}`
+              message: `Pass application blocked. Person/Driver with Primary ID (${identifier}) is blacklisted as ${blacklistRes.rows[0].entity_type}. Reason: ${blacklistRes.rows[0].reason}`,
             });
           }
         }
@@ -464,12 +495,12 @@ const createPassRequest = async (req, res) => {
         if (vehicle.registrationNo) {
           const blacklistRes = await pool.query(
             "SELECT id, reason FROM blacklist_entries WHERE entity_type = 'VEHICLE' AND REPLACE(REPLACE(UPPER(identifier), ' ', ''), '-', '') = REPLACE(REPLACE(UPPER($1), ' ', ''), '-', '') AND status IN ('BLACKLISTED', 'UNBLACKLIST_REQUESTED', 'PENDING_BLACKLIST')",
-            [vehicle.registrationNo]
+            [vehicle.registrationNo],
           );
           if (blacklistRes.rows.length > 0) {
             skippedVehicles.push({
               registrationNo: vehicle.registrationNo,
-              reason: blacklistRes.rows[0].reason
+              reason: blacklistRes.rows[0].reason,
             });
             continue; // Exclude this blacklisted vehicle
           }
@@ -481,51 +512,56 @@ const createPassRequest = async (req, res) => {
     }
 
     // If there are no persons in the payload AND all vehicles were blacklisted/skipped, block the request
-    const personCount = (payload.persons && Array.isArray(payload.persons)) ? payload.persons.length : 0;
-    if (personCount === 0 && skippedVehicles.length > 0 && payload.vehicles.length === 0) {
+    const personCount =
+      payload.persons && Array.isArray(payload.persons)
+        ? payload.persons.length
+        : 0;
+    if (
+      personCount === 0 &&
+      skippedVehicles.length > 0 &&
+      payload.vehicles.length === 0
+    ) {
       return res.status(403).json({
         success: false,
-        message: `Pass application blocked. All vehicles in the request are blacklisted. Reasons: ${skippedVehicles.map(v => `${v.registrationNo}: ${v.reason}`).join("; ")}`
+        message: `Pass application blocked. All vehicles in the request are blacklisted. Reasons: ${skippedVehicles.map((v) => `${v.registrationNo}: ${v.reason}`).join("; ")}`,
       });
     }
 
     const passRequestId = await PassRequest.createPassRequest(
       payload,
-      req.files
+      req.files,
     );
 
     let successMessage = "Pass request submitted successfully";
     if (skippedVehicles.length > 0) {
-      successMessage = `Pass request submitted successfully. Note: Blacklisted vehicle(s) [${skippedVehicles.map(v => v.registrationNo).join(", ")}] were excluded.`;
+      successMessage = `Pass request submitted successfully. Note: Blacklisted vehicle(s) [${skippedVehicles.map((v) => v.registrationNo).join(", ")}] were excluded.`;
     }
 
     res.status(201).json({
       success: true,
       message: successMessage,
-      passRequestId
+      passRequestId,
     });
-
   } catch (error) {
-
     deleteFiles();
 
     console.error("Pass Request Error:", error);
 
     res.status(500).json({
       success: false,
-      message: error.message || "Failed to create pass request"
+      message: error.message || "Failed to create pass request",
     });
-
   }
-
 };
 
 const getAgentPassRequests = async (req, res) => {
   try {
-
     const agentId = req.user.userId; // from JWT
 
-    const { getPagination, buildPaginatedResponse } = require("../utils/pagination");
+    const {
+      getPagination,
+      buildPaginatedResponse,
+    } = require("../utils/pagination");
     const pag = getPagination(req.query);
 
     const result = await getPassRequest.getAgentPassRequests(agentId, pag);
@@ -542,34 +578,33 @@ const getAgentPassRequests = async (req, res) => {
         result.counts,
         totalRecordsForTab,
         pag.page,
-        pag.limit
-      )
+        pag.limit,
+      ),
     );
-
   } catch (error) {
-
     console.error("Fetch pass requests error:", error);
 
     return res.status(500).json({
       success: false,
-      message: "Internal server error"
+      message: "Internal server error",
     });
-
   }
 };
 
 const getMasterDirectory = async (req, res) => {
   try {
-
     if (!req.user || !req.user.userId) {
       return res.status(401).json({
         success: false,
-        message: "Unauthorized"
+        message: "Unauthorized",
       });
     }
 
     const agentId = req.user.userId;
-    const { getPagination, buildPaginatedResponse } = require("../utils/pagination");
+    const {
+      getPagination,
+      buildPaginatedResponse,
+    } = require("../utils/pagination");
 
     const isPaginated = req.query.page || req.query.limit || req.query.search;
 
@@ -580,7 +615,7 @@ const getMasterDirectory = async (req, res) => {
 
       const [personCount, vehicleCount] = await Promise.all([
         Master.getPersonCount(agentId, search),
-        Master.getVehicleCount(agentId, search)
+        Master.getVehicleCount(agentId, search),
       ]);
 
       let data = [];
@@ -594,26 +629,23 @@ const getMasterDirectory = async (req, res) => {
         totalRecords = vehicleCount;
       }
 
-      return res.status(200).json(
-        buildPaginatedResponse(
-          data,
-          { personCount, vehicleCount },
-          totalRecords,
-          pag.page,
-          pag.limit
-        )
-      );
+      return res
+        .status(200)
+        .json(
+          buildPaginatedResponse(
+            data,
+            { personCount, vehicleCount },
+            totalRecords,
+            pag.page,
+            pag.limit,
+          ),
+        );
     } else {
-      const [
-        persons,
-        vehicles,
-        personCount,
-        vehicleCount
-      ] = await Promise.all([
+      const [persons, vehicles, personCount, vehicleCount] = await Promise.all([
         Master.getPersonsByAgent(agentId, { limit: 100000, offset: 0 }),
         Master.getVehiclesByAgent(agentId, { limit: 100000, offset: 0 }),
         Master.getPersonCount(agentId),
-        Master.getVehicleCount(agentId)
+        Master.getVehicleCount(agentId),
       ]);
 
       return res.status(200).json({
@@ -622,83 +654,75 @@ const getMasterDirectory = async (req, res) => {
           persons,
           vehicles,
           personCount,
-          vehicleCount
-        }
+          vehicleCount,
+        },
       });
     }
-
   } catch (error) {
-
     console.error("Fetch directory error:", error);
 
     return res.status(500).json({
       success: false,
-      message: "Internal server error"
+      message: "Internal server error",
     });
-
   }
 };
 
 const viewMasterDocument = async (req, res) => {
   try {
+    const { masterId, entityType, documentType } = req.query;
 
-    const {
+    const result = await viewPassRequestsDocuments.getMasterDocumentPath(
       masterId,
       entityType,
-      documentType
-    } = req.query;
-
-    const result =
-      await viewPassRequestsDocuments.getMasterDocumentPath(
-        masterId,
-        entityType,
-        documentType
-      );
+      documentType,
+    );
 
     if (!result) {
       return res.status(404).json({
         success: false,
-        message: "Document not found"
+        message: "Document not found",
       });
     }
 
-    return res.sendFile(
-      path.resolve(result.filePath)
-    );
-
+    return res.sendFile(path.resolve(result.filePath));
   } catch (err) {
-
     console.error(err);
 
     return res.status(500).json({
       success: false,
-      message: "Internal server error"
+      message: "Internal server error",
     });
-
   }
 };
 
 const getAgentPassRequestsToApproverAdmin = async (req, res) => {
-
   try {
-
     const role = req.user.role;
     const roleId = req.user.roleId;
     const departmentId = req.user.departmentId;
     const userId = req.user.userId;
 
     // Parse pagination + search params from query string
-    const { getPagination, buildPaginatedResponse } = require("../utils/pagination");
+    const {
+      getPagination,
+      buildPaginatedResponse,
+    } = require("../utils/pagination");
     const pag = getPagination(req.query);
 
-    const result = await getAgentPassRequestsDetails.getAgentPassRequestsToApproverAdmin(
-      role, departmentId, {
-        ...pag,
-        processedByMe: req.query.processedByMe === "true" || req.query.processedByMe === true,
-        userId,
-        roleId
-      }
-    );
+    const result =
+      await getAgentPassRequestsDetails.getAgentPassRequestsToApproverAdmin(
+        role,
+        departmentId,
+        {
+          ...pag,
+          processedByMe:
+            req.query.processedByMe === "true" ||
+            req.query.processedByMe === true,
+          userId,
+          roleId,
+        },
+      );
 
     // Compute the correct total records for the active tab (pending vs processed)
     let totalRecordsForTab = result.counts.total;
@@ -714,32 +738,28 @@ const getAgentPassRequestsToApproverAdmin = async (req, res) => {
         result.counts,
         totalRecordsForTab,
         pag.page,
-        pag.limit
-      )
+        pag.limit,
+      ),
     );
-
   } catch (error) {
-
     console.error("Approval pass fetch error:", error);
 
     return res.status(500).json({
       success: false,
-      message: "Internal server error"
+      message: "Internal server error",
     });
-
   }
-
 };
 
 const viewPassRequestsDocument = async (req, res) => {
   try {
-
-    const { passRequestId, documentType, entityIndex, isVendorPass } = req.query;
+    const { passRequestId, documentType, entityIndex, isVendorPass } =
+      req.query;
 
     if (!passRequestId || !documentType) {
       return res.status(400).json({
         success: false,
-        message: "passRequestId and documentType required"
+        message: "passRequestId and documentType required",
       });
     }
 
@@ -747,13 +767,13 @@ const viewPassRequestsDocument = async (req, res) => {
       passRequestId,
       documentType,
       entityIndex ? parseInt(entityIndex) : 0,
-      isVendorPass === 'true'
+      isVendorPass === "true",
     );
 
     if (!fileData) {
       return res.status(404).json({
         success: false,
-        message: "Document not found"
+        message: "Document not found",
       });
     }
 
@@ -762,17 +782,16 @@ const viewPassRequestsDocument = async (req, res) => {
     if (!filePath) {
       return res.status(404).json({
         success: false,
-        message: "File path not found"
+        message: "File path not found",
       });
     }
 
     const absolutePath = path.join(process.cwd(), filePath);
-    
 
     if (!fs.existsSync(absolutePath)) {
       return res.status(404).json({
         success: false,
-        message: "File missing on server"
+        message: "File missing on server",
       });
     }
     let contentType = "application/octet-stream";
@@ -786,20 +805,38 @@ const viewPassRequestsDocument = async (req, res) => {
       // PDF: %PDF (0x25 0x50 0x44 0x46)
       // PNG: 0x89 0x50 0x4E 0x47
       // JPEG: 0xFF 0xD8 0xFF
-      if (buffer[0] === 0x25 && buffer[1] === 0x50 && buffer[2] === 0x44 && buffer[3] === 0x46) {
+      if (
+        buffer[0] === 0x25 &&
+        buffer[1] === 0x50 &&
+        buffer[2] === 0x44 &&
+        buffer[3] === 0x46
+      ) {
         contentType = "application/pdf";
-      } else if (buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4E && buffer[3] === 0x47) {
+      } else if (
+        buffer[0] === 0x89 &&
+        buffer[1] === 0x50 &&
+        buffer[2] === 0x4e &&
+        buffer[3] === 0x47
+      ) {
         contentType = "image/png";
-      } else if (buffer[0] === 0xFF && buffer[1] === 0xD8 && buffer[2] === 0xFF) {
+      } else if (
+        buffer[0] === 0xff &&
+        buffer[1] === 0xd8 &&
+        buffer[2] === 0xff
+      ) {
         contentType = "image/jpeg";
       } else {
         const pathExt = path.extname(absolutePath).toLowerCase();
         if (pathExt === ".pdf") contentType = "application/pdf";
-        if (pathExt === ".jpg" || pathExt === ".jpeg") contentType = "image/jpeg";
+        if (pathExt === ".jpg" || pathExt === ".jpeg")
+          contentType = "image/jpeg";
         if (pathExt === ".png") contentType = "image/png";
       }
     } catch (err) {
-      console.error("Error reading file magic bytes, falling back to extension:", err);
+      console.error(
+        "Error reading file magic bytes, falling back to extension:",
+        err,
+      );
       const pathExt = path.extname(absolutePath).toLowerCase();
       if (pathExt === ".pdf") contentType = "application/pdf";
       if (pathExt === ".jpg" || pathExt === ".jpeg") contentType = "image/jpeg";
@@ -817,28 +854,23 @@ const viewPassRequestsDocument = async (req, res) => {
     });
 
     stream.pipe(res);
-
   } catch (error) {
-
     console.error("View pass request document error:", error);
 
     res.status(500).json({
       success: false,
-      message: "Internal server error"
+      message: "Internal server error",
     });
-
   }
 };
 
-const approvePerson = async(req,res)=>{
-
-  try{
-
-    const {personId, remarks} = req.body;
+const approvePerson = async (req, res) => {
+  try {
+    const { personId, remarks } = req.body;
     const role = req.user?.role;
     const roleId = req.user?.roleId;
 
-    if (roleId === 28 || role === 'Senior Deputy Traffic Manager') {
+    if (roleId === 28 || role === "Senior Deputy Traffic Manager") {
       const query = `
         UPDATE pass_persons
         SET "srDtmApproved" = true, "srDtmRemarks" = $2, "updatedAt" = NOW()
@@ -848,7 +880,9 @@ const approvePerson = async(req,res)=>{
       const personRes = await pool.query(query, [personId, remarks || null]);
       const person = personRes.rows[0];
       if (!person) {
-        return res.status(404).json({ success: false, message: "Person not found" });
+        return res
+          .status(404)
+          .json({ success: false, message: "Person not found" });
       }
 
       const passRequestId = person.passRequestId;
@@ -859,77 +893,67 @@ const approvePerson = async(req,res)=>{
         WHERE pp."passRequestId" = $1
       `;
       const allPersonsRes = await pool.query(allPersonsQuery, [passRequestId]);
-      const oilDockPersons = allPersonsRes.rows.filter(p => isOilDockArea(p.accessAreaId));
-      const allApproved = oilDockPersons.every(p => p.srDtmApproved);
+      const oilDockPersons = allPersonsRes.rows.filter((p) =>
+        isOilDockArea(p.accessAreaId),
+      );
+      const allApproved = oilDockPersons.every((p) => p.srDtmApproved);
 
       if (allApproved) {
         // Update workflow state — Pass Section query now uses per-entity flags directly
         await pool.query(
           `UPDATE pass_requests SET "workflowState" = 'PENDING_PASS_SECTION', "updatedAt" = NOW() WHERE id = $1`,
-          [passRequestId]
+          [passRequestId],
         );
       }
 
       return res.json({
         success: true,
-        data: person
+        data: person,
       });
     } else {
       const person = await PassRequest.approvePerson(personId);
       return res.json({
-        success:true,
-        data:person
+        success: true,
+        data: person,
       });
     }
-
-  }catch(error){
-
+  } catch (error) {
     console.error(error);
 
     res.status(500).json({
-      success:false,
-      message:"Internal server error"
+      success: false,
+      message: "Internal server error",
     });
-
   }
+};
 
-}
-
-const rejectPerson = async(req,res)=>{
-
-  try{
-
-    const {personId, rejectedReason} = req.body;
+const rejectPerson = async (req, res) => {
+  try {
+    const { personId, rejectedReason } = req.body;
 
     const person = await PassRequest.rejectPerson(personId, rejectedReason);
 
     return res.json({
-      success:true,
-      data:person
+      success: true,
+      data: person,
     });
-
-  }catch(error){
-
+  } catch (error) {
     console.error(error);
 
     res.status(500).json({
-      success:false,
-      message:"Internal server error"
+      success: false,
+      message: "Internal server error",
     });
-
   }
+};
 
-}
-
-const approveVehicle = async(req,res)=>{
-
-  try{
-
-    const {vehicleId, remarks} = req.body;
+const approveVehicle = async (req, res) => {
+  try {
+    const { vehicleId, remarks } = req.body;
     const role = req.user?.role;
     const roleId = req.user?.roleId;
 
-    if (roleId === 26 || role === 'Safety Officer') {
+    if (roleId === 26 || role === "Safety Officer") {
       const query = `
         UPDATE pass_vehicles
         SET "twistLockCertified" = true, "twistLockRemarks" = $2, "updatedAt" = NOW()
@@ -939,7 +963,9 @@ const approveVehicle = async(req,res)=>{
       const vehicleRes = await pool.query(query, [vehicleId, remarks || null]);
       const vehicle = vehicleRes.rows[0];
       if (!vehicle) {
-        return res.status(404).json({ success: false, message: "Vehicle not found" });
+        return res
+          .status(404)
+          .json({ success: false, message: "Vehicle not found" });
       }
 
       const passRequestId = vehicle.passRequestId;
@@ -954,31 +980,41 @@ const approveVehicle = async(req,res)=>{
         FROM pass_vehicles
         WHERE "passRequestId" = $1
       `;
-      const allVehiclesRes = await pool.query(allVehiclesQuery, [passRequestId]);
+      const allVehiclesRes = await pool.query(allVehiclesQuery, [
+        passRequestId,
+      ]);
       // Only monthly/yearly vehicles strictly require twistLockCertified to advance.
       // Daily oil dock vehicles are certified individually via this same endpoint (twistLockCertified=true).
       // The overall state transition is handled by completePassReview.
-      const monthlyYearlyVehicles = allVehiclesRes.rows.filter(v => ["MONTHLY", "YEARLY", "ANNUAL"].includes(v.passType));
-      const allCertified = monthlyYearlyVehicles.length === 0 || monthlyYearlyVehicles.every(v => v.twistLockCertified);
+      const monthlyYearlyVehicles = allVehiclesRes.rows.filter((v) =>
+        ["MONTHLY", "YEARLY", "ANNUAL"].includes(v.passType),
+      );
+      const allCertified =
+        monthlyYearlyVehicles.length === 0 ||
+        monthlyYearlyVehicles.every((v) => v.twistLockCertified);
 
       if (allCertified) {
-        const prRes = await pool.query(`SELECT "isOilDock" FROM pass_requests WHERE id = $1`, [passRequestId]);
+        const prRes = await pool.query(
+          `SELECT "isOilDock" FROM pass_requests WHERE id = $1`,
+          [passRequestId],
+        );
         const isOilDock = prRes.rows[0]?.isOilDock;
 
-        const nextState = isOilDock ? 'PENDING_FIRE_SAFETY' : 'PENDING_PASS_SECTION';
+        const nextState = isOilDock
+          ? "PENDING_FIRE_SAFETY"
+          : "PENDING_PASS_SECTION";
 
         await pool.query(
           `UPDATE pass_requests SET "workflowState" = $2, "updatedAt" = NOW() WHERE id = $1`,
-          [passRequestId, nextState]
+          [passRequestId, nextState],
         );
       }
 
       return res.json({
         success: true,
-        data: vehicle
+        data: vehicle,
       });
-
-    } else if (roleId === 27 || role === 'Fire Safety Officer') {
+    } else if (roleId === 27 || role === "Fire Safety Officer") {
       const query = `
         UPDATE pass_vehicles
         SET "sparkArresterCertified" = true, "sparkArresterRemarks" = $2, "updatedAt" = NOW()
@@ -988,7 +1024,9 @@ const approveVehicle = async(req,res)=>{
       const vehicleRes = await pool.query(query, [vehicleId, remarks || null]);
       const vehicle = vehicleRes.rows[0];
       if (!vehicle) {
-        return res.status(404).json({ success: false, message: "Vehicle not found" });
+        return res
+          .status(404)
+          .json({ success: false, message: "Vehicle not found" });
       }
 
       const passRequestId = vehicle.passRequestId;
@@ -998,23 +1036,28 @@ const approveVehicle = async(req,res)=>{
         FROM pass_vehicles
         WHERE "passRequestId" = $1
       `;
-      const allVehiclesRes = await pool.query(allVehiclesQuery, [passRequestId]);
-      const oilDockVehicles = allVehiclesRes.rows.filter(v => isOilDockArea(v.accessAreaId));
-      const allCertified = oilDockVehicles.every(v => v.sparkArresterCertified);
+      const allVehiclesRes = await pool.query(allVehiclesQuery, [
+        passRequestId,
+      ]);
+      const oilDockVehicles = allVehiclesRes.rows.filter((v) =>
+        isOilDockArea(v.accessAreaId),
+      );
+      const allCertified = oilDockVehicles.every(
+        (v) => v.sparkArresterCertified,
+      );
 
       if (allCertified) {
         await pool.query(
           `UPDATE pass_requests SET "workflowState" = 'PENDING_SR_DTM', "updatedAt" = NOW() WHERE id = $1`,
-          [passRequestId]
+          [passRequestId],
         );
       }
 
       return res.json({
         success: true,
-        data: vehicle
+        data: vehicle,
       });
-
-    } else if (roleId === 28 || role === 'Senior Deputy Traffic Manager') {
+    } else if (roleId === 28 || role === "Senior Deputy Traffic Manager") {
       const query = `
         UPDATE pass_vehicles
         SET "srDtmApproved" = true, "srDtmRemarks" = $2, "updatedAt" = NOW()
@@ -1024,7 +1067,9 @@ const approveVehicle = async(req,res)=>{
       const vehicleRes = await pool.query(query, [vehicleId, remarks || null]);
       const vehicle = vehicleRes.rows[0];
       if (!vehicle) {
-        return res.status(404).json({ success: false, message: "Vehicle not found" });
+        return res
+          .status(404)
+          .json({ success: false, message: "Vehicle not found" });
       }
 
       const passRequestId = vehicle.passRequestId;
@@ -1035,164 +1080,143 @@ const approveVehicle = async(req,res)=>{
         FROM pass_vehicles
         WHERE "passRequestId" = $1
       `;
-      const allVehiclesRes = await pool.query(allVehiclesQuery, [passRequestId]);
-      const oilDockVehicles = allVehiclesRes.rows.filter(v => isOilDockArea(v.accessAreaId));
-      const allApproved = oilDockVehicles.every(v => v.srDtmApproved);
+      const allVehiclesRes = await pool.query(allVehiclesQuery, [
+        passRequestId,
+      ]);
+      const oilDockVehicles = allVehiclesRes.rows.filter((v) =>
+        isOilDockArea(v.accessAreaId),
+      );
+      const allApproved = oilDockVehicles.every((v) => v.srDtmApproved);
 
       if (allApproved) {
         // Update workflow state — Pass Section query now uses per-entity flags directly
         await pool.query(
           `UPDATE pass_requests SET "workflowState" = 'PENDING_PASS_SECTION', "updatedAt" = NOW() WHERE id = $1`,
-          [passRequestId]
+          [passRequestId],
         );
       }
 
       return res.json({
         success: true,
-        data: vehicle
+        data: vehicle,
       });
-
     } else {
       const vehicle = await PassRequest.approveVehicle(vehicleId);
       return res.json({
-        success:true,
-        data:vehicle
+        success: true,
+        data: vehicle,
       });
     }
-
-  }catch(error){
-
+  } catch (error) {
     console.error(error);
 
     res.status(500).json({
-      success:false,
-      message:"Internal server error"
+      success: false,
+      message: "Internal server error",
     });
-
   }
+};
 
-}
-
-const rejectVehicle = async(req,res)=>{
-
-  try{
-
-    const {vehicleId, rejectedReason} = req.body;
+const rejectVehicle = async (req, res) => {
+  try {
+    const { vehicleId, rejectedReason } = req.body;
 
     const vehicle = await PassRequest.rejectVehicle(vehicleId, rejectedReason);
 
     return res.json({
-      success:true,
-      data:vehicle
+      success: true,
+      data: vehicle,
     });
-
-  }catch(error){
-
+  } catch (error) {
     console.error(error);
 
     res.status(500).json({
-      success:false,
-      message:"Internal server error"
+      success: false,
+      message: "Internal server error",
     });
-
   }
+};
 
-}
+const revertPerson = async (req, res) => {
+  try {
+    const { personId, revertReason } = req.body;
 
-const revertPerson = async(req,res)=>{
-
-  try{
-
-    const {personId, revertReason} = req.body;
-
-    if(!revertReason){
+    if (!revertReason) {
       return res.status(400).json({
-        success:false,
-        message:"Revert reason is required"
+        success: false,
+        message: "Revert reason is required",
       });
     }
 
     const person = await PassRequest.revertPerson(personId, revertReason);
 
     return res.json({
-      success:true,
-      data:person
+      success: true,
+      data: person,
     });
-
-  }catch(error){
-
+  } catch (error) {
     console.error(error);
 
     res.status(500).json({
-      success:false,
-      message:"Internal server error"
+      success: false,
+      message: "Internal server error",
     });
-
   }
+};
 
-}
+const revertVehicle = async (req, res) => {
+  try {
+    const { vehicleId, revertReason } = req.body;
 
-const revertVehicle = async(req,res)=>{
-
-  try{
-
-    const {vehicleId, revertReason} = req.body;
-
-    if(!revertReason){
+    if (!revertReason) {
       return res.status(400).json({
-        success:false,
-        message:"Revert reason is required"
+        success: false,
+        message: "Revert reason is required",
       });
     }
 
     const vehicle = await PassRequest.revertVehicle(vehicleId, revertReason);
 
     return res.json({
-      success:true,
-      data:vehicle
+      success: true,
+      data: vehicle,
     });
-
-  }catch(error){
-
+  } catch (error) {
     console.error(error);
 
     res.status(500).json({
-      success:false,
-      message:"Internal server error"
+      success: false,
+      message: "Internal server error",
     });
-
   }
+};
 
-}
-
-const completeReview = async(req,res)=>{
-
-  try{
-
-    const {passRequestId} = req.body;
+const completeReview = async (req, res) => {
+  try {
+    const { passRequestId } = req.body;
     const userId = req.user ? req.user.userId : null;
     const role = req.user ? req.user.role : null;
     const roleId = req.user ? req.user.roleId : null;
-    const result = await PassRequest.completePassReview(passRequestId, userId, role, roleId);
+    const result = await PassRequest.completePassReview(
+      passRequestId,
+      userId,
+      role,
+      roleId,
+    );
 
     return res.json({
-      success:true,
-      data:result
+      success: true,
+      data: result,
     });
-
-  }catch(error){
-
+  } catch (error) {
     console.error(error);
 
     res.status(500).json({
-      success:false,
-      message:error.message
+      success: false,
+      message: error.message,
     });
-
   }
-
-}
-
+};
 
 // const getQrData = async (req, res) => {
 //   try {
@@ -1215,10 +1239,8 @@ const completeReview = async(req,res)=>{
 //   }
 // };
 
-
 const getQrData = async (req, res) => {
   try {
-
     const { passRequestId } = req.params;
 
     // NEW
@@ -1227,23 +1249,19 @@ const getQrData = async (req, res) => {
     const data = await passRequestService.getQrData(
       passRequestId,
       type,
-      entityId
+      entityId,
     );
 
     return res.json(data);
-
   } catch (error) {
-
     console.error("QR DATA ERROR", error);
 
     return res.status(500).json({
-      success:false,
-      message:error.message
+      success: false,
+      message: error.message,
     });
-
   }
 };
-
 
 const getVendorQrData = async (req, res) => {
   try {
@@ -1252,20 +1270,19 @@ const getVendorQrData = async (req, res) => {
     const data = await passRequestService.getVendorQrData(vendorPassId);
 
     return res.json(data);
-
   } catch (error) {
     console.error("VENDOR QR DATA ERROR", error);
 
     if (error.message === "No approved vendor pass found") {
       return res.status(404).json({
         success: false,
-        message: error.message
+        message: error.message,
       });
     }
 
     return res.status(500).json({
       success: false,
-      message: error.message
+      message: error.message,
     });
   }
 };
@@ -1279,20 +1296,19 @@ const getPassDetails = async (req, res) => {
     if (!passData) {
       return res.status(404).json({
         success: false,
-        message: "Pass request not found"
+        message: "Pass request not found",
       });
     }
 
     return res.status(200).json({
       success: true,
-      data: passData
+      data: passData,
     });
-
   } catch (error) {
     console.error("GET PASS DETAILS ERROR", error);
     return res.status(500).json({
       success: false,
-      message: error.message
+      message: error.message,
     });
   }
 };
@@ -1317,38 +1333,91 @@ const updatePassPerson = async (req, res) => {
     };
 
     attachFile(updateData, "personPhoto", "photoFilePath", "photoFileName");
-    attachFile(updateData, "personAadhar", "aadharPDFFilePATH", "aadharPDFFileName");
-    attachFile(updateData, "personIdProof", "idProofFilePath", "idProofFileName");
-    attachFile(updateData, "driverLicense", "driverLicensePath", "driverLicenseName");
-    attachFile(updateData, "requisitionLetter", "requisitionLetterPath", "requisitionLetterName");
-    attachFile(updateData, "policeVerification", "policeVerificationPath", "policeVerificationName");
-    attachFile(updateData, "employmentProof", "employmentProofPath", "employmentProofName");
-    attachFile(updateData, "chaLicenseCopy", "chaLicensePath", "chaLicenseName");
+    attachFile(
+      updateData,
+      "personAadhar",
+      "aadharPDFFilePATH",
+      "aadharPDFFileName",
+    );
+    attachFile(
+      updateData,
+      "personIdProof",
+      "idProofFilePath",
+      "idProofFileName",
+    );
+    attachFile(
+      updateData,
+      "driverLicense",
+      "driverLicensePath",
+      "driverLicenseName",
+    );
+    attachFile(
+      updateData,
+      "requisitionLetter",
+      "requisitionLetterPath",
+      "requisitionLetterName",
+    );
+    attachFile(
+      updateData,
+      "policeVerification",
+      "policeVerificationPath",
+      "policeVerificationName",
+    );
+    attachFile(
+      updateData,
+      "employmentProof",
+      "employmentProofPath",
+      "employmentProofName",
+    );
+    attachFile(
+      updateData,
+      "chaLicenseCopy",
+      "chaLicensePath",
+      "chaLicenseName",
+    );
     attachFile(updateData, "passportDoc", "passportPath", "passportName");
     attachFile(updateData, "visaDoc", "visaDocPath", "visaDocName");
     attachFile(updateData, "immigrationDoc", "immigrationDocPath", "immigrationDocName");
     attachFile(updateData, "cdcDocument", "cdcDocumentPath", "cdcDocumentName");
-    attachFile(updateData, "entryAuthorization", "entryAuthorizationFilePath", "entryAuthorizationFileName");
+    attachFile(
+      updateData,
+      "entryAuthorization",
+      "entryAuthorizationFilePath",
+      "entryAuthorizationFileName",
+    );
 
     if (updateData.designation) {
-      if (updateData.designation === "Crew" || updateData.designation === "Supernumerary" || updateData.designation === "Others") {
+      if (
+        updateData.designation === "Crew" ||
+        updateData.designation === "Supernumerary" ||
+        updateData.designation === "Others"
+      ) {
         updateData.designationId = null;
-        updateData.designationOther = updateData.designationOther || updateData.designation;
+        updateData.designationOther =
+          updateData.designationOther || updateData.designation;
       } else {
         updateData.designationId = parseInt(updateData.designation, 10) || null;
       }
     }
 
     if (updateData.nationality) {
-      if (updateData.nationality === "1" || String(updateData.nationality).toUpperCase().includes("IND")) {
+      if (
+        updateData.nationality === "1" ||
+        String(updateData.nationality).toUpperCase().includes("IND")
+      ) {
         updateData.nationality = "INDIAN";
-      } else if (updateData.nationality === "2" || String(updateData.nationality).toUpperCase().includes("FOR")) {
+      } else if (
+        updateData.nationality === "2" ||
+        String(updateData.nationality).toUpperCase().includes("FOR")
+      ) {
         updateData.nationality = "FOREIGNER";
       }
     }
 
     if (updateData.withTwoWheeler !== undefined) {
-      updateData.withTwoWheeler = updateData.withTwoWheeler === true || updateData.withTwoWheeler === "true";
+      updateData.withTwoWheeler =
+        updateData.withTwoWheeler === true ||
+        updateData.withTwoWheeler === "true";
     }
 
     const { PassRequest } = require("../models/passRequestSchema");
@@ -1358,21 +1427,20 @@ const updatePassPerson = async (req, res) => {
     if (!result.success) {
       return res.status(400).json({
         success: false,
-        message: result.message
+        message: result.message,
       });
     }
 
     return res.status(200).json({
       success: true,
       message: "Person updated successfully",
-      data: result.data
+      data: result.data,
     });
-
   } catch (error) {
     console.error("UPDATE PASS PERSON ERROR", error);
     return res.status(500).json({
       success: false,
-      message: error.message
+      message: error.message,
     });
   }
 };
@@ -1382,8 +1450,8 @@ const updatePassVehicle = async (req, res) => {
     const { vehicleId } = req.params;
     const updateData = req.body;
 
-    console.log('UPDATE VEHICLE - vehicleId:', vehicleId);
-    console.log('UPDATE VEHICLE - updateData:', updateData);
+    console.log("UPDATE VEHICLE - vehicleId:", vehicleId);
+    console.log("UPDATE VEHICLE - updateData:", updateData);
 
     // Attach files if any
     const files = req.files || {};
@@ -1395,38 +1463,75 @@ const updatePassVehicle = async (req, res) => {
       }
     };
 
-    attachFile(updateData, "vehicleRC", "scannedCopyFilePath", "scannedCopyFileName");
-    attachFile(updateData, "vehicleInsurance", "insuranceFilePath", "insuranceFileName");
+    attachFile(
+      updateData,
+      "vehicleRC",
+      "scannedCopyFilePath",
+      "scannedCopyFileName",
+    );
+    attachFile(
+      updateData,
+      "vehicleInsurance",
+      "insuranceFilePath",
+      "insuranceFileName",
+    );
     attachFile(updateData, "vehiclePermit", "permitFilePath", "permitFileName");
-    attachFile(updateData, "vehicleFitness", "fitnessFilePath", "fitnessFileName");
-    attachFile(updateData, "vehicleRequestLetter", "requestLetterPath", "requestLetterName");
+    attachFile(
+      updateData,
+      "vehicleFitness",
+      "fitnessFilePath",
+      "fitnessFileName",
+    );
+    attachFile(
+      updateData,
+      "vehicleRequestLetter",
+      "requestLetterPath",
+      "requestLetterName",
+    );
     attachFile(updateData, "vehicleTax", "taxDocPath", "taxDocName");
-    attachFile(updateData, "vehicleEmission", "emissionCertPath", "emissionCertName");
-    attachFile(updateData, "sparkArrester", "sparkArresterFilePath", "sparkArresterFileName");
-    attachFile(updateData, "twistLock", "twistLockFilePath", "twistLockFileName");
+    attachFile(
+      updateData,
+      "vehicleEmission",
+      "emissionCertPath",
+      "emissionCertName",
+    );
+    attachFile(
+      updateData,
+      "sparkArrester",
+      "sparkArresterFilePath",
+      "sparkArresterFileName",
+    );
+    attachFile(
+      updateData,
+      "twistLock",
+      "twistLockFilePath",
+      "twistLockFileName",
+    );
 
     const { PassRequest } = require("../models/passRequestSchema");
 
-    const result = await PassRequest.updateRevertedVehicle(vehicleId, updateData);
+    const result = await PassRequest.updateRevertedVehicle(
+      vehicleId,
+      updateData,
+    );
 
     if (!result.success) {
       return res.status(400).json({
         success: false,
-        message: result.message
+        message: result.message,
       });
     }
 
     return res.status(200).json({
       success: true,
       message: "Vehicle updated successfully",
-      data: result.data
+      data: result.data,
     });
-
   } catch (error) {
     console.error("UPDATE PASS VEHICLE ERROR", error);
     return res.status(500).json({
       success: false,
-      message: error.message
+      message: error.message,
     });
   }
 };
@@ -1442,21 +1547,20 @@ const resubmitRevertedPass = async (req, res) => {
     if (!result.success) {
       return res.status(400).json({
         success: false,
-        message: result.message
+        message: result.message,
       });
     }
 
     return res.status(200).json({
       success: true,
       message: "Pass resubmitted successfully",
-      data: result.data
+      data: result.data,
     });
-
   } catch (error) {
     console.error("RESUBMIT REVERTED PASS ERROR", error);
     return res.status(500).json({
       success: false,
-      message: error.message
+      message: error.message,
     });
   }
 };
@@ -1467,7 +1571,7 @@ const validateQrPass = async (req, res) => {
     if (!passNo) {
       return res.status(400).json({
         success: false,
-        message: "passNo is required"
+        message: "passNo is required",
       });
     }
 
@@ -1488,12 +1592,12 @@ const validateQrPass = async (req, res) => {
     const personResult = await pool.query(personQuery, [passNo]);
     if (personResult.rows.length > 0) {
       const row = personResult.rows[0];
-      if (row.status !== 'approved') {
+      if (row.status !== "approved") {
         return res.status(403).json({
           success: false,
           valid: false,
           message: "Pass is not approved",
-          data: { status: row.status }
+          data: { status: row.status },
         });
       }
       if (row.dateTo && new Date(row.dateTo) < now) {
@@ -1501,7 +1605,7 @@ const validateQrPass = async (req, res) => {
           success: false,
           valid: false,
           message: "Pass has expired",
-          data: { validTo: row.dateTo }
+          data: { validTo: row.dateTo },
         });
       }
       return res.status(200).json({
@@ -1509,14 +1613,14 @@ const validateQrPass = async (req, res) => {
         valid: true,
         message: "Pass is valid",
         data: {
-          entityType: 'person',
+          entityType: "person",
           passNo: row.personPassNo,
           name: row.name,
           company: row.company,
           referenceNo: row.referenceNo,
           validFrom: row.dateFrom,
           validTo: row.dateTo,
-        }
+        },
       });
     }
 
@@ -1535,12 +1639,12 @@ const validateQrPass = async (req, res) => {
     const vehicleResult = await pool.query(vehicleQuery, [passNo]);
     if (vehicleResult.rows.length > 0) {
       const row = vehicleResult.rows[0];
-      if (row.status !== 'approved') {
+      if (row.status !== "approved") {
         return res.status(403).json({
           success: false,
           valid: false,
           message: "Pass is not approved",
-          data: { status: row.status }
+          data: { status: row.status },
         });
       }
       if (row.dateTo && new Date(row.dateTo) < now) {
@@ -1548,7 +1652,7 @@ const validateQrPass = async (req, res) => {
           success: false,
           valid: false,
           message: "Pass has expired",
-          data: { validTo: row.dateTo }
+          data: { validTo: row.dateTo },
         });
       }
       return res.status(200).json({
@@ -1556,14 +1660,14 @@ const validateQrPass = async (req, res) => {
         valid: true,
         message: "Pass is valid",
         data: {
-          entityType: 'vehicle',
+          entityType: "vehicle",
           passNo: row.vehiclePassNo,
           registrationNo: row.registrationNo,
           company: row.company,
           referenceNo: row.referenceNo,
           validFrom: row.dateFrom,
           validTo: row.dateTo,
-        }
+        },
       });
     }
 
@@ -1581,12 +1685,12 @@ const validateQrPass = async (req, res) => {
     const vpPersonResult = await pool.query(vpPersonQuery, [passNo]);
     if (vpPersonResult.rows.length > 0) {
       const row = vpPersonResult.rows[0];
-      if (row.status !== 'approved') {
+      if (row.status !== "approved") {
         return res.status(403).json({
           success: false,
           valid: false,
           message: "Pass is not approved",
-          data: { status: row.status }
+          data: { status: row.status },
         });
       }
       if (row.dateTo && new Date(row.dateTo) < now) {
@@ -1594,7 +1698,7 @@ const validateQrPass = async (req, res) => {
           success: false,
           valid: false,
           message: "Pass has expired",
-          data: { validTo: row.dateTo }
+          data: { validTo: row.dateTo },
         });
       }
       return res.status(200).json({
@@ -1602,14 +1706,14 @@ const validateQrPass = async (req, res) => {
         valid: true,
         message: "Pass is valid",
         data: {
-          entityType: 'vendor-person',
+          entityType: "vendor-person",
           passNo: row.personPassNo,
           name: row.name,
           company: row.company,
           referenceNo: row.referenceNo,
           validFrom: row.dateFrom,
           validTo: row.dateTo,
-        }
+        },
       });
     }
 
@@ -1627,12 +1731,12 @@ const validateQrPass = async (req, res) => {
     const vpVehicleResult = await pool.query(vpVehicleQuery, [passNo]);
     if (vpVehicleResult.rows.length > 0) {
       const row = vpVehicleResult.rows[0];
-      if (row.status !== 'approved') {
+      if (row.status !== "approved") {
         return res.status(403).json({
           success: false,
           valid: false,
           message: "Pass is not approved",
-          data: { status: row.status }
+          data: { status: row.status },
         });
       }
       if (row.dateTo && new Date(row.dateTo) < now) {
@@ -1640,7 +1744,7 @@ const validateQrPass = async (req, res) => {
           success: false,
           valid: false,
           message: "Pass has expired",
-          data: { validTo: row.dateTo }
+          data: { validTo: row.dateTo },
         });
       }
       return res.status(200).json({
@@ -1648,14 +1752,14 @@ const validateQrPass = async (req, res) => {
         valid: true,
         message: "Pass is valid",
         data: {
-          entityType: 'vendor-vehicle',
+          entityType: "vendor-vehicle",
           passNo: row.vehiclePassNo,
           registrationNo: row.vehicleRegistrationNo,
           company: row.company,
           referenceNo: row.referenceNo,
           validFrom: row.dateFrom,
           validTo: row.dateTo,
-        }
+        },
       });
     }
 
@@ -1663,101 +1767,66 @@ const validateQrPass = async (req, res) => {
     return res.status(404).json({
       success: false,
       valid: false,
-      message: "Pass not found"
+      message: "Pass not found",
     });
-
   } catch (error) {
     console.error("validateQrPass error:", error);
     return res.status(500).json({
       success: false,
       valid: false,
-      message: error.message
+      message: error.message,
     });
   }
 };
 
-const saveQrPdfPath = async (
-  req,
-  res
-) => {
+const saveQrPdfPath = async (req, res) => {
   try {
+    const { type, entityId, qrPdfPath } = req.body;
 
-    const {
+    const result = await passRequestService.saveQrPdfPath(
       type,
       entityId,
       qrPdfPath,
-    } = req.body;
-
-    const result =
-      await passRequestService.saveQrPdfPath(
-        type,
-        entityId,
-        qrPdfPath
-      );
+    );
 
     return res.status(200).json({
       success: true,
       data: result,
     });
-
   } catch (err) {
-
-    console.error(
-      "SAVE QR PDF PATH ERROR",
-      err
-    );
+    console.error("SAVE QR PDF PATH ERROR", err);
 
     return res.status(500).json({
       success: false,
-      message:
-        "Failed to save qr pdf path",
+      message: "Failed to save qr pdf path",
     });
   }
 };
 
-const validateSecureQr = async (
-  req,
-  res
-) => {
+const validateSecureQr = async (req, res) => {
   try {
-    const {
+    const { entityId, passRequestId, qrUuid, type } = req.body;
+
+    if (!entityId || !passRequestId || !qrUuid || !type) {
+      return res.status(400).json({
+        success: false,
+        message: "Missing validation payload",
+      });
+    }
+
+    const result = await passRequestService.validateQr({
       entityId,
       passRequestId,
       qrUuid,
       type,
-    } = req.body;
-
-    if (
-      !entityId ||
-      !passRequestId ||
-      !qrUuid ||
-      !type
-    ) {
-      return res.status(400).json({
-        success: false,
-        message:
-          "Missing validation payload",
-      });
-    }
-
-    const result =
-      await passRequestService.validateQr({
-        entityId,
-        passRequestId,
-        qrUuid,
-        type,
-      });
+    });
 
     return res.status(200).json({
       success: true,
       ...result,
     });
-
   } catch (error) {
-    console.error(
-      "VALIDATE QR ERROR",
-      error
-    );
+    console.error("VALIDATE QR ERROR", error);
 
     return res.status(500).json({
       success: false,
@@ -1770,44 +1839,75 @@ const submitTwoWheelerUpdate = async (req, res) => {
   try {
     const { personId, passRequestId, newVehicleNo, reason } = req.body;
     if (!personId || !newVehicleNo) {
-      return res.status(400).json({ success: false, message: "Person ID and new vehicle number are required." });
+      return res
+        .status(400)
+        .json({
+          success: false,
+          message: "Person ID and new vehicle number are required.",
+        });
     }
 
     // Vehicle Number Regex Validation (Indian vehicle registration number)
     const vehicleNoClean = newVehicleNo.toUpperCase().trim();
-    const vehicleRegex = /^[A-Z]{2}[-\s]?[0-9]{1,2}[-\s]?[A-Z]{1,3}[-\s]?[0-9]{1,4}$/i;
+    const vehicleRegex =
+      /^[A-Z]{2}[-\s]?[0-9]{1,2}[-\s]?[A-Z]{1,3}[-\s]?[0-9]{1,4}$/i;
     if (!vehicleRegex.test(vehicleNoClean)) {
       return res.status(400).json({
         success: false,
-        message: "Invalid two-wheeler vehicle number format. Valid examples: MH01AB1234, KA-02-C-5678.",
+        message:
+          "Invalid two-wheeler vehicle number format. Valid examples: MH01AB1234, KA-02-C-5678.",
       });
     }
 
     // Fetch person details
-    let personRes = await pool.query(`SELECT * FROM pass_persons WHERE id = $1`, [personId]);
+    let personRes = await pool.query(
+      `SELECT * FROM pass_persons WHERE id = $1`,
+      [personId],
+    );
     let isVendor = false;
     if (personRes.rows.length === 0) {
-      personRes = await pool.query(`SELECT * FROM vendor_pass_persons WHERE id = $1`, [personId]);
+      personRes = await pool.query(
+        `SELECT * FROM vendor_pass_persons WHERE id = $1`,
+        [personId],
+      );
       isVendor = true;
     }
 
     if (personRes.rows.length === 0) {
-      return res.status(404).json({ success: false, message: "Person record not found." });
+      return res
+        .status(404)
+        .json({ success: false, message: "Person record not found." });
     }
 
     const person = personRes.rows[0];
 
     // Check Annual/Yearly pass type
     const passTypeStr = String(person.passType || "").toUpperCase();
-    const isAnnual = passTypeStr === "YEARLY" || passTypeStr === "ANNUAL" || passTypeStr === "3";
+    const isAnnual =
+      passTypeStr === "YEARLY" ||
+      passTypeStr === "ANNUAL" ||
+      passTypeStr === "3";
     if (!isAnnual) {
-      return res.status(400).json({ success: false, message: "Two-wheeler number update is only permitted for Annual/Yearly passes." });
+      return res
+        .status(400)
+        .json({
+          success: false,
+          message:
+            "Two-wheeler number update is only permitted for Annual/Yearly passes.",
+        });
     }
 
     // Check two wheeler enablement
-    const hasTwoWheeler = person.withTwoWheeler === true || String(person.withTwoWheeler) === "true";
+    const hasTwoWheeler =
+      person.withTwoWheeler === true ||
+      String(person.withTwoWheeler) === "true";
     if (!hasTwoWheeler) {
-      return res.status(400).json({ success: false, message: "Two-wheeler pass was not availed for this person." });
+      return res
+        .status(400)
+        .json({
+          success: false,
+          message: "Two-wheeler pass was not availed for this person.",
+        });
     }
 
     // Check 3-change limit
@@ -1815,19 +1915,21 @@ const submitTwoWheelerUpdate = async (req, res) => {
     if (changeCount >= 3) {
       return res.status(400).json({
         success: false,
-        message: "You have changed the two-wheeler number 3 times already this year, so you cannot change it again.",
+        message:
+          "You have changed the two-wheeler number 3 times already this year, so you cannot change it again.",
       });
     }
 
     // Check pending request lock
     const pendingCheck = await pool.query(
       `SELECT * FROM two_wheeler_change_requests WHERE "personId" = $1 AND status = 'PENDING'`,
-      [personId]
+      [personId],
     );
     if (pendingCheck.rows.length > 0) {
       return res.status(400).json({
         success: false,
-        message: "A two-wheeler update request for this person is already under review by the Pass Section.",
+        message:
+          "A two-wheeler update request for this person is already under review by the Pass Section.",
       });
     }
 
@@ -1837,7 +1939,10 @@ const submitTwoWheelerUpdate = async (req, res) => {
     const targetPassId = passRequestId || person.passRequestId;
     if (targetPassId) {
       if (isVendor) {
-        const vpRes = await pool.query(`SELECT email, "companyName" FROM vendor_pass_requests WHERE id = $1`, [targetPassId]);
+        const vpRes = await pool.query(
+          `SELECT email, "companyName" FROM vendor_pass_requests WHERE id = $1`,
+          [targetPassId],
+        );
         if (vpRes.rows.length > 0) {
           companyName = vpRes.rows[0].companyName || "";
           email = vpRes.rows[0].email || "";
@@ -1845,7 +1950,7 @@ const submitTwoWheelerUpdate = async (req, res) => {
       } else {
         const prRes = await pool.query(
           `SELECT a.email, a."entityName" FROM pass_requests pr JOIN "Agents" a ON pr."agentId" = a.id WHERE pr.id = $1`,
-          [targetPassId]
+          [targetPassId],
         );
         if (prRes.rows.length > 0) {
           companyName = prRes.rows[0].entityName || "";
@@ -1871,7 +1976,7 @@ const submitTwoWheelerUpdate = async (req, res) => {
         vehicleNoClean,
         reason || "Two-wheeler vehicle number change",
         changeCount + 1,
-      ]
+      ],
     );
 
     if (email) {
@@ -1884,13 +1989,16 @@ const submitTwoWheelerUpdate = async (req, res) => {
           oldVehicleNo: person.vehicleNo || "N/A",
           newVehicleNo: vehicleNoClean,
           rejectedReason: null,
-        }).catch((err) => console.error("Email notification error:", err.message));
+        }).catch((err) =>
+          console.error("Email notification error:", err.message),
+        );
       });
     }
 
     return res.status(200).json({
       success: true,
-      message: "Two-wheeler update request submitted successfully for approval.",
+      message:
+        "Two-wheeler update request submitted successfully for approval.",
       data: insertRes.rows[0],
     });
   } catch (error) {
@@ -1924,41 +2032,56 @@ const getTwoWheelerUpdateRequests = async (req, res) => {
 const approveTwoWheelerUpdate = async (req, res) => {
   try {
     const { id } = req.params;
-    const reqRes = await pool.query(`SELECT * FROM two_wheeler_change_requests WHERE id = $1`, [id]);
+    const reqRes = await pool.query(
+      `SELECT * FROM two_wheeler_change_requests WHERE id = $1`,
+      [id],
+    );
     if (reqRes.rows.length === 0) {
-      return res.status(404).json({ success: false, message: "Update request not found." });
+      return res
+        .status(404)
+        .json({ success: false, message: "Update request not found." });
     }
 
     const changeReq = reqRes.rows[0];
     if (changeReq.status !== "PENDING") {
-      return res.status(400).json({ success: false, message: `Request is already ${changeReq.status}` });
+      return res
+        .status(400)
+        .json({
+          success: false,
+          message: `Request is already ${changeReq.status}`,
+        });
     }
 
     // Update person vehicleNo & twoWheelerChangeCount
-    const table = changeReq.isVendorPass ? "vendor_pass_persons" : "pass_persons";
+    const table = changeReq.isVendorPass
+      ? "vendor_pass_persons"
+      : "pass_persons";
     await pool.query(
       `UPDATE ${table} 
        SET "vehicleNo" = $1, "twoWheelerChangeCount" = COALESCE("twoWheelerChangeCount", 0) + 1, "updatedAt" = NOW()
        WHERE id = $2`,
-      [changeReq.newVehicleNo, changeReq.personId]
+      [changeReq.newVehicleNo, changeReq.personId],
     );
 
     // Update change request status
     await pool.query(
       `UPDATE two_wheeler_change_requests SET status = 'APPROVED', "updatedAt" = NOW() WHERE id = $1`,
-      [id]
+      [id],
     );
 
     // Send Approval Email Notification
     if (changeReq.passRequestId) {
       let email = "";
       if (changeReq.isVendorPass) {
-        const vpRes = await pool.query(`SELECT email FROM vendor_pass_requests WHERE id = $1`, [changeReq.passRequestId]);
+        const vpRes = await pool.query(
+          `SELECT email FROM vendor_pass_requests WHERE id = $1`,
+          [changeReq.passRequestId],
+        );
         if (vpRes.rows.length > 0) email = vpRes.rows[0].email || "";
       } else {
         const prRes = await pool.query(
           `SELECT a.email FROM pass_requests pr JOIN "Agents" a ON pr."agentId" = a.id WHERE pr.id = $1`,
-          [changeReq.passRequestId]
+          [changeReq.passRequestId],
         );
         if (prRes.rows.length > 0) email = prRes.rows[0].email || "";
       }
@@ -1969,11 +2092,14 @@ const approveTwoWheelerUpdate = async (req, res) => {
             type: "TWO_WHEELER_UPDATE_APPROVED",
             email,
             name: changeReq.companyName,
-            referenceNumber: changeReq.personPassNo || `REQ-${changeReq.passRequestId}`,
+            referenceNumber:
+              changeReq.personPassNo || `REQ-${changeReq.passRequestId}`,
             oldVehicleNo: changeReq.oldVehicleNo || "N/A",
             newVehicleNo: changeReq.newVehicleNo,
             rejectedReason: null,
-          }).catch((err) => console.error("Email notification error:", err.message));
+          }).catch((err) =>
+            console.error("Email notification error:", err.message),
+          );
         });
       }
     }
@@ -1992,32 +2118,45 @@ const rejectTwoWheelerUpdate = async (req, res) => {
   try {
     const { id } = req.params;
     const { rejectedReason } = req.body;
-    const reqRes = await pool.query(`SELECT * FROM two_wheeler_change_requests WHERE id = $1`, [id]);
+    const reqRes = await pool.query(
+      `SELECT * FROM two_wheeler_change_requests WHERE id = $1`,
+      [id],
+    );
     if (reqRes.rows.length === 0) {
-      return res.status(404).json({ success: false, message: "Update request not found." });
+      return res
+        .status(404)
+        .json({ success: false, message: "Update request not found." });
     }
 
     const changeReq = reqRes.rows[0];
     if (changeReq.status !== "PENDING") {
-      return res.status(400).json({ success: false, message: `Request is already ${changeReq.status}` });
+      return res
+        .status(400)
+        .json({
+          success: false,
+          message: `Request is already ${changeReq.status}`,
+        });
     }
 
     const finalReason = rejectedReason || "Request rejected by approver";
     await pool.query(
       `UPDATE two_wheeler_change_requests SET status = 'REJECTED', "rejectedReason" = $1, "updatedAt" = NOW() WHERE id = $2`,
-      [finalReason, id]
+      [finalReason, id],
     );
 
     // Send Rejection Email Notification
     if (changeReq.passRequestId) {
       let email = "";
       if (changeReq.isVendorPass) {
-        const vpRes = await pool.query(`SELECT email FROM vendor_pass_requests WHERE id = $1`, [changeReq.passRequestId]);
+        const vpRes = await pool.query(
+          `SELECT email FROM vendor_pass_requests WHERE id = $1`,
+          [changeReq.passRequestId],
+        );
         if (vpRes.rows.length > 0) email = vpRes.rows[0].email || "";
       } else {
         const prRes = await pool.query(
           `SELECT a.email FROM pass_requests pr JOIN "Agents" a ON pr."agentId" = a.id WHERE pr.id = $1`,
-          [changeReq.passRequestId]
+          [changeReq.passRequestId],
         );
         if (prRes.rows.length > 0) email = prRes.rows[0].email || "";
       }
@@ -2028,11 +2167,14 @@ const rejectTwoWheelerUpdate = async (req, res) => {
             type: "TWO_WHEELER_UPDATE_REJECTED",
             email,
             name: changeReq.companyName,
-            referenceNumber: changeReq.personPassNo || `REQ-${changeReq.passRequestId}`,
+            referenceNumber:
+              changeReq.personPassNo || `REQ-${changeReq.passRequestId}`,
             oldVehicleNo: changeReq.oldVehicleNo || "N/A",
             newVehicleNo: changeReq.newVehicleNo,
             rejectedReason: finalReason,
-          }).catch((err) => console.error("Email notification error:", err.message));
+          }).catch((err) =>
+            console.error("Email notification error:", err.message),
+          );
         });
       }
     }
@@ -2044,6 +2186,220 @@ const rejectTwoWheelerUpdate = async (req, res) => {
   } catch (error) {
     console.error("rejectTwoWheelerUpdate error:", error);
     return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+const updatePersonStatus = async (req, res) => {
+  try {
+    // if (!req.user || !req.user.userId) {
+    //   return res.status(401).json({
+    //     success: false,
+    //     message: "Unauthorized"
+    //   });
+    // }
+
+    const agentId = req.user.userId;
+
+    const { masterPersonId, isActive } = req.body;
+
+    const result = await Master.updatePersonStatus(
+      agentId,
+      masterPersonId,
+      isActive,
+    );
+
+    if (!result.success) {
+      return res.status(404).json(result);
+    }
+
+    return res.status(200).json(result);
+  } catch (error) {
+    console.error("Update Person Status Error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+};
+
+const updateVehicleStatus = async (req, res) => {
+  try {
+    // if (!req.user || !req.user.userId) {
+    //   return res.status(401).json({
+    //     success: false,
+    //     message: "Unauthorized"
+    //   });
+    // }
+
+    const agentId = req.user.userId;
+
+    const { masterVehicleId, isActive } = req.body;
+
+    const result = await Master.updateVehicleStatus(
+      agentId,
+      masterVehicleId,
+      isActive,
+    );
+
+    if (!result.success) {
+      return res.status(404).json(result);
+    }
+
+    return res.status(200).json(result);
+  } catch (error) {
+    console.error("Update Vehicle Status Error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+};
+
+const disablePersonPass = async (req, res) => {
+  try {
+    const agentId = req.user.userId;
+
+    const { passPersonId, reason } = req.body;
+
+    if (!passPersonId || !reason) {
+      return res.status(400).json({
+        success: false,
+        message: "Pass Person ID and reason are required",
+      });
+    }
+
+    const result = await getPassRequest.disablePersonPass(
+      agentId,
+      passPersonId,
+      reason,
+    );
+
+    if (!result.success) {
+      return res.status(400).json(result);
+    }
+
+    return res.json(result);
+  } catch (err) {
+    console.error(err);
+
+    return res.status(500).json({
+      success: false,
+      message: "Internal Server Error",
+    });
+  }
+};
+
+const getDisabledPasses = async (req, res) => {
+  try {
+    const agentId = req.user.userId;
+
+    const result = await getPassRequest.getDisabledPasses(agentId);
+
+    return res.json({
+      success: true,
+      data: result,
+    });
+  } catch (err) {
+    console.error(err);
+
+    return res.status(500).json({
+      success: false,
+      message: "Internal Server Error",
+    });
+  }
+};
+
+const disableVehiclePass = async (req, res) => {
+  try {
+    const agentId = req.user.userId;
+
+    const { passVehicleId, reason } = req.body;
+
+    if (!passVehicleId || !reason) {
+      return res.status(400).json({
+        success: false,
+        message: "Pass Vehicle ID and reason are required",
+      });
+    }
+
+    const result = await getPassRequest.disableVehiclePass(
+      agentId,
+      passVehicleId,
+      reason,
+    );
+
+    if (!result.success) {
+      return res.status(400).json(result);
+    }
+
+    return res.json(result);
+  } catch (err) {
+    console.error(err);
+
+    return res.status(500).json({
+      success: false,
+      message: "Internal Server Error",
+    });
+  }
+};
+
+const enablePersonPass = async (req, res) => {
+  try {
+    const { passPersonId } = req.body;
+
+    if (!passPersonId) {
+      return res.status(400).json({
+        success: false,
+        message: "passPersonId is required.",
+      });
+    }
+
+    const agentId = req.user?.id || req.user?.userId;
+
+    const result = await getPassRequest.enablePersonPass(
+      agentId,
+      passPersonId,
+    );
+
+    return res.status(result.success ? 200 : 400).json(result);
+  } catch (error) {
+    console.error("Enable person pass error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Unable to enable person pass.",
+    });
+  }
+};
+
+const enableVehiclePass = async (req, res) => {
+  try {
+    const { passVehicleId } = req.body;
+
+    if (!passVehicleId) {
+      return res.status(400).json({
+        success: false,
+        message: "passVehicleId is required.",
+      });
+    }
+
+    const agentId = req.user?.id || req.user?.userId;
+
+    const result = await getPassRequest.enableVehiclePass(
+      agentId,
+      passVehicleId,
+    );
+
+    return res.status(result.success ? 200 : 400).json(result);
+  } catch (error) {
+    console.error("Enable vehicle pass error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Unable to enable vehicle pass.",
+    });
   }
 };
 
@@ -2086,4 +2442,11 @@ module.exports = {
   getTwoWheelerUpdateRequests,
   approveTwoWheelerUpdate,
   rejectTwoWheelerUpdate,
+  updateVehicleStatus,
+  updatePersonStatus,
+  disablePersonPass,
+  getDisabledPasses,
+  disableVehiclePass,
+  enablePersonPass,
+  enableVehiclePass,
 };

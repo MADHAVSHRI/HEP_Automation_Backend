@@ -4,11 +4,13 @@ const captchaLimiter = require("../middlewares/rateLimiter");
 const passRequestController = require("../controllers/passRequestController");
 const authorizeToken = require("../middlewares/authorizeToken");
 const upload = require("../middlewares/uploadMiddleware");
-const verifyToken = require( "../middlewares/verifyToken" );
+const verifyToken = require("../middlewares/verifyToken");
 
-router.post("/createPassRequest",verifyToken,
+router.post(
+  "/createPassRequest",
+  verifyToken,
   upload.any(),
-  passRequestController.createPassRequest
+  passRequestController.createPassRequest,
 );
 
 router.get("/get-nationality", passRequestController.getNationalities); //coming from constants
@@ -22,34 +24,65 @@ router.get("/get-states", passRequestController.getStates); //coming from databa
 router.get("/get-cities", passRequestController.getCities); //coming from database
 router.get("/getDesignations", passRequestController.getDesignations); //coming from database
 router.get("/getVehicleTypes", passRequestController.getvehicleTypes); //coming from database
-router.get("/my-pass-requests",verifyToken, passRequestController.getAgentPassRequests); //coming from database
-router.get("/my-master-records",verifyToken, passRequestController.getMasterDirectory); //coming from database
-router.get("/get-agent-pass-requests",verifyToken,passRequestController.getAgentPassRequestsToApproverAdmin);
-router.get("/viewPassRequestsDocument", passRequestController.viewPassRequestsDocument);
-router.get("/qr-data/:passRequestId",verifyToken,passRequestController.getQrData);
+router.get(
+  "/my-pass-requests",
+  verifyToken,
+  passRequestController.getAgentPassRequests,
+); //coming from database
+router.get(
+  "/my-master-records",
+  verifyToken,
+  passRequestController.getMasterDirectory,
+); //coming from database
+router.get(
+  "/get-agent-pass-requests",
+  verifyToken,
+  passRequestController.getAgentPassRequestsToApproverAdmin,
+);
+router.get(
+  "/viewPassRequestsDocument",
+  passRequestController.viewPassRequestsDocument,
+);
+router.get(
+  "/qr-data/:passRequestId",
+  verifyToken,
+  passRequestController.getQrData,
+);
 
-// Vendor pass QR data endpoint (public - no auth required, token-based access)   
+// Vendor pass QR data endpoint (public - no auth required, token-based access)
 
 router.get(
   "/vendor-qr-data/:vendorPassId",
-  passRequestController.getVendorQrData
+  passRequestController.getVendorQrData,
 );
 
-router.put("/approve-person",verifyToken,passRequestController.approvePerson);
+router.put("/approve-person", verifyToken, passRequestController.approvePerson);
 
-router.put("/reject-person",verifyToken,passRequestController.rejectPerson);
+router.put("/reject-person", verifyToken, passRequestController.rejectPerson);
 
-router.put("/revert-person",verifyToken,passRequestController.revertPerson);
+router.put("/revert-person", verifyToken, passRequestController.revertPerson);
 
-router.put("/approve-vehicle",verifyToken,passRequestController.approveVehicle);
+router.put(
+  "/approve-vehicle",
+  verifyToken,
+  passRequestController.approveVehicle,
+);
 
-router.put("/reject-vehicle",verifyToken,passRequestController.rejectVehicle);
+router.put("/reject-vehicle", verifyToken, passRequestController.rejectVehicle);
 
-router.put("/revert-vehicle",verifyToken,passRequestController.revertVehicle);
+router.put("/revert-vehicle", verifyToken, passRequestController.revertVehicle);
 
-router.put("/complete-review",verifyToken,passRequestController.completeReview);
+router.put(
+  "/complete-review",
+  verifyToken,
+  passRequestController.completeReview,
+);
 
-router.get("/getPassDetails/:passRequestId", verifyToken, passRequestController.getPassDetails);
+router.get(
+  "/getPassDetails/:passRequestId",
+  verifyToken,
+  passRequestController.getPassDetails,
+);
 
 // Phase 2: Edit and resubmit reverted passes
 router.put(
@@ -70,7 +103,7 @@ router.put(
     { name: "cdcDocument", maxCount: 1 },
     { name: "entryAuthorization", maxCount: 1 },
   ]),
-  passRequestController.updatePassPerson
+  passRequestController.updatePassPerson,
 );
 
 router.put(
@@ -87,34 +120,85 @@ router.put(
     { name: "sparkArrester", maxCount: 1 },
     { name: "twistLock", maxCount: 1 },
   ]),
-  passRequestController.updatePassVehicle
+  passRequestController.updatePassVehicle,
 );
-router.put("/resubmit-reverted-pass/:passRequestId", verifyToken, passRequestController.resubmitRevertedPass);
+router.put(
+  "/resubmit-reverted-pass/:passRequestId",
+  verifyToken,
+  passRequestController.resubmitRevertedPass,
+);
 
 // Public QR validation endpoint — called by gate scanner when a QR is scanned
 // router.get("/validate-qr/:passNo", passRequestController.validateQrPass);
 
-router.post(
-  "/save-qr-pdf-path",
-  passRequestController.saveQrPdfPath
+router.post("/save-qr-pdf-path", passRequestController.saveQrPdfPath);
+
+router.post("/validate-qr", passRequestController.validateSecureQr);
+
+router.get("/viewMasterDocument", passRequestController.viewMasterDocument);
+
+router.put(
+  "/update-person-status",
+  verifyToken,
+  passRequestController.updatePersonStatus,
 );
 
-router.post(
-  "/validate-qr",
-  passRequestController.validateSecureQr
+router.put(
+  "/update-vehicle-status",
+  verifyToken,
+  passRequestController.updateVehicleStatus,
+);
+
+router.put(
+  "/disable-person-pass",
+  verifyToken,
+  passRequestController.disablePersonPass,
+);
+
+router.put(
+  "/disable-vehicle-pass",
+  verifyToken,
+  passRequestController.disableVehiclePass,
+);
+
+router.put(
+  "/enable-person-pass",
+  verifyToken,
+  passRequestController.enablePersonPass,
+);
+
+router.put(
+  "/enable-vehicle-pass",
+  verifyToken,
+  passRequestController.enableVehiclePass,
 );
 
 router.get(
-  "/viewMasterDocument",
-  passRequestController.viewMasterDocument
+  "/disabled-passes",
+  verifyToken,
+  passRequestController.getDisabledPasses,
 );
 
 // Two-Wheeler Update Request routes
-router.post("/two-wheeler-update-request", verifyToken, passRequestController.submitTwoWheelerUpdate);
-router.get("/two-wheeler-update-requests", verifyToken, passRequestController.getTwoWheelerUpdateRequests);
-router.put("/two-wheeler-update-requests/:id/approve", verifyToken, passRequestController.approveTwoWheelerUpdate);
-router.put("/two-wheeler-update-requests/:id/reject", verifyToken, passRequestController.rejectTwoWheelerUpdate);
+router.post(
+  "/two-wheeler-update-request",
+  verifyToken,
+  passRequestController.submitTwoWheelerUpdate,
+);
+router.get(
+  "/two-wheeler-update-requests",
+  verifyToken,
+  passRequestController.getTwoWheelerUpdateRequests,
+);
+router.put(
+  "/two-wheeler-update-requests/:id/approve",
+  verifyToken,
+  passRequestController.approveTwoWheelerUpdate,
+);
+router.put(
+  "/two-wheeler-update-requests/:id/reject",
+  verifyToken,
+  passRequestController.rejectTwoWheelerUpdate,
+);
 
 module.exports = router;
-
-
