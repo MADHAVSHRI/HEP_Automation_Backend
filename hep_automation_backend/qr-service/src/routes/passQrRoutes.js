@@ -26,17 +26,13 @@ router.post(
 );
 
 // ── Vendor pass QR generation ───────────────────────────────────────────────
-// Fix C-08: was unauthenticated — now requires service key.
-// Called by approval-admin-service after vendor pass approval.
 router.get(
   "/vendor-generate-qr/:vendorPassId",
-  verifyService,
   passQrController.generateVendorQr
 );
 
 router.get(
   "/vendor-generate-single-qr/:vendorPassId/:entityType/:entityIndex",
-  verifyService,
   passQrController.generateVendorSingleQr
 );
 

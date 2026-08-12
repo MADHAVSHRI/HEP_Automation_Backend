@@ -4352,6 +4352,16 @@ const viewPassRequestsDocuments = {
         }
       }
 
+      if (documentType === "workOrder") {
+        const res = await pool.query(
+          `SELECT "workOrderFilePath" AS path FROM "vendor_pass_requests" WHERE id = $1`,
+          [resolvedId]
+        );
+        if (res.rows[0]?.path) {
+          return { filePath: res.rows[0].path };
+        }
+      }
+
       // Map document types to keys for persons
       const personDocMap = {
         personPhoto: "photoFilePath",

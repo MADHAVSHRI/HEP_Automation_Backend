@@ -557,11 +557,20 @@ exports.getWorkOrderFile = async (req, res) => {
     if (!intake || !intake.workOrderFilePath) {
       return res.status(404).json({ success: false, message: "Work order file not found" });
     }
-    const absolutePath = path.resolve(intake.workOrderFilePath);
+    let absolutePath = path.isAbsolute(intake.workOrderFilePath)
+      ? intake.workOrderFilePath
+      : path.resolve(process.cwd(), intake.workOrderFilePath);
+
     if (!fs.existsSync(absolutePath)) {
-      return res.status(404).json({ success: false, message: "File not found on server" });
+      const relativeClean = intake.workOrderFilePath.replace(/^[/\\]+/, "");
+      const altPath = path.resolve(process.cwd(), relativeClean);
+      if (fs.existsSync(altPath)) {
+        absolutePath = altPath;
+      } else {
+        return res.status(404).json({ success: false, message: "File not found on server" });
+      }
     }
-    res.setHeader("Content-Disposition", `inline; filename="${intake.workOrderFileName || "workorder"}"`);
+    res.setHeader("Content-Disposition", `inline; filename="${intake.workOrderFileName || "workorder.pdf"}"`);
     res.sendFile(absolutePath);
   } catch (error) {
     console.error("getWorkOrderFile error:", error);
