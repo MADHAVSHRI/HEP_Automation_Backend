@@ -223,7 +223,7 @@ exports.levyCharge = async (req, res) => {
   try {
     const {
       entity_type, entity_id, pass_request_id, agent_id,
-      identifier, entity_name, pass_no, category,
+      identifier, entity_name, pass_no, category, pass_type,
       date_from, date_to, overstay_days, notes,
     } = req.body;
 
@@ -257,6 +257,7 @@ exports.levyCharge = async (req, res) => {
       identifier,
       entity_name,
       pass_no,
+      pass_type,
       date_from,
       date_to,
       overstay_days: overstayDaysInt,
@@ -472,7 +473,7 @@ exports.notifyDetected = async (req, res) => {
   try {
     const {
       entity_type, entity_id, pass_request_id, agent_id,
-      company_name, login_id, identifier, entity_name, pass_no, category,
+      company_name, login_id, identifier, entity_name, pass_no, category, pass_type,
       date_from, date_to, overstay_days,
     } = req.body;
 
@@ -505,6 +506,7 @@ exports.notifyDetected = async (req, res) => {
       identifier,
       entity_name,
       pass_no,
+      pass_type,
       date_from,
       date_to,
       overstay_days: overstayDaysInt,

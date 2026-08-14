@@ -41,7 +41,8 @@ async function initOverstayTable() {
   // Idempotent migration: add per-charge pass_blocked flag if not already present
   await pool.query(`
     ALTER TABLE overstay_charges
-    ADD COLUMN IF NOT EXISTS pass_blocked BOOLEAN NOT NULL DEFAULT false
+    ADD COLUMN IF NOT EXISTS pass_blocked BOOLEAN NOT NULL DEFAULT false,
+    ADD COLUMN IF NOT EXISTS pass_type VARCHAR(50);
   `);
 }
 
@@ -63,6 +64,16 @@ const LIVE_AMOUNT_SELECT = `
       THEN ROUND((oc.daily_rate * GREATEST(CURRENT_DATE - oc.date_to::date, 0))::numeric, 2)
     ELSE oc.total_amount
   END AS current_total_amount
+`;
+
+const COALESCE_PASS_TYPE = `
+  COALESCE(
+    oc.pass_type,
+    CASE
+      WHEN oc.entity_type IN ('PERSON', 'DRIVER') THEN (SELECT pp."passType"::text FROM pass_persons pp WHERE pp.id = oc.entity_id LIMIT 1)
+      WHEN oc.entity_type = 'VEHICLE' THEN (SELECT pv."passType"::text FROM pass_vehicles pv WHERE pv.id = oc.entity_id LIMIT 1)
+    END
+  ) AS pass_type
 `;
 /**
  * Load daily fees from hep_rate_config — the single source of truth for
@@ -133,6 +144,7 @@ const Overstay = {
         pp."aadharNo"        AS identifier,
         pp.name              AS entity_name,
         pp."personPassNo"    AS pass_no,
+        pp."passType"::text  AS pass_type,
         pp."dateFrom"        AS date_from,
         pp."dateTo"          AS date_to,
         CURRENT_DATE - pp."dateTo"::date AS overstay_days
@@ -164,6 +176,7 @@ const Overstay = {
         COALESCE(vt.name, pv."registrationNo") AS entity_name,
         vt.name              AS vehicle_type_name,
         pv."vehiclePassNo"   AS pass_no,
+        pv."passType"::text  AS pass_type,
         pv."dateFrom"        AS date_from,
         pv."dateTo"          AS date_to,
         CURRENT_DATE - pv."dateTo"::date AS overstay_days
@@ -238,12 +251,12 @@ const Overstay = {
     const res = await pool.query(
       `INSERT INTO overstay_charges (
           entity_type, entity_id, pass_request_id, agent_id,
-          identifier, entity_name, pass_no, date_from, date_to,
+          identifier, entity_name, pass_no, pass_type, date_from, date_to,
           overstay_days, daily_rate, total_amount, status,
           levied_by, levied_at, notes
        ) VALUES (
-          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 0, 0,
-          'NOTIFIED', $11, NOW(), $12
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 0, 0,
+          'NOTIFIED', $12, NOW(), $13
        ) RETURNING *`,
       [
         data.entity_type,
@@ -253,6 +266,7 @@ const Overstay = {
         data.identifier,
         data.entity_name || null,
         data.pass_no || null,
+        data.pass_type || null,
         data.date_from || null,
         data.date_to || null,
         data.overstay_days,
@@ -272,6 +286,7 @@ const Overstay = {
        SET overstay_days = $5,
            daily_rate = $6,
            total_amount = $7,
+           pass_type = COALESCE($10, pass_type),
            status = 'PENDING',
            levied_by = $8,
            levied_at = NOW(),
@@ -293,6 +308,7 @@ const Overstay = {
         data.total_amount,
         data.levied_by || null,
         data.notes || null,
+        data.pass_type || null,
       ]
     );
     if (promoted.rows[0]) {
@@ -302,12 +318,12 @@ const Overstay = {
     const res = await pool.query(
       `INSERT INTO overstay_charges (
           entity_type, entity_id, pass_request_id, agent_id,
-          identifier, entity_name, pass_no, date_from, date_to,
+          identifier, entity_name, pass_no, pass_type, date_from, date_to,
           overstay_days, daily_rate, total_amount, status,
           levied_by, levied_at, notes
        ) VALUES (
-          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
-          'PENDING', $13, NOW(), $14
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
+          'PENDING', $14, NOW(), $15
        ) RETURNING *`,
       [
         data.entity_type,
@@ -317,6 +333,7 @@ const Overstay = {
         data.identifier,
         data.entity_name || null,
         data.pass_no || null,
+        data.pass_type || null,
         data.date_from || null,
         data.date_to || null,
         data.overstay_days,
@@ -343,7 +360,7 @@ const Overstay = {
     params.push(limit, offset);
 
     const res = await pool.query(
-      `SELECT oc.*, ${LIVE_AMOUNT_SELECT},
+      `SELECT oc.*, ${COALESCE_PASS_TYPE}, ${LIVE_AMOUNT_SELECT},
               a."entityName" AS company_name, a."loginId" AS login_id
       FROM overstay_charges oc
       LEFT JOIN "Agents" a ON a.id = oc.agent_id
@@ -358,7 +375,7 @@ const Overstay = {
   /* ── 4. MY CHARGES (Agent) ── */
   async myCharges(agentId) {
     const res = await pool.query(
-      `SELECT oc.*, ${LIVE_AMOUNT_SELECT}
+      `SELECT oc.*, ${COALESCE_PASS_TYPE}, ${LIVE_AMOUNT_SELECT}
       FROM overstay_charges oc
       WHERE agent_id = $1 ORDER BY created_at DESC`,
       [agentId]
@@ -369,7 +386,7 @@ const Overstay = {
   /* ── 5. GET BY ID ── */
   async getById(id) {
     const res = await pool.query(
-      `SELECT oc.*, ${LIVE_AMOUNT_SELECT},
+      `SELECT oc.*, ${COALESCE_PASS_TYPE}, ${LIVE_AMOUNT_SELECT},
               a."entityName" AS company_name, a."email" AS agent_email, a."loginId" AS login_id
       FROM overstay_charges oc
       LEFT JOIN "Agents" a ON a.id = oc.agent_id
@@ -411,7 +428,7 @@ const Overstay = {
   /* ── 8. LIST EXCEPTION REQUESTS (Traffic) ── */
   async listExceptionRequests() {
     const res = await pool.query(
-      `SELECT oc.*, a."entityName" AS company_name, a."email" AS agent_email
+      `SELECT oc.*, ${COALESCE_PASS_TYPE}, a."entityName" AS company_name, a."email" AS agent_email
        FROM overstay_charges oc
        LEFT JOIN "Agents" a ON a.id = oc.agent_id
        WHERE oc.status = 'EXCEPTION_REQUESTED'
