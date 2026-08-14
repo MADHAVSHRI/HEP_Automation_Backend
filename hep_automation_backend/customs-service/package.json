@@ -1,0 +1,33 @@
+{
+  "name": "customs-service",
+  "version": "1.0.0",
+  "description": "Customs physical examination integration for APACS",
+  "main": "index.js",
+  "scripts": {
+    "test": "jest --testPathPatterns=tests/ --forceExit",
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "testMatch": ["**/tests/**/*.test.js"]
+  },
+  "author": "MS",
+  "license": "ISC",
+  "dependencies": {
+    "bcrypt": "^6.0.0",
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "jsonwebtoken": "^9.0.3",
+    "multer": "^2.2.0",
+    "nodemon": "^3.1.14",
+    "pg": "^8.22.0",
+    "sequelize": "^6.37.8",
+    "winston": "^3.19.0"
+  },
+  "devDependencies": {
+    "jest": "^30.4.2",
+    "supertest": "^7.2.2"
+  }
+}

@@ -62,7 +62,7 @@ function overstayLeviedTemplate({
         <tr>
           <td style="background:#fef2f2;border-left:5px solid #dc2626;padding:14px 36px;">
             <p style="margin:0;color:#dc2626;font-size:14px;font-weight:800;">
-              ⚠ NOTICE: Overstay Fine Levied — Charge Ref #${charge_id}
+              ⚠ NOTICE: Overstay Fine Levied
             </p>
           </td>
         </tr>
