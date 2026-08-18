@@ -128,6 +128,47 @@ module.exports = {
         }
       );
     }
+
+    // =========================================================
+    // PASS VEHICLES
+    // =========================================================
+
+    const passVehicles =
+      await queryInterface.describeTable('pass_vehicles');
+
+    if (!passVehicles.ulip_verified) {
+      await queryInterface.addColumn(
+        'pass_vehicles',
+        'ulip_verified',
+        {
+          type: Sequelize.BOOLEAN,
+          allowNull: false,
+          defaultValue: false,
+        }
+      );
+    }
+
+    if (!passVehicles.vehicle_status) {
+      await queryInterface.addColumn(
+        'pass_vehicles',
+        'vehicle_status',
+        {
+          type: Sequelize.STRING(20),
+          allowNull: true,
+        }
+      );
+    }
+
+    if (!passVehicles.ulip_verified_at) {
+      await queryInterface.addColumn(
+        'pass_vehicles',
+        'ulip_verified_at',
+        {
+          type: Sequelize.DATE,
+          allowNull: true,
+        }
+      );
+    }
   },
 
 
