@@ -4,7 +4,7 @@
 
 module.exports = {
   async up(queryInterface, Sequelize) {
-    await queryInterface.bulkInsert("port_departments", [
+    const allDepts = [
       {
         departmentName: "CISF",
         isActive: true,
@@ -107,7 +107,21 @@ module.exports = {
         createdAt: new Date(),
         updatedAt: new Date(),
       },
-    ]);
+    ];
+
+    const [existingRows] = await queryInterface.sequelize.query(
+      `SELECT "departmentName" FROM port_departments WHERE "departmentName" IN (:names)`,
+      {
+        replacements: { names: allDepts.map((d) => d.departmentName) },
+      }
+    );
+
+    const existingNames = new Set((existingRows || []).map((r) => r.departmentName));
+    const newRecords = allDepts.filter((d) => !existingNames.has(d.departmentName));
+
+    if (newRecords.length > 0) {
+      await queryInterface.bulkInsert("port_departments", newRecords);
+    }
   },
 
   async down(queryInterface, Sequelize) {

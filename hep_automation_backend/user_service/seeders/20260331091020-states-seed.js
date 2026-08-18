@@ -57,11 +57,22 @@ module.exports = {
       }
     }
 
+    // Fetch existing state IDs to prevent duplicate rows
+    const existingStates = await queryInterface.sequelize.query(
+      'SELECT id FROM states;',
+      { type: queryInterface.sequelize.QueryTypes.SELECT }
+    );
+    const existingStateIds = new Set((existingStates || []).map((s) => s.id));
+
+    const newStatesToInsert = statesToInsert.filter((s) => !existingStateIds.has(s.id));
+
     // Bulk insert in chunks to avoid parameter limits in Postgres (max 65,535 parameters)
-    const chunkSize = 5000;
-    for (let i = 0; i < statesToInsert.length; i += chunkSize) {
-      const chunk = statesToInsert.slice(i, i + chunkSize);
-      await queryInterface.bulkInsert("states", chunk);
+    if (newStatesToInsert.length > 0) {
+      const chunkSize = 5000;
+      for (let i = 0; i < newStatesToInsert.length; i += chunkSize) {
+        const chunk = newStatesToInsert.slice(i, i + chunkSize);
+        await queryInterface.bulkInsert("states", chunk);
+      }
     }
 
     // Reset the auto-increment sequence in Postgres for states table

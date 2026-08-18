@@ -3,7 +3,7 @@
 /** @type {import('sequelize-cli').Migration} */
 module.exports = {
   async up(queryInterface, Sequelize) {
-    await queryInterface.bulkInsert("visit_purposes", [
+    const allPurposes = [
       {
         name: "Inspection",
         description: "Inspection related visit",
@@ -11,7 +11,6 @@ module.exports = {
         createdAt: new Date(),
         updatedAt: new Date(),
       },
-
       {
         name: "Maintenance",
         description: "Maintenance related visit",
@@ -19,7 +18,6 @@ module.exports = {
         createdAt: new Date(),
         updatedAt: new Date(),
       },
-
       {
         name: "Repairs",
         description: "Repair work visit",
@@ -27,7 +25,6 @@ module.exports = {
         createdAt: new Date(),
         updatedAt: new Date(),
       },
-
       {
         name: "Site Visit",
         description: "Site visit for evaluation",
@@ -35,7 +32,6 @@ module.exports = {
         createdAt: new Date(),
         updatedAt: new Date(),
       },
-
       {
         name: "New Project",
         description: "Visit related to new project",
@@ -43,7 +39,6 @@ module.exports = {
         createdAt: new Date(),
         updatedAt: new Date(),
       },
-
       {
         name: "Others",
         description: "Other purpose",
@@ -51,15 +46,34 @@ module.exports = {
         createdAt: new Date(),
         updatedAt: new Date(),
       },
-    ]);
+    ];
+
+    // Fetch existing purpose names to skip already existing entries
+    const [existingRows] = await queryInterface.sequelize.query(
+      `SELECT name FROM visit_purposes WHERE name IN (:names)`,
+      {
+        replacements: { names: allPurposes.map((p) => p.name) },
+      }
+    );
+
+    const existingNames = new Set((existingRows || []).map((r) => r.name));
+    const newRecords = allPurposes.filter((p) => !existingNames.has(p.name));
+
+    if (newRecords.length > 0) {
+      await queryInterface.bulkInsert("visit_purposes", newRecords);
+    }
   },
 
   async down(queryInterface, Sequelize) {
-    /**
-     * Add commands to revert seed here.
-     *
-     * Example:
-     * await queryInterface.bulkDelete('People', null, {});
-     */
+    await queryInterface.bulkDelete("visit_purposes", {
+      name: [
+        "Inspection",
+        "Maintenance",
+        "Repairs",
+        "Site Visit",
+        "New Project",
+        "Others",
+      ],
+    });
   },
 };

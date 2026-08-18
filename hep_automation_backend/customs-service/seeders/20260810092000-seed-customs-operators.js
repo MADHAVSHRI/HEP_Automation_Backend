@@ -5,7 +5,7 @@ module.exports = {
   async up(queryInterface, Sequelize) {
     const now = new Date();
 
-    await queryInterface.bulkInsert("customs_operators", [
+    const allOperators = [
       {
         loginId: "CUSTOMS001",
         password:
@@ -14,7 +14,21 @@ module.exports = {
         createdAt: now,
         updatedAt: now,
       },
-    ]);
+    ];
+
+    const [existingRows] = await queryInterface.sequelize.query(
+      `SELECT "loginId" FROM customs_operators WHERE "loginId" IN (:ids)`,
+      {
+        replacements: { ids: allOperators.map((o) => o.loginId) },
+      }
+    );
+
+    const existingIds = new Set((existingRows || []).map((r) => r.loginId));
+    const newRecords = allOperators.filter((o) => !existingIds.has(o.loginId));
+
+    if (newRecords.length > 0) {
+      await queryInterface.bulkInsert("customs_operators", newRecords);
+    }
   },
 
   async down(queryInterface, Sequelize) {

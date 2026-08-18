@@ -53,7 +53,19 @@ module.exports = {
       updatedAt: new Date(),
     }));
 
-    await queryInterface.bulkInsert("vehicle_types", data);
+    const [existingRows] = await queryInterface.sequelize.query(
+      `SELECT name FROM vehicle_types WHERE name IN (:names)`,
+      {
+        replacements: { names: vehicleTypes },
+      }
+    );
+
+    const existingNames = new Set((existingRows || []).map((r) => r.name));
+    const newRecords = data.filter((v) => !existingNames.has(v.name));
+
+    if (newRecords.length > 0) {
+      await queryInterface.bulkInsert("vehicle_types", newRecords);
+    }
   },
 
   async down(queryInterface, Sequelize) {

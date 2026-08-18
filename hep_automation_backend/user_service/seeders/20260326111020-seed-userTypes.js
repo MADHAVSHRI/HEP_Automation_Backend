@@ -5,7 +5,7 @@
 
 module.exports = {
   async up(queryInterface) {
-    await queryInterface.bulkInsert("User_types", [
+    const allTypes = [
       {
         name: "Steamer Agent",
         document_instruction: "Upload Customs License & Port approval letter",
@@ -76,7 +76,6 @@ module.exports = {
         name: "Custom House Agent",
         document_instruction: "Upload License/Authorization Letter",
       },
-
 
       {
         name: "Labour Licence",
@@ -164,7 +163,21 @@ module.exports = {
         name: "Others",
         document_instruction: "Upload Supporting Document",
       },
-    ]);
+    ];
+
+    const [existingRows] = await queryInterface.sequelize.query(
+      `SELECT name FROM "User_types" WHERE name IN (:names)`,
+      {
+        replacements: { names: allTypes.map((t) => t.name) },
+      }
+    );
+
+    const existingNames = new Set((existingRows || []).map((r) => r.name));
+    const newRecords = allTypes.filter((t) => !existingNames.has(t.name));
+
+    if (newRecords.length > 0) {
+      await queryInterface.bulkInsert("User_types", newRecords);
+    }
   },
 
   async down(queryInterface) {

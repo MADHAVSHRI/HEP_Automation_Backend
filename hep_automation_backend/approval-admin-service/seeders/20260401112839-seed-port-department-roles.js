@@ -4,7 +4,7 @@
 module.exports = {
   async up(queryInterface, Sequelize) {
     const now = new Date();
-    await queryInterface.bulkInsert("port_department_roles", [
+    const allRoles = [
       { roleName: "Admin", createdAt: now, updatedAt: now },
       { roleName: "Administrator", createdAt: now, updatedAt: now },
       { roleName: "Agent", createdAt: now, updatedAt: now },
@@ -30,7 +30,21 @@ module.exports = {
       { roleName: "Transporter", createdAt: now, updatedAt: now },
       { roleName: "Vendor Pass", createdAt: now, updatedAt: now },
       { roleName: "Weigh Bridge", createdAt: now, updatedAt: now },
-    ]);
+    ];
+
+    const [existingRows] = await queryInterface.sequelize.query(
+      `SELECT "roleName" FROM port_department_roles WHERE "roleName" IN (:names)`,
+      {
+        replacements: { names: allRoles.map((r) => r.roleName) },
+      }
+    );
+
+    const existingNames = new Set((existingRows || []).map((r) => r.roleName));
+    const newRecords = allRoles.filter((r) => !existingNames.has(r.roleName));
+
+    if (newRecords.length > 0) {
+      await queryInterface.bulkInsert("port_department_roles", newRecords);
+    }
   },
 
   async down(queryInterface, Sequelize) {

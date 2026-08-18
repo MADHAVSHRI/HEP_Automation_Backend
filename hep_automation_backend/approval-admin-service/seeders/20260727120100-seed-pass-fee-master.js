@@ -2,7 +2,7 @@
 
 module.exports = {
   up: async (queryInterface, Sequelize) => {
-    await queryInterface.bulkInsert('pass_fee_master', [
+    const allFees = [
       {
         category: 'INDIVIDUAL',
         daily_fee: 13.00,
@@ -30,7 +30,21 @@ module.exports = {
         createdAt: new Date(),
         updatedAt: new Date()
       }
-    ], {});
+    ];
+
+    const [existingRows] = await queryInterface.sequelize.query(
+      `SELECT category FROM pass_fee_master WHERE category IN (:cats)`,
+      {
+        replacements: { cats: allFees.map((f) => f.category) },
+      }
+    );
+
+    const existingCats = new Set((existingRows || []).map((r) => r.category));
+    const newRecords = allFees.filter((f) => !existingCats.has(f.category));
+
+    if (newRecords.length > 0) {
+      await queryInterface.bulkInsert('pass_fee_master', newRecords, {});
+    }
   },
 
   down: async (queryInterface, Sequelize) => {

@@ -6,7 +6,7 @@ module.exports = {
   async up(queryInterface, Sequelize) {
     const now = new Date();
 
-    await queryInterface.bulkInsert("designations", [
+    const allDesignations = [
       {
         name: "Addl Asst Director (Safety)",
         isActive: true,
@@ -105,7 +105,21 @@ module.exports = {
       { name: "Teacher", isActive: true, createdAt: now, updatedAt: now },
       { name: "Visitor", isActive: true, createdAt: now, updatedAt: now },
       { name: "Others", isActive: true, createdAt: now, updatedAt: now },
-    ]);
+    ];
+
+    const [existingRows] = await queryInterface.sequelize.query(
+      `SELECT name FROM designations WHERE name IN (:names)`,
+      {
+        replacements: { names: allDesignations.map((d) => d.name) },
+      }
+    );
+
+    const existingNames = new Set((existingRows || []).map((r) => r.name));
+    const newRecords = allDesignations.filter((d) => !existingNames.has(d.name));
+
+    if (newRecords.length > 0) {
+      await queryInterface.bulkInsert("designations", newRecords);
+    }
   },
 
   async down(queryInterface, Sequelize) {

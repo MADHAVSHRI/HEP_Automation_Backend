@@ -72,11 +72,22 @@ module.exports = {
       }
     }
 
+    // Fetch existing city IDs to prevent duplicate rows
+    const existingCities = await queryInterface.sequelize.query(
+      'SELECT id FROM cities;',
+      { type: queryInterface.sequelize.QueryTypes.SELECT }
+    );
+    const existingCityIds = new Set((existingCities || []).map((c) => c.id));
+
+    const newCitiesToInsert = citiesToInsert.filter((c) => !existingCityIds.has(c.id));
+
     // Bulk insert in chunks to avoid parameter limits in Postgres (max 65,535 parameters)
-    const chunkSize = 5000;
-    for (let i = 0; i < citiesToInsert.length; i += chunkSize) {
-      const chunk = citiesToInsert.slice(i, i + chunkSize);
-      await queryInterface.bulkInsert("cities", chunk);
+    if (newCitiesToInsert.length > 0) {
+      const chunkSize = 5000;
+      for (let i = 0; i < newCitiesToInsert.length; i += chunkSize) {
+        const chunk = newCitiesToInsert.slice(i, i + chunkSize);
+        await queryInterface.bulkInsert("cities", chunk);
+      }
     }
 
     // Reset the auto-increment sequence in Postgres for cities table

@@ -30,8 +30,28 @@ module.exports = {
       updatedAt: now,
     }));
 
-    // Bulk insert countries
-    await queryInterface.bulkInsert("countries", countriesToInsert);
+    // Fetch existing country IDs and ISO2 codes to prevent duplicate rows
+    const existingCountries = await queryInterface.sequelize.query(
+      'SELECT id, iso2 FROM countries;',
+      { type: queryInterface.sequelize.QueryTypes.SELECT }
+    );
+    const existingIds = new Set((existingCountries || []).map((c) => c.id));
+    const existingIso2 = new Set(
+      (existingCountries || [])
+        .map((c) => (c.iso2 ? c.iso2.toUpperCase() : null))
+        .filter(Boolean)
+    );
+
+    const newCountriesToInsert = countriesToInsert.filter(
+      (c) =>
+        !existingIds.has(c.id) &&
+        (!c.iso2 || !existingIso2.has(c.iso2.toUpperCase()))
+    );
+
+    // Bulk insert missing countries only
+    if (newCountriesToInsert.length > 0) {
+      await queryInterface.bulkInsert("countries", newCountriesToInsert);
+    }
 
     // Reset the auto-increment sequence in Postgres for countries table
     if (queryInterface.sequelize.options.dialect === 'postgres') {

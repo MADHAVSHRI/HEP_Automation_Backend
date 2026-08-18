@@ -6,7 +6,7 @@
 
 module.exports = {
   async up(queryInterface, Sequelize) {
-    await queryInterface.bulkInsert("hep_rates", [
+    const allRates = [
       {
         hepTypeId: 1,
         dailyRate: 50,
@@ -28,7 +28,21 @@ module.exports = {
         createdAt: new Date(),
         updatedAt: new Date(),
       },
-    ]);
+    ];
+
+    const [existingRows] = await queryInterface.sequelize.query(
+      `SELECT "hepTypeId" FROM hep_rates WHERE "hepTypeId" IN (:ids)`,
+      {
+        replacements: { ids: allRates.map((r) => r.hepTypeId) },
+      }
+    );
+
+    const existingIds = new Set((existingRows || []).map((r) => r.hepTypeId));
+    const newRecords = allRates.filter((r) => !existingIds.has(r.hepTypeId));
+
+    if (newRecords.length > 0) {
+      await queryInterface.bulkInsert("hep_rates", newRecords);
+    }
   },
 
   async down(queryInterface, Sequelize) {
