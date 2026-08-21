@@ -11,7 +11,14 @@ const { sendReferenceEmail, sendApprovalEmail, sendRejectionEmail,
   sendProfileUpdateRevertedEmail, sendProfileUpdateRejectedEmail,
   sendTwoWheelerUpdateSubmittedEmail, sendTwoWheelerUpdateApprovedEmail,
   sendTwoWheelerUpdateRejectedEmail,
-  sendLicenseExpiryWarningEmail } = require("../services/emailService");
+  sendLicenseExpiryWarningEmail,
+  // Multiple Pass Submissions Functions
+  sendOTPEmail,
+  sendPublicRequestAcknowledgment,
+  sendAdminNotification,
+  sendApprovalNotification,
+  sendRejectionNotification,
+  sendChildBatchConfirmation } = require("../services/emailService");
 
 exports.sendOverstayReminder = async (req, res) => {
   try {
@@ -641,5 +648,175 @@ exports.sendTwoWheelerUpdateRejected = async (req, res) => {
   } catch (error) {
     console.error("[EMAIL-CTRL] sendTwoWheelerUpdateRejected error:", error);
     res.status(500).json({ success: false, message: "Email sending failed" });
+  }
+};
+
+// ── Multiple Pass Submissions Email Controllers ──────────────────────────────
+
+exports.sendOTP = async (req, res) => {
+  try {
+    const { email, otp } = req.body;
+    
+    if (!email || !otp) {
+      return res.status(400).json({
+        success: false,
+        message: "email and otp are required"
+      });
+    }
+
+    console.log(`[EMAIL-CTRL] Received OTP email request for ${email}`);
+    await sendOTPEmail(email, otp);
+    
+    console.log(`[EMAIL-CTRL] OTP email sent successfully to ${email}`);
+    return res.json({
+      success: true,
+      message: "OTP email sent successfully"
+    });
+  } catch (error) {
+    console.error("[EMAIL-CTRL] sendOTP error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Email sending failed"
+    });
+  }
+};
+
+exports.sendPublicRequestAcknowledgment = async (req, res) => {
+  try {
+    const { applicantEmail, trackingNumber } = req.body;
+    
+    if (!applicantEmail || !trackingNumber) {
+      return res.status(400).json({
+        success: false,
+        message: "applicantEmail and trackingNumber are required"
+      });
+    }
+
+    console.log(`[EMAIL-CTRL] Received public request acknowledgment for ${applicantEmail}`);
+    await sendPublicRequestAcknowledgment(req.body);
+    
+    console.log(`[EMAIL-CTRL] Public request acknowledgment sent to ${applicantEmail}`);
+    return res.json({
+      success: true,
+      message: "Public request acknowledgment email sent successfully"
+    });
+  } catch (error) {
+    console.error("[EMAIL-CTRL] sendPublicRequestAcknowledgment error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Email sending failed"
+    });
+  }
+};
+
+exports.sendAdminNotification = async (req, res) => {
+  try {
+    const { trackingNumber, companyName } = req.body;
+    
+    if (!trackingNumber || !companyName) {
+      return res.status(400).json({
+        success: false,
+        message: "trackingNumber and companyName are required"
+      });
+    }
+
+    console.log(`[EMAIL-CTRL] Received admin notification request for ${trackingNumber}`);
+    await sendAdminNotification(req.body);
+    
+    console.log(`[EMAIL-CTRL] Admin notification sent for ${trackingNumber}`);
+    return res.json({
+      success: true,
+      message: "Admin notification email sent successfully"
+    });
+  } catch (error) {
+    console.error("[EMAIL-CTRL] sendAdminNotification error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Email sending failed"
+    });
+  }
+};
+
+exports.sendApprovalNotification = async (req, res) => {
+  try {
+    const { applicantEmail, uploadLink, validityFrom, validityUpto } = req.body;
+    
+    if (!applicantEmail || !uploadLink || !validityFrom || !validityUpto) {
+      return res.status(400).json({
+        success: false,
+        message: "applicantEmail, uploadLink, validityFrom, and validityUpto are required"
+      });
+    }
+
+    console.log(`[EMAIL-CTRL] Received approval notification request for ${applicantEmail}`);
+    await sendApprovalNotification(req.body);
+    
+    console.log(`[EMAIL-CTRL] Approval notification sent to ${applicantEmail}`);
+    return res.json({
+      success: true,
+      message: "Approval notification email sent successfully"
+    });
+  } catch (error) {
+    console.error("[EMAIL-CTRL] sendApprovalNotification error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Email sending failed"
+    });
+  }
+};
+
+exports.sendRejectionNotification = async (req, res) => {
+  try {
+    const { applicantEmail, rejectionReason } = req.body;
+    
+    if (!applicantEmail || !rejectionReason) {
+      return res.status(400).json({
+        success: false,
+        message: "applicantEmail and rejectionReason are required"
+      });
+    }
+
+    console.log(`[EMAIL-CTRL] Received rejection notification request for ${applicantEmail}`);
+    await sendRejectionNotification(req.body);
+    
+    console.log(`[EMAIL-CTRL] Rejection notification sent to ${applicantEmail}`);
+    return res.json({
+      success: true,
+      message: "Rejection notification email sent successfully"
+    });
+  } catch (error) {
+    console.error("[EMAIL-CTRL] sendRejectionNotification error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Email sending failed"
+    });
+  }
+};
+
+exports.sendChildBatchConfirmation = async (req, res) => {
+  try {
+    const { applicantEmail, refNo, submissionNumber } = req.body;
+    
+    if (!applicantEmail || !refNo || !submissionNumber) {
+      return res.status(400).json({
+        success: false,
+        message: "applicantEmail, refNo, and submissionNumber are required"
+      });
+    }
+
+    console.log(`[EMAIL-CTRL] Received child batch confirmation request for ${applicantEmail}`);
+    await sendChildBatchConfirmation(req.body);
+    
+    console.log(`[EMAIL-CTRL] Child batch confirmation sent to ${applicantEmail}`);
+    return res.json({
+      success: true,
+      message: "Child batch confirmation email sent successfully"
+    });
+  } catch (error) {
+    console.error("[EMAIL-CTRL] sendChildBatchConfirmation error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Email sending failed"
+    });
   }
 };

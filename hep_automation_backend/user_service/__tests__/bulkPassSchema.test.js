@@ -51,6 +51,10 @@ function applyCreateBatchDefaults(data) {
     validityUpto: data.validityUpto,
     remarks: data.remarks || null,
     status: data.status || "DRAFT",
+    multipleSubmissionsEnabled: data.multipleSubmissionsEnabled !== undefined ? !!data.multipleSubmissionsEnabled : false,
+    parent_request_id: data.parent_request_id || null,
+    submission_number: Number(data.submission_number) || 1,
+    request_source: data.request_source || "DEPARTMENT",
   };
 }
 
@@ -378,5 +382,196 @@ describe("Property 6 — Filter predicate: every returned record satisfies filte
       ),
       { numRuns: 100 }
     );
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// Property 7: Multiple Submissions — defaults and validation
+// **Feature: bulk-pass-module, Property 7: Multiple Submissions defaults and validation**
+// **Validates: Requirements 1.1, 1.3, 2.1, 2.5, 9.4, 9.5**
+// ---------------------------------------------------------------------------
+
+describe("Property 7 — Multiple Submissions: defaults and field validation", () => {
+  test("createBatch defaults multipleSubmissionsEnabled to false when not set", () => {
+    fc.assert(
+      fc.property(arbValidIntakeData, (data) => {
+        const { multipleSubmissionsEnabled: _omit, ...withoutFlag } = data;
+        const row = applyCreateBatchDefaults(withoutFlag);
+        return row.multipleSubmissionsEnabled === false;
+      }),
+      { numRuns: 100 }
+    );
+  });
+
+  test("createBatch preserves multipleSubmissionsEnabled when explicitly set to true", () => {
+    fc.assert(
+      fc.property(arbValidIntakeData, (data) => {
+        const row = applyCreateBatchDefaults({ ...data, multipleSubmissionsEnabled: true });
+        return row.multipleSubmissionsEnabled === true;
+      }),
+      { numRuns: 100 }
+    );
+  });
+
+  test("createBatch defaults submission_number to 1 when not set", () => {
+    fc.assert(
+      fc.property(arbValidIntakeData, (data) => {
+        const { submission_number: _omit, ...withoutNum } = data;
+        const row = applyCreateBatchDefaults(withoutNum);
+        return row.submission_number === 1;
+      }),
+      { numRuns: 100 }
+    );
+  });
+
+  test("createBatch preserves submission_number when explicitly set", () => {
+    fc.assert(
+      fc.property(
+        arbValidIntakeData,
+        fc.integer({ min: 1, max: 100 }),
+        (data, submissionNum) => {
+          const row = applyCreateBatchDefaults({ ...data, submission_number: submissionNum });
+          return row.submission_number === submissionNum;
+        }
+      ),
+      { numRuns: 100 }
+    );
+  });
+
+  test("createBatch defaults request_source to DEPARTMENT when not set", () => {
+    fc.assert(
+      fc.property(arbValidIntakeData, (data) => {
+        const { request_source: _omit, ...withoutSource } = data;
+        const row = applyCreateBatchDefaults(withoutSource);
+        return row.request_source === "DEPARTMENT";
+      }),
+      { numRuns: 100 }
+    );
+  });
+
+  test("createBatch accepts PUBLIC_WEBSITE as request_source", () => {
+    fc.assert(
+      fc.property(arbValidIntakeData, (data) => {
+        const row = applyCreateBatchDefaults({ ...data, request_source: "PUBLIC_WEBSITE" });
+        return row.request_source === "PUBLIC_WEBSITE";
+      }),
+      { numRuns: 100 }
+    );
+  });
+
+  test("createBatch defaults parent_request_id to null when not set", () => {
+    fc.assert(
+      fc.property(arbValidIntakeData, (data) => {
+        const { parent_request_id: _omit, ...withoutParent } = data;
+        const row = applyCreateBatchDefaults(withoutParent);
+        return row.parent_request_id === null;
+      }),
+      { numRuns: 100 }
+    );
+  });
+
+  test("createBatch preserves parent_request_id when set", () => {
+    fc.assert(
+      fc.property(
+        arbValidIntakeData,
+        fc.integer({ min: 1, max: 10000 }),
+        (data, parentId) => {
+          const row = applyCreateBatchDefaults({ ...data, parent_request_id: parentId });
+          return row.parent_request_id === parentId;
+        }
+      ),
+      { numRuns: 100 }
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Property 8: Validity Period Checking
+// **Feature: bulk-pass-module, Property 8: Validity period checking**
+// **Validates: Requirements 7.1, 7.2**
+// ---------------------------------------------------------------------------
+
+describe("Property 8 — Validity Period: date range validation", () => {
+  /**
+   * Mirrors isValidityPeriodActive from bulkPassSchema.js
+   */
+  function isValidityPeriodActive(batch) {
+    if (!batch) return false;
+
+    const now = new Date();
+    
+    if (batch.validityFrom) {
+      const fromDate = new Date(batch.validityFrom);
+      if (now < fromDate) {
+        return false;
+      }
+    }
+
+    if (batch.validityUpto) {
+      const uptoDate = new Date(batch.validityUpto);
+      // Set time to end of day for validityUpto
+      uptoDate.setHours(23, 59, 59, 999);
+      if (now > uptoDate) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  test("batch with future validityFrom is not active", () => {
+    fc.assert(
+      fc.property(
+        fc.date({ min: new Date(Date.now() + 86400000), max: new Date("2030-12-31") }),
+        (futureDate) => {
+          const batch = {
+            validityFrom: futureDate.toISOString(),
+            validityUpto: new Date("2030-12-31").toISOString(),
+          };
+          return isValidityPeriodActive(batch) === false;
+        }
+      ),
+      { numRuns: 100 }
+    );
+  });
+
+  test("batch with past validityUpto is not active", () => {
+    fc.assert(
+      fc.property(
+        fc.date({ min: new Date("2020-01-01"), max: new Date(Date.now() - 86400000) }),
+        (pastDate) => {
+          const batch = {
+            validityFrom: new Date("2020-01-01").toISOString(),
+            validityUpto: pastDate.toISOString(),
+          };
+          return isValidityPeriodActive(batch) === false;
+        }
+      ),
+      { numRuns: 100 }
+    );
+  });
+
+  test("batch with current date within validity range is active", () => {
+    const now = new Date();
+    const yesterday = new Date(Date.now() - 86400000);
+    const tomorrow = new Date(Date.now() + 86400000);
+    
+    const batch = {
+      validityFrom: yesterday.toISOString(),
+      validityUpto: tomorrow.toISOString(),
+    };
+    
+    expect(isValidityPeriodActive(batch)).toBe(true);
+  });
+
+  test("batch with no validityFrom but future validityUpto is active", () => {
+    const tomorrow = new Date(Date.now() + 86400000);
+    
+    const batch = {
+      validityUpto: tomorrow.toISOString(),
+    };
+    
+    expect(isValidityPeriodActive(batch)).toBe(true);
   });
 });

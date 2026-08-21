@@ -17,9 +17,11 @@ app.use(express.json());
 
 app.use(loggerMiddleware);
 // connectDB();
-startConsumer()
-  .then(() => console.log("Kafka Consumer Started"))
-  .catch(err => console.error("Kafka Consumer Error:", err));
+// Temporarily disable Kafka consumer to prevent crash
+// startConsumer()
+//   .then(() => console.log("Kafka Consumer Started"))
+//   .catch(err => console.error("Kafka Consumer Error:", err));
+console.log("Kafka Consumer disabled - email service running in direct mode");
 app.use('/api', routes);
 
 // app.use("/api/agents", agentRoutes);

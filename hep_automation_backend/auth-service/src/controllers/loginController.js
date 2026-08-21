@@ -677,7 +677,7 @@ async function runParallel(captchaPromise, userPromise) {
               : "Unexpected axios error on captcha call",
     });
     const status = err?.response?.status;
-    if (status === 400) {
+    if (status === 400 || status === 401) {
       return {
         captchaError: {
           status: 400,

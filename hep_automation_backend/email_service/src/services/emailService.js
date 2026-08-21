@@ -29,6 +29,12 @@ const twoWheelerUpdateRejectedTemplate = require("../emailTemplates/twoWheelerUp
 const licenseExpiryWarningTemplate = require("../emailTemplates/licenseExpiryWarningTemplate");
 const overstayReminderTemplate = require("../emailTemplates/overstayReminderTemplate");
 const overstayLeviedTemplate = require("../emailTemplates/overstayLeviedTemplate");
+const otpVerificationTemplate = require("../emailTemplates/otpVerificationTemplate");
+const publicRequestAcknowledgmentTemplate = require("../emailTemplates/publicRequestAcknowledgmentTemplate");
+const adminNewPublicRequestTemplate = require("../emailTemplates/adminNewPublicRequestTemplate");
+const publicRequestApprovedTemplate = require("../emailTemplates/publicRequestApprovedTemplate");
+const publicRequestRejectedTemplate = require("../emailTemplates/publicRequestRejectedTemplate");
+const childBatchConfirmationTemplate = require("../emailTemplates/childBatchConfirmationTemplate");
 
 const sendOverstayReminderEmail = async (data) => {
   const html = overstayReminderTemplate(data);
@@ -477,6 +483,191 @@ const sendTwoWheelerUpdateRejectedEmail = async (payload) => {
   return transporter.sendMail(mailOptions);
 };
 
+// ── Multiple Pass Submissions Email Functions ────────────────────────────────
+
+const sendOTPEmail = async (email, otp) => {
+  try {
+    console.log(`[EMAIL-SVC] Preparing to send OTP email to ${email}`);
+    
+    const html = otpVerificationTemplate({ email, otp });
+
+    const mailOptions = {
+      from: process.env.EMAIL_USER,
+      to: email,
+      subject: "Chennai Port — Email Verification OTP",
+      html,
+    };
+
+    console.log(`[EMAIL-SVC] Sending OTP email via transporter to ${email}`);
+    const result = await transporter.sendMail(mailOptions);
+    console.log(`[EMAIL-SVC] OTP email sent successfully:`, result.messageId);
+    return result;
+  } catch (error) {
+    console.error(`[EMAIL-SVC] Error sending OTP email to ${email}:`, error.message);
+    if (process.env.NODE_ENV === "development" || !process.env.EMAIL_USER) {
+      console.log(`\n==========================================\n[DEV MODE] OTP generated for ${email}: ${otp}\n==========================================\n`);
+      return { messageId: "dev-mode-mock-id" };
+    }
+    throw error;
+  }
+};
+
+const sendPublicRequestAcknowledgment = async (payload) => {
+  try {
+    console.log(`[EMAIL-SVC] Preparing to send public request acknowledgment to ${payload.applicantEmail}`);
+    
+    const html = publicRequestAcknowledgmentTemplate({
+      companyName: payload.companyName,
+      trackingNumber: payload.trackingNumber,
+      submissionTimestamp: payload.submissionTimestamp,
+      applicantEmail: payload.applicantEmail,
+    });
+
+    const mailOptions = {
+      from: process.env.EMAIL_USER,
+      to: payload.applicantEmail,
+      subject: `Chennai Port — Bulk Pass Request Received (${payload.trackingNumber})`,
+      html,
+    };
+
+    console.log(`[EMAIL-SVC] Sending public request acknowledgment via transporter`);
+    const result = await transporter.sendMail(mailOptions);
+    console.log(`[EMAIL-SVC] Acknowledgment email sent successfully:`, result.messageId);
+    return result;
+  } catch (error) {
+    console.error(`[EMAIL-SVC] Error sending acknowledgment email:`, error);
+    throw error;
+  }
+};
+
+const sendAdminNotification = async (payload) => {
+  try {
+    console.log(`[EMAIL-SVC] Preparing to send admin notification for tracking: ${payload.trackingNumber}`);
+    
+    const html = adminNewPublicRequestTemplate({
+      companyName: payload.companyName,
+      applicantEmail: payload.applicantEmail,
+      applicantMobile: payload.applicantMobile,
+      noOfPersons: payload.noOfPersons,
+      noOfVehicles: payload.noOfVehicles,
+      validityFrom: payload.validityFrom,
+      validityUpto: payload.validityUpto,
+      visitorType: payload.visitorType,
+      purpose: payload.purpose,
+      trackingNumber: payload.trackingNumber,
+      requestDetailLink: payload.requestDetailLink,
+      submissionTimestamp: payload.submissionTimestamp,
+    });
+
+    const mailOptions = {
+      from: process.env.EMAIL_USER,
+      to: payload.adminEmail || process.env.ADMIN_EMAIL,
+      subject: `🔔 New Public Bulk Pass Request — ${payload.companyName} (${payload.trackingNumber})`,
+      html,
+    };
+
+    console.log(`[EMAIL-SVC] Sending admin notification via transporter`);
+    const result = await transporter.sendMail(mailOptions);
+    console.log(`[EMAIL-SVC] Admin notification email sent successfully:`, result.messageId);
+    return result;
+  } catch (error) {
+    console.error(`[EMAIL-SVC] Error sending admin notification:`, error);
+    throw error;
+  }
+};
+
+const sendApprovalNotification = async (payload) => {
+  try {
+    console.log(`[EMAIL-SVC] Preparing to send approval notification to ${payload.applicantEmail}`);
+    
+    const html = publicRequestApprovedTemplate({
+      companyName: payload.companyName,
+      trackingNumber: payload.trackingNumber,
+      uploadLink: payload.uploadLink,
+      validityFrom: payload.validityFrom,
+      validityUpto: payload.validityUpto,
+      noOfPersons: payload.noOfPersons,
+      noOfVehicles: payload.noOfVehicles,
+      remarks: payload.remarks,
+    });
+
+    const mailOptions = {
+      from: process.env.EMAIL_USER,
+      to: payload.applicantEmail,
+      subject: `✅ Bulk Pass Request Approved — Chennai Port (${payload.trackingNumber})`,
+      html,
+    };
+
+    console.log(`[EMAIL-SVC] Sending approval notification via transporter`);
+    const result = await transporter.sendMail(mailOptions);
+    console.log(`[EMAIL-SVC] Approval notification email sent successfully:`, result.messageId);
+    return result;
+  } catch (error) {
+    console.error(`[EMAIL-SVC] Error sending approval notification:`, error);
+    throw error;
+  }
+};
+
+const sendRejectionNotification = async (payload) => {
+  try {
+    console.log(`[EMAIL-SVC] Preparing to send rejection notification to ${payload.applicantEmail}`);
+    
+    const html = publicRequestRejectedTemplate({
+      companyName: payload.companyName,
+      trackingNumber: payload.trackingNumber,
+      rejectionReason: payload.rejectionReason,
+      submissionDate: payload.submissionDate,
+      applicantEmail: payload.applicantEmail,
+    });
+
+    const mailOptions = {
+      from: process.env.EMAIL_USER,
+      to: payload.applicantEmail,
+      subject: `❌ Bulk Pass Request Rejected — Chennai Port (${payload.trackingNumber})`,
+      html,
+    };
+
+    console.log(`[EMAIL-SVC] Sending rejection notification via transporter`);
+    const result = await transporter.sendMail(mailOptions);
+    console.log(`[EMAIL-SVC] Rejection notification email sent successfully:`, result.messageId);
+    return result;
+  } catch (error) {
+    console.error(`[EMAIL-SVC] Error sending rejection notification:`, error);
+    throw error;
+  }
+};
+
+const sendChildBatchConfirmation = async (payload) => {
+  try {
+    console.log(`[EMAIL-SVC] Preparing to send child batch confirmation to ${payload.applicantEmail}`);
+    
+    const html = childBatchConfirmationTemplate({
+      companyName: payload.companyName,
+      refNo: payload.refNo,
+      submissionNumber: payload.submissionNumber,
+      personsCount: payload.personsCount,
+      vehiclesCount: payload.vehiclesCount,
+      parentRefNo: payload.parentRefNo,
+      parentCompanyName: payload.parentCompanyName,
+    });
+
+    const mailOptions = {
+      from: process.env.EMAIL_USER,
+      to: payload.applicantEmail,
+      subject: `✅ Submission #${payload.submissionNumber} Received — Chennai Port (${payload.refNo})`,
+      html,
+    };
+
+    console.log(`[EMAIL-SVC] Sending child batch confirmation via transporter`);
+    const result = await transporter.sendMail(mailOptions);
+    console.log(`[EMAIL-SVC] Child batch confirmation email sent successfully:`, result.messageId);
+    return result;
+  } catch (error) {
+    console.error(`[EMAIL-SVC] Error sending child batch confirmation:`, error);
+    throw error;
+  }
+};
+
 module.exports = {
   sendReferenceEmail, sendApprovalEmail, 
   sendRejectionEmail, sendDeptUserCreationEmail, sendDeptUserActivatedEmail, 
@@ -491,5 +682,12 @@ module.exports = {
   sendProfileUpdateRevertedEmail, sendProfileUpdateRejectedEmail,
   sendTwoWheelerUpdateSubmittedEmail, sendTwoWheelerUpdateApprovedEmail,
   sendTwoWheelerUpdateRejectedEmail,
-  sendLicenseExpiryWarningEmail
+  sendLicenseExpiryWarningEmail,
+  // Multiple Pass Submissions Functions
+  sendOTPEmail,
+  sendPublicRequestAcknowledgment,
+  sendAdminNotification,
+  sendApprovalNotification,
+  sendRejectionNotification,
+  sendChildBatchConfirmation
 };

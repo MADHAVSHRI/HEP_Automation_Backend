@@ -40,4 +40,12 @@ router.post("/sendLicenseExpiryWarning", emailController.sendLicenseExpiryWarnin
 router.post("/sendOverstayReminder", emailController.sendOverstayReminder);
 router.post("/sendOverstayLevied", emailController.sendOverstayLevied);
 
+// ── Multiple Pass Submissions Email Routes ───────────────────────────────────
+router.post("/sendOTP", emailController.sendOTP);
+router.post("/sendPublicRequestAcknowledgment", emailController.sendPublicRequestAcknowledgment);
+router.post("/sendAdminNotification", emailController.sendAdminNotification);
+router.post("/sendApprovalNotification", emailController.sendApprovalNotification);
+router.post("/sendRejectionNotification", emailController.sendRejectionNotification);
+router.post("/sendChildBatchConfirmation", emailController.sendChildBatchConfirmation);
+
 module.exports = router;

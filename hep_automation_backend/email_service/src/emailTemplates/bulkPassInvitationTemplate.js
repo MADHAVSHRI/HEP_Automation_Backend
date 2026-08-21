@@ -8,7 +8,6 @@ const bulkPassInvitationTemplate = ({
   validityUpto,
   uploadLink,
   departmentName,
-  linkValidityHours,
 }) => {
   return `
   <div style="font-family: Arial, sans-serif; color:#1f2937; max-width:600px; margin:0 auto;">
@@ -72,7 +71,7 @@ const bulkPassInvitationTemplate = ({
 
       <p style="margin-top:24px; font-size:12px; color:#94a3b8;">
         This link is unique to your application. Do not forward it. Once submitted, it cannot be used again.
-        ${linkValidityHours ? `For security, this link is valid for <strong>${linkValidityHours} hours</strong> from the time of issue.` : ""}
+        The upload link is valid until <strong>${validityUpto || "the pass expiry date"}</strong>.
         If you did not expect this email, please ignore it.
       </p>
 

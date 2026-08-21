@@ -9,6 +9,7 @@ const BulkPassSchema = {
   /*
   ==========================================
   Create a new bulk pass batch
+  Requirements: 2.1-2.6, 9.4, 9.5
   ==========================================
   */
   async createBatch(data) {
@@ -36,48 +37,59 @@ const BulkPassSchema = {
         "status",
         "linkValidityHours",
         "tokenExpiresAt",
+        "multipleSubmissionsEnabled",
+        "parent_request_id",
+        "submission_number",
+        "request_source",
         "createdAt",
         "updatedAt"
       ) VALUES (
         $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,
         $11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,
+        $23,$24,$25,$26,
         NOW(),NOW()
       )
       RETURNING *;
     `;
 
     const values = [
-      data.refNo,
-      data.token,
-      data.tokenActive !== undefined ? data.tokenActive : true,
-      data.createdByUserId,
-      data.departmentId,
-      data.departmentName,
-      data.visitorType,
-      data.companyName,
-      data.applicantEmail,
-      data.applicantMobile,
+      data.refNo || null,
+      data.token || null,
+      data.tokenActive !== undefined ? !!data.tokenActive : true,
+      data.createdByUserId || 1,
+      data.departmentId || 6,
+      data.departmentName || "General Administration",
+      data.visitorType || "BUSINESS",
+      data.companyName || "N/A",
+      data.applicantEmail || "N/A",
+      data.applicantMobile || "N/A",
       data.refDocNo || null,
       data.workOrderRequired !== undefined ? !!data.workOrderRequired : false,
       Number(data.noOfPersons) || 0,
       Number(data.noOfVehicles) || 0,
       data.paymentMode || "CASH",
-      data.purpose,
+      data.purpose || "Bulk Pass Entry",
       data.validityFrom || null,
-      data.validityUpto,
+      data.validityUpto || new Date(Date.now() + 30 * 86400000).toISOString(),
       data.remarks || null,
       data.status || "DRAFT",
       data.linkValidityHours || 48,
       data.tokenExpiresAt || null,
+      data.multipleSubmissionsEnabled !== undefined ? !!data.multipleSubmissionsEnabled : false,
+      data.parent_request_id || null,
+      Number(data.submission_number) || 1,
+      data.request_source || "DEPARTMENT",
     ];
 
-    const result = await pool.query(query, values);
+    const sanitizedValues = values.map((v) => (v === undefined ? null : v));
+    const result = await pool.query(query, sanitizedValues);
     return result.rows[0];
   },
 
   /*
   ==========================================
   Get batch by ID
+  Requirements: 2.3, 9.4
   ==========================================
   */
   async getById(id) {
@@ -110,6 +122,10 @@ const BulkPassSchema = {
          "rejectionReason",
          "lastEmailSentAt",
          "qrPdfPath",
+         "multipleSubmissionsEnabled",
+         "parent_request_id",
+         "submission_number",
+         "request_source",
          "createdAt",
          "updatedAt"
        FROM "bulk_pass_batches"
@@ -122,6 +138,7 @@ const BulkPassSchema = {
   /*
   ==========================================
   Get batch by token
+  Requirements: 2.3, 9.4, 3.2
   ==========================================
   */
   async getByToken(token) {
@@ -154,6 +171,10 @@ const BulkPassSchema = {
          "rejectionReason",
          "lastEmailSentAt",
          "qrPdfPath",
+         "multipleSubmissionsEnabled",
+         "parent_request_id",
+         "submission_number",
+         "request_source",
          "createdAt",
          "updatedAt"
        FROM "bulk_pass_batches"
@@ -213,6 +234,13 @@ const BulkPassSchema = {
       where.push(`b."createdAt" <= $${i++}`);
       params.push(`${filters.toDate} 23:59:59`);
     }
+    if (filters.multipleSubmissionsEnabled !== undefined) {
+      if (filters.multipleSubmissionsEnabled) {
+        where.push(`b."multipleSubmissionsEnabled" = true`);
+      } else {
+        where.push(`(b."multipleSubmissionsEnabled" = false OR b."multipleSubmissionsEnabled" IS NULL)`);
+      }
+    }
 
     const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
 
@@ -238,8 +266,10 @@ const BulkPassSchema = {
         b."qrPdfPath",
         b."createdAt",
         b."updatedAt",
+        b."multipleSubmissionsEnabled",
         COALESCE(p.person_count, 0) AS "submittedPersonsCount",
-        COALESCE(p.vehicle_count, 0) AS "submittedVehiclesCount"
+        COALESCE(p.vehicle_count, 0) AS "submittedVehiclesCount",
+        COALESCE(c.child_count, 0) AS "childSubmissionsCount"
       FROM "bulk_pass_batches" b
       LEFT JOIN (
         SELECT
@@ -249,6 +279,13 @@ const BulkPassSchema = {
         FROM "bulk_pass_persons"
         GROUP BY "batchId"
       ) p ON p."batchId" = b.id
+      LEFT JOIN (
+        SELECT
+          parent_request_id AS parent_id,
+          COUNT(*) AS child_count
+        FROM "bulk_pass_batches"
+        GROUP BY parent_request_id
+      ) c ON c.parent_id = b.id
       ${whereSql}
       ORDER BY b."createdAt" DESC
       LIMIT 500
@@ -631,6 +668,188 @@ const BulkPassSchema = {
       [batchId]
     );
     return result.rows;
+  },
+
+  /*
+  ==========================================
+  Get child batches for a parent batch or parent request
+  Requirements: 10.1, 10.2, 4.1
+  
+  @param {number} parentId - The parent_request_id to query
+  @param {string} source - Filter by request_source (optional): 'DEPARTMENT' or 'PUBLIC_WEBSITE'
+  @returns {Array} Child batches with submission details
+  ==========================================
+  */
+  async getChildBatches(parentId, source = null) {
+    const params = [parentId];
+    let sourceFilter = '';
+    
+    if (source) {
+      sourceFilter = 'AND b."request_source" = $2';
+      params.push(source);
+    }
+
+    const query = `
+      SELECT
+        b.id,
+        b."refNo",
+        b."submission_number",
+        b.status,
+        b."noOfPersons",
+        b."noOfVehicles",
+        b."createdAt",
+        b."updatedAt",
+        COALESCE(p.person_count, 0) AS "submittedPersonsCount",
+        COALESCE(p.vehicle_count, 0) AS "submittedVehiclesCount"
+      FROM "bulk_pass_batches" b
+      LEFT JOIN (
+        SELECT
+          "batchId",
+          COUNT(*) AS person_count,
+          COUNT(CASE WHEN "vehicleNumber" IS NOT NULL AND "vehicleNumber" != '' THEN 1 END) AS vehicle_count
+        FROM "bulk_pass_persons"
+        GROUP BY "batchId"
+      ) p ON p."batchId" = b.id
+      WHERE b.parent_request_id = $1
+      ${sourceFilter}
+      ORDER BY b."submission_number" ASC
+    `;
+
+    const result = await pool.query(query, params);
+    return result.rows;
+  },
+
+  /*
+  ==========================================
+  Get next submission number for a parent
+  Requirements: 10.3, 10.4, 9.5
+  
+  @param {number} parentId - The parent_request_id to query
+  @param {string} source - Filter by request_source (optional): 'DEPARTMENT' or 'PUBLIC_WEBSITE'
+  @returns {number} Next submission number (starts from 1)
+  ==========================================
+  */
+  async getNextSubmissionNumber(parentId, source = null) {
+    const params = [parentId];
+    let sourceFilter = '';
+    
+    if (source) {
+      sourceFilter = 'AND "request_source" = $2';
+      params.push(source);
+    }
+
+    const query = `
+      SELECT COALESCE(MAX("submission_number"), 0) + 1 AS next_number
+      FROM "bulk_pass_batches"
+      WHERE parent_request_id = $1
+      ${sourceFilter}
+    `;
+
+    const result = await pool.query(query, params);
+    return Number(result.rows[0]?.next_number) || 1;
+  },
+
+  /*
+  ==========================================
+  Get parent batch by ID (for self-referential relationship)
+  This method helps retrieve the parent batch when dealing with
+  department-initiated multiple submissions where a batch can be
+  a parent to other batches.
+  Requirements: 2.3, 9.4
+  
+  @param {number} parentId - The parent_request_id that references another batch
+  @returns {Object|null} Parent batch object or null
+  ==========================================
+  */
+  async getParentBatch(parentId) {
+    // Since parent_request_id can reference either bulk_pass_parent_requests
+    // OR another bulk_pass_batches row, we check if the parentId exists as a batch
+    const result = await pool.query(
+      `SELECT
+         id,
+         "refNo",
+         "token",
+         "tokenActive",
+         "multipleSubmissionsEnabled",
+         "validityFrom",
+         "validityUpto",
+         "companyName",
+         "departmentId",
+         "departmentName",
+         "request_source",
+         status,
+         "createdAt"
+       FROM "bulk_pass_batches"
+       WHERE id = $1 AND "multipleSubmissionsEnabled" = true`,
+      [parentId]
+    );
+    return result.rows[0] || null;
+  },
+
+  /*
+  ==========================================
+  Check if batch is a parent batch (has children)
+  Requirements: 2.2, 2.3
+  
+  @param {number} batchId - The batch ID to check
+  @returns {boolean} True if batch has child batches
+  ==========================================
+  */
+  async hasChildBatches(batchId) {
+    const result = await pool.query(
+      `SELECT COUNT(*) as count
+       FROM "bulk_pass_batches"
+       WHERE parent_request_id = $1`,
+      [batchId]
+    );
+    return Number(result.rows[0]?.count) > 0;
+  },
+
+  /*
+  ==========================================
+  Check if batch allows multiple submissions
+  Requirements: 1.1, 1.3, 2.1
+  
+  @param {Object} batch - The batch object
+  @returns {boolean} True if multiple submissions enabled
+  ==========================================
+  */
+  isMultipleSubmissionsEnabled(batch) {
+    if (!batch) return false;
+    return batch.multipleSubmissionsEnabled === true;
+  },
+
+  /*
+  ==========================================
+  Check if validity period is active
+  Requirements: 7.1, 7.2
+  
+  @param {Object} batch - The batch object with validityFrom and validityUpto
+  @returns {boolean} True if current date is within validity period
+  ==========================================
+  */
+  isValidityPeriodActive(batch) {
+    if (!batch) return false;
+
+    const now = new Date();
+    
+    if (batch.validityFrom) {
+      const fromDate = new Date(batch.validityFrom);
+      if (now < fromDate) {
+        return false;
+      }
+    }
+
+    if (batch.validityUpto) {
+      const uptoDate = new Date(batch.validityUpto);
+      // Set time to end of day for validityUpto
+      uptoDate.setHours(23, 59, 59, 999);
+      if (now > uptoDate) {
+        return false;
+      }
+    }
+
+    return true;
   },
 };
 

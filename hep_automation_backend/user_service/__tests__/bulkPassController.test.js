@@ -36,6 +36,7 @@ function validateIntakeBody(body) {
     noOfPersons,
     noOfVehicles,
     validityUpto,
+    multipleSubmissionsEnabled,
   } = body;
 
   if (!visitorType || !companyName || !applicantEmail || !applicantMobile || !validityUpto) {
@@ -60,6 +61,12 @@ function validateIntakeBody(body) {
   }
   if (!validityUpto || new Date(validityUpto) <= new Date()) {
     return { ok: false, status: 400, message: "Validity upto must be a future date" };
+  }
+  // Validate multipleSubmissionsEnabled if provided
+  if (multipleSubmissionsEnabled !== undefined && multipleSubmissionsEnabled !== null) {
+    if (typeof multipleSubmissionsEnabled !== 'boolean' && multipleSubmissionsEnabled !== 'true' && multipleSubmissionsEnabled !== 'false') {
+      return { ok: false, status: 400, message: "Invalid multipleSubmissionsEnabled value" };
+    }
   }
   return { ok: true };
 }

@@ -49,12 +49,83 @@ const getResolvedToken = (tokenOrHash) => {
   return decrypted || tokenOrHash;
 };
 
+/**
+ * Centralized error handler for the Bulk Pass module.
+ * Formats diagnostic error messages clearly so API clients and UI forms get
+ * actionable error descriptions rather than generic internal server errors.
+ */
+const handleBulkPassError = (res, err, contextMessage = "Bulk pass processing error", statusCode = 500) => {
+  console.error(`[bulkPassController] ${contextMessage}:`, err.stack || err.message || err);
+  const detailedMessage = err.message ? `${contextMessage}: ${err.message}` : contextMessage;
+  return res.status(statusCode).json({
+    success: false,
+    message: detailedMessage,
+    errorDetails: err.message || null,
+    code: err.code || null,
+  });
+};
+
 // Returns true when a batch's upload link should be treated as expired.
 // A link is expired when the tokenActive flag has been cleared (e.g. after
 // submission) OR when the time-based expiry window has passed.
 const isLinkExpired = (batch) =>
   !batch.tokenActive ||
   (batch.tokenExpiresAt && new Date(batch.tokenExpiresAt).getTime() < Date.now());
+
+/**
+ * Resolves a token parameter to a target batch or parent request.
+ */
+const findBatchOrParentRequestByToken = async (token) => {
+  if (!token) return null;
+
+  // 1. First check bulk_pass_batches
+  let batch = await BulkPassSchema.getByToken(token);
+  if (batch) {
+    return { batch, isParentRequest: false, parentRequest: null };
+  }
+
+  // 2. Fall back to bulk_pass_parent_requests (public website requests)
+  const BulkPassParentRequest = require("../models/BulkPassParentRequest");
+  const parentRequest = await BulkPassParentRequest.findByToken(token);
+
+  if (parentRequest) {
+    let expiredByTime = false;
+    if (parentRequest.approved_time_upto) {
+      const upto = new Date(parentRequest.approved_time_upto);
+      if (upto.getHours() === 0 && upto.getMinutes() === 0 && upto.getSeconds() === 0) {
+        upto.setHours(23, 59, 59, 999);
+      }
+      expiredByTime = upto.getTime() < Date.now();
+    }
+
+    const formattedBatch = {
+      id: parentRequest.id,
+      refNo: parentRequest.tracking_number,
+      departmentId: null,
+      departmentName: "General Administration",
+      visitorType: parentRequest.visitor_type,
+      companyName: parentRequest.company_name,
+      applicantEmail: parentRequest.applicant_email,
+      applicantMobile: parentRequest.applicant_mobile,
+      noOfPersons: parentRequest.no_of_persons,
+      noOfVehicles: parentRequest.no_of_vehicles,
+      validityFrom: parentRequest.approved_time_from || parentRequest.validity_from,
+      validityUpto: parentRequest.approved_time_upto || parentRequest.validity_upto,
+      purpose: parentRequest.purpose,
+      paymentMode: parentRequest.payment_mode || "CASH",
+      status: parentRequest.status === "ACTIVE" ? "DRAFT" : parentRequest.status,
+      tokenActive: parentRequest.token_active && !expiredByTime,
+      tokenExpiresAt: parentRequest.approved_time_upto,
+      multipleSubmissionsEnabled: true,
+      request_source: "PUBLIC_WEBSITE",
+      isParentRequest: true,
+    };
+
+    return { batch: formattedBatch, isParentRequest: true, parentRequest };
+  }
+
+  return null;
+};
 
 // Resolve an encrypted-or-numeric id param to a Number (NaN if unresolvable).
 const resolveId = (idOrHash) => {
@@ -64,18 +135,7 @@ const resolveId = (idOrHash) => {
   return Number(resolved);
 };
 
-// Allowed upload-link validity windows (hours). Default is 48h.
-const ALLOWED_LINK_VALIDITY_HOURS = [24, 48];
-const DEFAULT_LINK_VALIDITY_HOURS = 48;
 
-const normalizeLinkValidityHours = (value) => {
-  const n = Number(value);
-  return ALLOWED_LINK_VALIDITY_HOURS.includes(n) ? n : DEFAULT_LINK_VALIDITY_HOURS;
-};
-
-// Compute the absolute expiry timestamp for an upload link.
-const computeTokenExpiry = (hours) =>
-  new Date(Date.now() + normalizeLinkValidityHours(hours) * 60 * 60 * 1000).toISOString();
 
 /**
  * Convert a DD/MM/YYYY date string into ISO YYYY-MM-DD for safe insertion into
@@ -129,6 +189,7 @@ function validateIntakeBody(body) {
     noOfVehicles,
     validityFrom,
     validityUpto,
+    multipleSubmissionsEnabled,
   } = body;
 
   if (!visitorType || !companyName || !applicantEmail || !applicantMobile || !validityUpto) {
@@ -167,6 +228,13 @@ function validateIntakeBody(body) {
     }
     if (new Date(validityFrom) >= new Date(validityUpto)) {
       return { ok: false, status: 400, message: "Validity from must be before validity upto" };
+    }
+  }
+
+  // Validate multipleSubmissionsEnabled if provided
+  if (multipleSubmissionsEnabled !== undefined && multipleSubmissionsEnabled !== null) {
+    if (typeof multipleSubmissionsEnabled !== 'boolean' && multipleSubmissionsEnabled !== 'true' && multipleSubmissionsEnabled !== 'false') {
+      return { ok: false, status: 400, message: "Invalid multipleSubmissionsEnabled value" };
     }
   }
 
@@ -379,13 +447,11 @@ exports.createIntake = async (req, res) => {
       validityFrom,
       validityUpto,
       remarks,
-      linkValidityHours,
+      multipleSubmissionsEnabled,
     } = req.body;
 
     // The create forms submit "purposeOfVisit"; accept it as a fallback for "purpose".
     const resolvedPurpose = purpose || purposeOfVisit || "";
-
-    const resolvedLinkValidityHours = normalizeLinkValidityHours(linkValidityHours);
 
     // Work order file (reuses uploadMiddleware.js for the single workOrder field)
     const fileEntry = Array.isArray(req.files?.workOrder) && req.files.workOrder[0];
@@ -418,8 +484,8 @@ exports.createIntake = async (req, res) => {
         validityUpto,
         remarks: remarks || null,
         status: "DRAFT",
-        linkValidityHours: resolvedLinkValidityHours,
-        tokenExpiresAt: computeTokenExpiry(resolvedLinkValidityHours),
+        tokenExpiresAt: validityUpto,
+        multipleSubmissionsEnabled: multipleSubmissionsEnabled === true || multipleSubmissionsEnabled === "true",
       });
     } finally {
       client.release();
@@ -440,7 +506,6 @@ exports.createIntake = async (req, res) => {
       validityUpto,
       uploadLink: buildUploadLink(batch.token),
       departmentName: batch.departmentName,
-      linkValidityHours: resolvedLinkValidityHours,
     }).catch(() => {});
 
     return res.status(201).json({
@@ -501,8 +566,8 @@ exports.resendInvitation = async (req, res) => {
     }
 
     // Refresh the link's validity window so the applicant gets a fresh
-    // 24h/48h period from this resend.
-    const newExpiry = computeTokenExpiry(batch.linkValidityHours);
+    // window aligned with the pass validity upto.
+    const newExpiry = batch.validityUpto;
 
     const sent = await sendEmail("sendBulkPassInvitation", {
       email: batch.applicantEmail,
@@ -515,7 +580,6 @@ exports.resendInvitation = async (req, res) => {
       validityUpto: batch.validityUpto,
       uploadLink: buildUploadLink(batch.token),
       departmentName: batch.departmentName,
-      linkValidityHours: batch.linkValidityHours,
     });
 
     if (!sent) {
@@ -543,11 +607,11 @@ exports.resendInvitation = async (req, res) => {
 
 /**
  * GET /api/bulk-pass/list  (protected — Dept User)
- * Requirements: 2.1, 2.2
+ * Requirements: 2.1, 2.2, 18.1
  */
 exports.listBatches = async (req, res) => {
   try {
-    const { refNo, companyName, status, fromDate, toDate, search } = req.query;
+    const { refNo, companyName, status, fromDate, toDate, search, multipleSubmissionsEnabled } = req.query;
 
     const role = (req.user?.role || "").toLowerCase();
     const deptName = (req.user?.departmentName || "").toLowerCase();
@@ -561,6 +625,7 @@ exports.listBatches = async (req, res) => {
       fromDate: fromDate || undefined,
       toDate: toDate || undefined,
       search: search || undefined,
+      multipleSubmissionsEnabled: multipleSubmissionsEnabled === 'true' ? true : undefined,
     };
 
     if (!isAdmin && !isTrafficApprover) {
@@ -749,7 +814,7 @@ exports.returnToApplicant = async (req, res) => {
     const updated = await BulkPassSchema.setStatus(id, "RETURNED_TO_APPLICANT", {
       tokenActive: true,
       returnReason: returnReason.trim(),
-      tokenExpiresAt: computeTokenExpiry(batch.linkValidityHours),
+      tokenExpiresAt: batch.validityUpto,
     });
     await BulkPassSchema.logTransition(id, "RETURNED_TO_APPLICANT", req.user.userId, returnReason.trim());
 
@@ -806,7 +871,7 @@ exports.resubmitBatch = async (req, res) => {
 
     const updated = await BulkPassSchema.setStatus(id, "RETURNED_TO_APPLICANT", {
       tokenActive: true,
-      tokenExpiresAt: computeTokenExpiry(batch.linkValidityHours),
+      tokenExpiresAt: batch.validityUpto,
     });
     await BulkPassSchema.logTransition(id, "RETURNED_TO_APPLICANT", req.user.userId, "Resubmitted after rejection");
     sendEmail("sendBulkPassReturned", {
@@ -830,10 +895,11 @@ exports.resubmitBatch = async (req, res) => {
  */
 exports.getPublicByToken = async (req, res) => {
   try {
-    const batch = await BulkPassSchema.getByToken(getResolvedToken(req.params.token));
-    if (!batch) {
+    const resolved = await findBatchOrParentRequestByToken(getResolvedToken(req.params.token));
+    if (!resolved || !resolved.batch) {
       return res.status(404).json({ success: false, message: "Invalid link" });
     }
+    const { batch, isParentRequest, parentRequest } = resolved;
     if (!batch.tokenActive) {
       const expiredByTime =
         batch.tokenExpiresAt && new Date(batch.tokenExpiresAt).getTime() < Date.now();
@@ -916,6 +982,205 @@ exports.getPublicByToken = async (req, res) => {
     return res.status(200).json({ success: true, data: responseData });
   } catch (err) {
     console.error("[bulkPass] getPublicByToken error:", err.message);
+    return res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
+/**
+ * GET /api/bulk-pass/validate-token/:token  (public — no auth)
+ * Requirements: 8.1-8.6, 3.2-3.5, 7.1-7.2
+ * 
+ * Enhanced token validation controller that handles:
+ * - bulk_pass_parent_requests (public request workflow)
+ * - bulk_pass_batches with multipleSubmissionsEnabled=true (department)
+ * - bulk_pass_batches with multipleSubmissionsEnabled=false (single submission)
+ */
+exports.validateToken = async (req, res) => {
+  try {
+    const token = getResolvedToken(req.params.token);
+    if (!token) {
+      return res.status(400).json({ success: false, message: "Token is required" });
+    }
+
+    // ── Step 1: Check if token belongs to bulk_pass_parent_requests (public request workflow) ──
+    const BulkPassParentRequest = require("../models/BulkPassParentRequest");
+    const parentRequest = await BulkPassParentRequest.findByToken(token);
+
+    if (parentRequest && parentRequest.token_active) {
+      // Validate current time is within approved_time_from and approved_time_upto
+      const now = new Date();
+      const approvedFrom = parentRequest.approved_time_from ? new Date(parentRequest.approved_time_from) : null;
+      const approvedUpto = parentRequest.approved_time_upto ? new Date(parentRequest.approved_time_upto) : null;
+
+      // Check if expired
+      if (approvedUpto) {
+        if (approvedUpto.getHours() === 0 && approvedUpto.getMinutes() === 0 && approvedUpto.getSeconds() === 0) {
+          approvedUpto.setHours(23, 59, 59, 999);
+        }
+        if (now > approvedUpto) {
+          return res.status(403).json({
+            success: false,
+            message: "The submission period has expired",
+          });
+        }
+      }
+
+      // Check if not yet started
+      if (approvedFrom && now < approvedFrom) {
+        return res.status(403).json({
+          success: false,
+          message: "The submission period has not started yet",
+        });
+      }
+
+      // Get submission history
+      const submissionHistory = await BulkPassSchema.getChildBatches(parentRequest.id, 'PUBLIC_WEBSITE');
+      const nextSubmissionNumber = await BulkPassSchema.getNextSubmissionNumber(parentRequest.id, 'PUBLIC_WEBSITE');
+
+      return res.status(200).json({
+        success: true,
+        data: {
+          isParentRequest: true,
+          isParentBatch: false,
+          withinValidityPeriod: true,
+          parentRequest: {
+            id: parentRequest.id,
+            trackingNumber: parentRequest.tracking_number,
+            companyName: parentRequest.company_name,
+            applicantEmail: parentRequest.applicant_email,
+            applicantMobile: parentRequest.applicant_mobile,
+            visitorType: parentRequest.visitor_type,
+            noOfPersons: parentRequest.no_of_persons,
+            noOfVehicles: parentRequest.no_of_vehicles,
+            paymentMode: parentRequest.payment_mode,
+            purpose: parentRequest.purpose,
+            validityFrom: parentRequest.validity_from,
+            validityUpto: parentRequest.validity_upto,
+            approvedTimeFrom: parentRequest.approved_time_from,
+            approvedTimeUpto: parentRequest.approved_time_upto,
+            workOrderRequired: parentRequest.work_order_required,
+            refDocNo: parentRequest.ref_doc_no,
+            remarks: parentRequest.remarks,
+            status: parentRequest.status,
+          },
+          submissionHistory,
+          nextSubmissionNumber,
+        },
+      });
+    }
+
+    // ── Step 2: Check if token belongs to bulk_pass_batches ──
+    const batch = await BulkPassSchema.getByToken(token);
+    
+    if (!batch) {
+      return res.status(404).json({
+        success: false,
+        message: "Invalid or inactive token",
+      });
+    }
+
+    // Check if token is active
+    if (!batch.tokenActive) {
+      return res.status(403).json({
+        success: false,
+        message: "Link expired or inactive",
+      });
+    }
+
+    // ── Step 3: Check if multipleSubmissionsEnabled is true ──
+    if (batch.multipleSubmissionsEnabled) {
+      // Validate current time is within validityFrom and validityUpto
+      const now = new Date();
+      const validityFrom = batch.validityFrom ? new Date(batch.validityFrom) : null;
+      const validityUpto = batch.validityUpto ? new Date(batch.validityUpto) : null;
+
+      // Check if expired
+      if (validityUpto && now > validityUpto) {
+        return res.status(403).json({
+          success: false,
+          message: "The submission period has expired",
+        });
+      }
+
+      // Check if not yet started
+      if (validityFrom && now < validityFrom) {
+        return res.status(403).json({
+          success: false,
+          message: "The submission period has not started yet",
+        });
+      }
+
+      // Get submission history
+      const submissionHistory = await BulkPassSchema.getChildBatches(batch.id, 'DEPARTMENT');
+      const nextSubmissionNumber = await BulkPassSchema.getNextSubmissionNumber(batch.id, 'DEPARTMENT');
+
+      return res.status(200).json({
+        success: true,
+        data: {
+          isParentRequest: false,
+          isParentBatch: true,
+          withinValidityPeriod: true,
+          batch: {
+            id: batch.id,
+            refNo: batch.refNo,
+            departmentId: batch.departmentId,
+            departmentName: batch.departmentName,
+            visitorType: batch.visitorType,
+            companyName: batch.companyName,
+            applicantEmail: batch.applicantEmail,
+            applicantMobile: batch.applicantMobile,
+            noOfPersons: batch.noOfPersons,
+            noOfVehicles: batch.noOfVehicles,
+            paymentMode: batch.paymentMode,
+            purpose: batch.purpose,
+            validityFrom: batch.validityFrom,
+            validityUpto: batch.validityUpto,
+            workOrderRequired: batch.workOrderRequired,
+            refDocNo: batch.refDocNo,
+            remarks: batch.remarks,
+            status: batch.status,
+            multipleSubmissionsEnabled: batch.multipleSubmissionsEnabled,
+          },
+          submissionHistory,
+          nextSubmissionNumber,
+        },
+      });
+    }
+
+    // ── Step 4: multipleSubmissionsEnabled is false (existing single-submission behavior) ──
+    return res.status(200).json({
+      success: true,
+      data: {
+        isParentRequest: false,
+        isParentBatch: false,
+        withinValidityPeriod: true,
+        batch: {
+          id: batch.id,
+          refNo: batch.refNo,
+          departmentId: batch.departmentId,
+          departmentName: batch.departmentName,
+          visitorType: batch.visitorType,
+          companyName: batch.companyName,
+          applicantEmail: batch.applicantEmail,
+          applicantMobile: batch.applicantMobile,
+          noOfPersons: batch.noOfPersons,
+          noOfVehicles: batch.noOfVehicles,
+          paymentMode: batch.paymentMode,
+          purpose: batch.purpose,
+          validityFrom: batch.validityFrom,
+          validityUpto: batch.validityUpto,
+          workOrderRequired: batch.workOrderRequired,
+          refDocNo: batch.refDocNo,
+          remarks: batch.remarks,
+          status: batch.status,
+          multipleSubmissionsEnabled: batch.multipleSubmissionsEnabled,
+          linkValidityHours: batch.linkValidityHours,
+          tokenExpiresAt: batch.tokenExpiresAt,
+        },
+      },
+    });
+  } catch (err) {
+    console.error("[bulkPass] validateToken error:", err.message);
     return res.status(500).json({ success: false, message: "Internal server error" });
   }
 };
@@ -1005,10 +1270,11 @@ exports.downloadTemplate = async (req, res) => {
  */
 exports.uploadFiles = async (req, res) => {
   try {
-    const batch = await BulkPassSchema.getByToken(getResolvedToken(req.params.token));
-    if (!batch) {
+    const resolved = await findBatchOrParentRequestByToken(getResolvedToken(req.params.token));
+    if (!resolved || !resolved.batch) {
       return res.status(404).json({ success: false, message: "Invalid link" });
     }
+    const { batch } = resolved;
     if (isLinkExpired(batch)) {
       return res.status(403).json({ success: false, message: "Link expired or inactive" });
     }
@@ -1040,10 +1306,11 @@ exports.uploadFiles = async (req, res) => {
  */
 exports.previewParsed = async (req, res) => {
   try {
-    const batch = await BulkPassSchema.getByToken(getResolvedToken(req.params.token));
-    if (!batch) {
+    const resolved = await findBatchOrParentRequestByToken(getResolvedToken(req.params.token));
+    if (!resolved || !resolved.batch) {
       return res.status(404).json({ success: false, message: "Invalid link" });
     }
+    const { batch } = resolved;
     if (isLinkExpired(batch)) {
       return res.status(403).json({ success: false, message: "Link expired or inactive" });
     }
@@ -1098,10 +1365,291 @@ exports.previewParsed = async (req, res) => {
  */
 exports.submitBatch = async (req, res) => {
   try {
-    const batch = await BulkPassSchema.getByToken(getResolvedToken(req.params.token));
-    if (!batch) {
-      return res.status(404).json({ success: false, message: "Invalid link" });
+    const token = getResolvedToken(req.params.token);
+    
+    // Parse multipart/form-data: excel_file, persons array, vehicles array, document files
+    const { filePaths, fileNames, persons = [], vehicles = [] } = req.body;
+    
+    // Validate maximum limits (Req 9.1-9.11, 3.3, 15.1)
+    if (persons.length > 30) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "Maximum 30 persons allowed per submission" 
+      });
     }
+    
+    if (vehicles.length > 20) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "Maximum 20 vehicles allowed per submission" 
+      });
+    }
+    
+    // **Step 1**: Identify parent (parent request or parent batch)
+    let parentRequest = null;
+    let parentBatch = null;
+    let isPublicRequest = false;
+    
+    // Check bulk_pass_parent_requests by shared_token
+    const BulkPassParentRequest = require("../models/BulkPassParentRequest");
+    parentRequest = await BulkPassParentRequest.findByToken(token);
+    
+    if (parentRequest) {
+      isPublicRequest = true;
+    } else {
+      // Check bulk_pass_batches by token where multipleSubmissionsEnabled=true
+      parentBatch = await BulkPassSchema.getByToken(token);
+      
+      if (parentBatch && !parentBatch.multipleSubmissionsEnabled) {
+        // Single submission batch - use original logic
+        return handleSingleSubmissionBatch(req, res, parentBatch);
+      }
+      
+      if (!parentBatch) {
+        return res.status(400).json({ 
+          success: false, 
+          message: "Invalid token. Parent batch or request not found." 
+        });
+      }
+    }
+    
+    // Determine parent for remaining steps
+    const parent = parentRequest || parentBatch;
+    
+    // **Step 2**: Validate validity period
+    const validityFrom = parent.validityFrom || parent.approved_time_from;
+    const validityUpto = parent.validityUpto || parent.approved_time_upto;
+    
+    const now = Date.now();
+    const validityUptoTime = validityUpto ? new Date(validityUpto).getTime() : null;
+    
+    if (!validityUptoTime || now > validityUptoTime) {
+      return res.status(403).json({ 
+        success: false, 
+        message: "The submission period has expired" 
+      });
+    }
+    
+    // **Step 3**: Validate blacklist
+    const aadhaarNumbers = persons.map(p => String(p.aadhaarNo || p.aadhaar).replace(/\s+/g, "").toUpperCase()).filter(Boolean);
+    const vehicleNumbers = vehicles.map(v => String(v.registrationNo || v.vehicleNumber).replace(/[\s\-]/g, "").toUpperCase()).filter(Boolean);
+    
+    // Check Aadhaar numbers against blacklist
+    if (aadhaarNumbers.length > 0) {
+      const blacklistedPersons = await pool.query(
+        `SELECT identifier, reason, reason_code FROM blacklist_entries
+         WHERE entity_type IN ('PERSON', 'DRIVER')
+           AND identifier = ANY($1)
+           AND status IN ('BLACKLISTED', 'UNBLACKLIST_REQUESTED', 'PENDING_BLACKLIST')`,
+        [aadhaarNumbers]
+      );
+      
+      if (blacklistedPersons.rows.length > 0) {
+        return res.status(400).json({ 
+          success: false, 
+          message: "One or more persons are blacklisted",
+          blacklisted: blacklistedPersons.rows.map(r => ({
+            identifier: r.identifier,
+            reason: r.reason,
+            reasonCode: r.reason_code
+          }))
+        });
+      }
+    }
+    
+    // Check vehicle registration numbers against blacklist
+    if (vehicleNumbers.length > 0) {
+      const blacklistedVehicles = await pool.query(
+        `SELECT identifier, reason, reason_code FROM blacklist_entries
+         WHERE entity_type = 'VEHICLE'
+           AND REPLACE(REPLACE(UPPER(identifier), ' ', ''), '-', '') = ANY($1)
+           AND status IN ('BLACKLISTED', 'UNBLACKLIST_REQUESTED', 'PENDING_BLACKLIST')`,
+        [vehicleNumbers]
+      );
+      
+      if (blacklistedVehicles.rows.length > 0) {
+        return res.status(400).json({ 
+          success: false, 
+          message: "One or more vehicles are blacklisted",
+          blacklisted: blacklistedVehicles.rows.map(r => ({
+            identifier: r.identifier,
+            reason: r.reason,
+            reasonCode: r.reason_code
+          }))
+        });
+      }
+    }
+    
+    // **Step 4**: Get next submission number using getNextSubmissionNumber helper
+    const submissionNumber = isPublicRequest
+      ? await BulkPassSchema.getNextSubmissionNumber(parentRequest.id, 'PUBLIC_WEBSITE')
+      : await BulkPassSchema.getNextSubmissionNumber(parentBatch.id, 'DEPARTMENT');
+    
+    // **Step 5**: Generate new reference number (format: BP/YYYY/NNNNN)
+    const client = await pool.connect();
+    let childRefNo;
+    try {
+      childRefNo = await ReferenceNumber.generateBulkPassReference(client);
+    } finally {
+      client.release();
+    }
+    
+    // **Step 6**: Create child batch record
+    const childBatchData = {
+      refNo: childRefNo,
+      token: buildToken(),
+      tokenActive: true,
+      status: 'UNDER_REVIEW',
+      multipleSubmissionsEnabled: false,
+      parent_request_id: parent.id,
+      submission_number: submissionNumber,
+      request_source: isPublicRequest ? 'PUBLIC_WEBSITE' : 'DEPARTMENT',
+      
+      // Inherit from parent
+      companyName: parent.companyName || parent.company_name,
+      applicantEmail: parent.applicantEmail || parent.applicant_email,
+      applicantMobile: parent.applicantMobile || parent.applicant_mobile,
+      validityFrom: validityFrom,
+      validityUpto: validityUpto,
+      departmentId: parent.departmentId || 6, // Default to General Admin for public requests
+      paymentMode: parent.paymentMode || parent.payment_mode,
+      purpose: parent.purpose,
+      workOrderRequired: parent.workOrderRequired || parent.work_order_required || false,
+      refDocNo: parent.refDocNo || parent.ref_doc_no,
+      remarks: parent.remarks,
+      
+      // Set from current submission
+      noOfPersons: persons.length,
+      noOfVehicles: vehicles.length,
+      
+      // Additional required fields
+      createdByUserId: parentBatch?.createdByUserId || null,
+      departmentName: parentBatch?.departmentName || 'General Administrator',
+      visitorType: parentBatch?.visitorType || parent.visitor_type || 'VENDOR',
+      linkValidityHours: 48,
+      tokenExpiresAt: null // Not applicable for child batches
+    };
+    
+    const childBatch = await BulkPassSchema.createBatch(childBatchData);
+    
+    // **Step 7**: Upload files to TOS service and get file paths
+    // (In current implementation, files are already uploaded via uploadMiddleware)
+    // File paths are in filePaths array
+    
+    // **Step 8**: Insert person records with batch_id = child batch ID
+    if (!Array.isArray(filePaths) || !filePaths.length) {
+      return res.status(400).json({ success: false, message: "filePaths are required for submission" });
+    }
+    
+    // Re-parse to get photo buffers and ensure zero errors
+    const parseResult = await parseAndValidate(filePaths, fileNames || filePaths.map((p) => path.basename(p)));
+    if (parseResult.summary.invalid > 0) {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot submit: ${parseResult.summary.invalid} row(s) have validation errors`,
+        data: { summary: parseResult.summary },
+      });
+    }
+    
+    // Persist photos to disk and build person records
+    const uploadDir = path.join("uploads", "bulk_pass", String(childBatch.id));
+    fs.mkdirSync(uploadDir, { recursive: true });
+
+    const personRows = [];
+    for (let i = 0; i < parseResult.rows.length; i++) {
+      const row = parseResult.rows[i];
+      let photoPath = null;
+
+      if (row.photoBuffer) {
+        const compressed = await compressPhotoBuffer(row.photoBuffer);
+        const photoFileName = `${row.aadhaar}_${i}.jpg`;
+        photoPath = path.join(uploadDir, photoFileName);
+        fs.writeFileSync(photoPath, compressed);
+      }
+
+      personRows.push({
+        fileName: row.fileName,
+        rowNumber: row.rowNumber,
+        name: row.name,
+        aadhaar: row.aadhaar,
+        dob: dobToISO(row.dob),
+        mobile: row.mobile,
+        address: row.address,
+        vehicleNumber: row.vehicleNumber || null,
+        vehicleType: row.vehicleType || null,
+        photoPath,
+        validationStatus: "valid",
+        errorMessage: null,
+      });
+    }
+    
+    await BulkPassSchema.insertPersons(childBatch.id, personRows);
+    
+    // **Step 9**: Insert vehicle records with batch_id = child batch ID
+    // (Vehicles are included in persons table via vehicleNumber field in current implementation)
+    
+    // **Step 10**: Insert bulk_pass_uploads records
+    for (let i = 0; i < filePaths.length; i++) {
+      const fn = (fileNames && fileNames[i]) || path.basename(filePaths[i]);
+      const fileRows = parseResult.rows.filter((r) => r.fileName === fn);
+      await BulkPassSchema.insertUpload({
+        batchId: childBatch.id,
+        fileName: fn,
+        filePath: filePaths[i],
+        rowCount: fileRows.length,
+      });
+    }
+    
+    // Log status transition
+    await BulkPassSchema.logTransition(
+      childBatch.id, 
+      "UNDER_REVIEW", 
+      null, 
+      `Child submission #${submissionNumber} created — forwarded to Traffic Officer`
+    );
+    
+    // **Step 11**: Keep parent token active (DO NOT deactivate)
+    // Token remains active for future submissions
+    
+    // **Step 12**: Send confirmation email via email service
+    sendEmail("sendChildBatchConfirmation", {
+      email: childBatch.applicantEmail,
+      refNo: childBatch.refNo,
+      submissionNumber: submissionNumber,
+      companyName: childBatch.companyName,
+      personsCount: personRows.length,
+      vehiclesCount: vehicles.length
+    }).catch(() => {});
+    
+    // Calculate next submission number and check if can submit more
+    const nextSubmissionNumber = submissionNumber + 1;
+    const canSubmitMore = now < validityUptoTime;
+    
+    return res.status(201).json({
+      success: true,
+      message: "Submission successful",
+      childBatch: {
+        id: childBatch.id,
+        refNo: childBatch.refNo,
+        submissionNumber: submissionNumber,
+        status: childBatch.status
+      },
+      canSubmitMore: canSubmitMore,
+      nextSubmissionNumber: nextSubmissionNumber
+    });
+    
+  } catch (err) {
+    console.error("[bulkPass] submitBatch error:", err.message);
+    return res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
+/**
+ * Helper function to handle single-submission batch logic
+ * (Original submitBatch behavior)
+ */
+async function handleSingleSubmissionBatch(req, res, batch) {
+  try {
     if (isLinkExpired(batch)) {
       return res.status(403).json({ success: false, message: "Link expired or inactive" });
     }
@@ -1211,10 +1759,10 @@ exports.submitBatch = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error("[bulkPass] submitBatch error:", err.message);
-    return res.status(500).json({ success: false, message: "Internal server error" });
+    console.error("[bulkPass] handleSingleSubmissionBatch error:", err.message);
+    throw err;
   }
-};
+}
 
 /**
  * GET /api/bulk-pass/public/:token/error-report  (public — no auth)
@@ -1223,8 +1771,8 @@ exports.submitBatch = async (req, res) => {
  */
 exports.downloadErrorReport = async (req, res) => {
   try {
-    const batch = await BulkPassSchema.getByToken(getResolvedToken(req.params.token));
-    if (!batch) {
+    const resolved = await findBatchOrParentRequestByToken(getResolvedToken(req.params.token));
+    if (!resolved || !resolved.batch) {
       return res.status(404).json({ success: false, message: "Invalid link" });
     }
 
@@ -1725,8 +2273,9 @@ exports.rejectBatch = async (req, res) => {
  */
 exports.parseExcelOnly = async (req, res) => {
   try {
-    const batch = await BulkPassSchema.getByToken(getResolvedToken(req.params.token));
-    if (!batch) return res.status(404).json({ success: false, message: "Invalid link" });
+    const resolved = await findBatchOrParentRequestByToken(getResolvedToken(req.params.token));
+    if (!resolved || !resolved.batch) return res.status(404).json({ success: false, message: "Invalid link" });
+    const { batch } = resolved;
     if (isLinkExpired(batch)) return res.status(403).json({ success: false, message: "Link expired or inactive" });
 
     const { filePaths, fileNames } = req.body;
@@ -1757,8 +2306,9 @@ exports.parseExcelOnly = async (req, res) => {
  */
 exports.uploadZipPhotos = async (req, res) => {
   try {
-    const batch = await BulkPassSchema.getByToken(getResolvedToken(req.params.token));
-    if (!batch) return res.status(404).json({ success: false, message: "Invalid link" });
+    const resolved = await findBatchOrParentRequestByToken(getResolvedToken(req.params.token));
+    if (!resolved || !resolved.batch) return res.status(404).json({ success: false, message: "Invalid link" });
+    const { batch } = resolved;
     if (isLinkExpired(batch)) return res.status(403).json({ success: false, message: "Link expired or inactive" });
 
     const zipFile = req.file;
@@ -1828,11 +2378,13 @@ exports.uploadZipPhotos = async (req, res) => {
  */
 exports.submitRowsDirectly = async (req, res) => {
   try {
-    const batch = await BulkPassSchema.getByToken(getResolvedToken(req.params.token));
-    if (!batch) return res.status(404).json({ success: false, message: "Invalid link" });
+    const resolved = await findBatchOrParentRequestByToken(getResolvedToken(req.params.token));
+    if (!resolved || !resolved.batch) return res.status(404).json({ success: false, message: "Invalid link" });
+
+    let { batch, isParentRequest, parentRequest } = resolved;
     if (isLinkExpired(batch)) return res.status(403).json({ success: false, message: "Link expired or inactive" });
 
-    if (!["DRAFT", "RETURNED_TO_APPLICANT"].includes(batch.status)) {
+    if (!isParentRequest && !["DRAFT", "RETURNED_TO_APPLICANT"].includes(batch.status)) {
       return res.status(400).json({ success: false, message: "Batch is not in a submittable state" });
     }
 
@@ -1919,7 +2471,6 @@ exports.submitRowsDirectly = async (req, res) => {
     }
 
     // ── Aadhaar card mandatory for EVERY person ──────────────────────────────
-    // Each person must have either a newly uploaded Aadhaar card or a reused server-side path.
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
       const uploaded = req.files && req.files[`person_${i}_aadhaarCard`] && req.files[`person_${i}_aadhaarCard`][0];
@@ -1938,7 +2489,6 @@ exports.submitRowsDirectly = async (req, res) => {
     }
 
     // ── Blacklist checks ────────────────────────────────────────────────────
-    // Persons: hard block if any Aadhaar is BLACKLISTED / UNBLACKLIST_REQUESTED / PENDING_BLACKLIST
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
       const aadhaar = String(row.aadhaar || "").replace(/\s+/g, "").toUpperCase();
@@ -1960,12 +2510,10 @@ exports.submitRowsDirectly = async (req, res) => {
       }
     }
 
-    // Vehicles: hard block if any vehicle reg number is BLACKLISTED / UNBLACKLIST_REQUESTED / PENDING_BLACKLIST
     for (let i = 0; i < vehicleMeta.length; i++) {
       const v = vehicleMeta[i];
       if (!v.regNo) continue;
 
-      // Require driver Aadhaar card document for every vehicle (new upload OR reused kept path)
       const driverAadhaarUploaded = req.files && req.files[`vehicle_${i}_driverAadhaarCard`] && req.files[`vehicle_${i}_driverAadhaarCard`][0];
       const driverAadhaarKept = !driverAadhaarUploaded &&
         v._keepVehicleDocs && v._keepVehicleDocs.driverAadhaarCard &&
@@ -1994,13 +2542,85 @@ exports.submitRowsDirectly = async (req, res) => {
         });
       }
     }
-    // ── End blacklist checks ────────────────────────────────────────────────
 
-    // ── Clear old persons from previous submission (handles re-submit after return) ──
-    await BulkPassSchema.deletePersonsByBatch(batch.id);
+    // ── Determine Target Batch (child batch creation if parent) ──────────────
+    let targetBatch = batch;
+    let submissionNumber = 1;
+
+    if (isParentRequest) {
+      submissionNumber = await BulkPassSchema.getNextSubmissionNumber(parentRequest.id, 'PUBLIC_WEBSITE');
+      const client = await pool.connect();
+      let childRefNo;
+      try {
+        childRefNo = await ReferenceNumber.generateBulkPassReference(client);
+      } finally {
+        client.release();
+      }
+
+      const childBatchData = {
+        refNo: childRefNo,
+        token: buildToken(),
+        tokenActive: true,
+        status: 'UNDER_REVIEW',
+        multipleSubmissionsEnabled: false,
+        parent_request_id: parentRequest.id,
+        submission_number: submissionNumber,
+        request_source: 'PUBLIC_WEBSITE',
+        visitorType: parentRequest.visitor_type || batch.visitorType || "BUSINESS",
+        companyName: parentRequest.company_name,
+        applicantEmail: parentRequest.applicant_email,
+        applicantMobile: parentRequest.applicant_mobile,
+        createdByUserId: parentRequest.approved_by_user_id || 1,
+        departmentId: 6,
+        departmentName: "General Administration",
+        validityFrom: parentRequest.approved_time_from || parentRequest.validity_from || batch.validityFrom || null,
+        validityUpto: parentRequest.approved_time_upto || parentRequest.validity_upto || batch.validityUpto || new Date(Date.now() + 30 * 86400000).toISOString(),
+        noOfPersons: rows.length,
+        noOfVehicles: vehicleMeta.length,
+        purpose: parentRequest.purpose || batch.purpose || "Public Bulk Pass Submission",
+        paymentMode: parentRequest.payment_mode || "CASH",
+      };
+      targetBatch = await BulkPassSchema.createBatch(childBatchData);
+    } else if (batch.multipleSubmissionsEnabled && !batch.parent_request_id) {
+      submissionNumber = await BulkPassSchema.getNextSubmissionNumber(batch.id, 'DEPARTMENT');
+      const client = await pool.connect();
+      let childRefNo;
+      try {
+        childRefNo = await ReferenceNumber.generateBulkPassReference(client);
+      } finally {
+        client.release();
+      }
+
+      const childBatchData = {
+        refNo: childRefNo,
+        token: buildToken(),
+        tokenActive: true,
+        status: 'UNDER_REVIEW',
+        multipleSubmissionsEnabled: false,
+        parent_request_id: batch.id,
+        submission_number: submissionNumber,
+        request_source: 'DEPARTMENT',
+        visitorType: batch.visitorType || "BUSINESS",
+        companyName: batch.companyName,
+        applicantEmail: batch.applicantEmail,
+        applicantMobile: batch.applicantMobile,
+        createdByUserId: batch.createdByUserId || 1,
+        departmentId: batch.departmentId || 6,
+        departmentName: batch.departmentName || "General Administration",
+        validityFrom: batch.validityFrom || null,
+        validityUpto: batch.validityUpto || new Date(Date.now() + 30 * 86400000).toISOString(),
+        noOfPersons: rows.length,
+        noOfVehicles: vehicleMeta.length,
+        purpose: batch.purpose || "Department Bulk Pass Submission",
+        paymentMode: batch.paymentMode || "CASH",
+      };
+      targetBatch = await BulkPassSchema.createBatch(childBatchData);
+    } else {
+      await BulkPassSchema.deletePersonsByBatch(targetBatch.id);
+    }
 
     // ── Persist persons ─────────────────────────────────────────────────────
-    const uploadDir = path.join("uploads", "bulk_pass", String(batch.id));
+    const uploadDir = path.join("uploads", "bulk_pass", String(targetBatch.id));
     fs.mkdirSync(uploadDir, { recursive: true });
     const personDocsDir = path.join(uploadDir, "aadhaar_cards");
 
@@ -2008,7 +2628,6 @@ exports.submitRowsDirectly = async (req, res) => {
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
 
-      // ── Photo: new upload or reuse existing server-side file ───────────────
       let photoPath;
       if (row.photoDataUrl) {
         const b64 = row.photoDataUrl.replace(/^data:image\/(?:jpeg|png);base64,/, "");
@@ -2018,11 +2637,9 @@ exports.submitRowsDirectly = async (req, res) => {
         photoPath = path.join(uploadDir, photoFileName);
         fs.writeFileSync(photoPath, compressed);
       } else {
-        // Reuse the existing server-side photo path (validated during validation phase)
         photoPath = row._keepPhotoPath;
       }
 
-      // ── Aadhaar card: new upload, reuse existing, or null ─────────────────
       let aadhaarCardPath = null;
       const aadhaarUploaded = req.files && req.files[`person_${i}_aadhaarCard`] && req.files[`person_${i}_aadhaarCard`][0];
       if (aadhaarUploaded) {
@@ -2058,7 +2675,6 @@ exports.submitRowsDirectly = async (req, res) => {
         const compResult = await compressDocumentFile(destPath);
         aadhaarCardPath = compResult.path;
       } else if (row._keepAadhaarPath && fs.existsSync(path.resolve(row._keepAadhaarPath))) {
-        // Reuse the existing aadhaar card — no copy needed, just reference the same path
         aadhaarCardPath = row._keepAadhaarPath;
       }
 
@@ -2080,10 +2696,10 @@ exports.submitRowsDirectly = async (req, res) => {
       });
     }
 
-    await BulkPassSchema.insertPersons(batch.id, personRows);
+    await BulkPassSchema.insertPersons(targetBatch.id, personRows);
 
     // ── Persist vehicles ────────────────────────────────────────────────────
-    const vehicleDir = path.join("uploads", "bulk_pass", String(batch.id), "vehicles");
+    const vehicleDir = path.join("uploads", "bulk_pass", String(targetBatch.id), "vehicles");
     if (vehicleMeta.length > 0) {
       fs.mkdirSync(vehicleDir, { recursive: true });
     }
@@ -2093,9 +2709,6 @@ exports.submitRowsDirectly = async (req, res) => {
       const v = vehicleMeta[i];
       if (!v.regNo) continue;
 
-      // Move uploaded doc files to permanent location and compress to ≤ 5 MB.
-      // For each field: use newly uploaded file if present, otherwise reuse the
-      // kept server-side path from the previous submission (if it still exists).
       const docFields = ["rc", "insurance", "fitness", "permit", "roadTax", "emission", "driverAadhaarCard", "driverLicense"];
       const docPaths = {};
       for (const field of docFields) {
@@ -2121,7 +2734,6 @@ exports.submitRowsDirectly = async (req, res) => {
           v._keepVehicleDocs[field] &&
           fs.existsSync(path.resolve(v._keepVehicleDocs[field]))
         ) {
-          // Reuse existing server-side doc — no copy needed
           docPaths[field] = v._keepVehicleDocs[field];
         }
       }
@@ -2137,11 +2749,8 @@ exports.submitRowsDirectly = async (req, res) => {
         vehicleNumber: v.regNo.trim(),
         vehicleType: v.vehicleType || null,
         photoPath: docPaths.rc || null,
-        // Driver license number entered in the form
         driverLicenseNumber: v.driverLicenseNumber ? String(v.driverLicenseNumber).trim() : null,
-        // Driver license document path (stored inside vehicleDocs too for unified access)
         driverLicensePath: docPaths.driverLicense || null,
-        // Persist every uploaded document path so all of them can be viewed later.
         vehicleDocs: Object.keys(docPaths).length > 0 ? docPaths : null,
         validationStatus: "valid",
         errorMessage: null,
@@ -2149,21 +2758,23 @@ exports.submitRowsDirectly = async (req, res) => {
     }
 
     if (vehicleRows.length > 0) {
-      await BulkPassSchema.insertPersons(batch.id, vehicleRows);
+      await BulkPassSchema.insertPersons(targetBatch.id, vehicleRows);
     }
 
     // Applicant submission goes DIRECTLY to Traffic (UNDER_REVIEW).
-    // Bypassing department review per new requirements.
-    await BulkPassSchema.setStatus(batch.id, "UNDER_REVIEW", {
-      tokenActive: false,
+    // If it's a single batch, deactivate single token. If it's parent request/batch, keep parent token active.
+    const isChildSubmission = isParentRequest || (batch.multipleSubmissionsEnabled && !batch.parent_request_id);
+
+    await BulkPassSchema.setStatus(targetBatch.id, "UNDER_REVIEW", {
+      tokenActive: isChildSubmission ? true : false,
       submittedAt: new Date().toISOString(),
     });
-    await BulkPassSchema.logTransition(batch.id, "UNDER_REVIEW", null, "Applicant submitted — forwarded directly to Traffic Officer");
+    await BulkPassSchema.logTransition(targetBatch.id, "UNDER_REVIEW", null, "Applicant submitted — forwarded directly to Traffic Officer");
 
     sendEmail("sendBulkPassSubmitted", {
-      email: batch.applicantEmail,
-      refNo: batch.refNo,
-      companyName: batch.companyName,
+      email: targetBatch.applicantEmail,
+      refNo: targetBatch.refNo,
+      companyName: targetBatch.companyName,
       personsCount: personRows.length,
     }).catch(() => {});
 
@@ -2171,14 +2782,82 @@ exports.submitRowsDirectly = async (req, res) => {
       success: true,
       message: "Batch submitted successfully",
       data: {
-        refNo: batch.refNo,
+        refNo: targetBatch.refNo,
         personsSubmitted: personRows.length,
         vehiclesSubmitted: vehicleRows.length,
         status: "UNDER_REVIEW",
+        submissionNumber: submissionNumber,
       },
     });
   } catch (err) {
-    console.error("[bulkPass] submitRowsDirectly error:", err.stack || err.message);
+    return handleBulkPassError(res, err, "Failed to submit bulk pass rows");
+  }
+};
+
+/**
+ * GET /api/bulk-pass/batches/:parentId/submissions  (protected — Dept User)
+ * Get child submissions for a parent batch (Multiple Pass Submissions Feature)
+ * Requirements: 3.1-3.5, 8.1-8.6, 13.4
+ */
+exports.getChildSubmissions = async (req, res) => {
+  try {
+    const parentId = Number(req.params.parentId);
+    if (!parentId || isNaN(parentId)) {
+      return res.status(400).json({ success: false, message: "Invalid parent batch ID" });
+    }
+
+    // Get the parent batch
+    const parentBatch = await BulkPassSchema.getById(parentId);
+    if (!parentBatch) {
+      return res.status(404).json({ success: false, message: "Parent batch not found" });
+    }
+
+    // Authorization check
+    const role = (req.user?.role || "").toLowerCase();
+    const deptName = (req.user?.departmentName || "").toLowerCase();
+    const isAdmin = role === "admin" || role === "administrator" || role === "super admin" || role === "superadmin";
+    const isTrafficApprover = (role === "approval" && deptName.includes("traffic")) || role.includes("traffic");
+
+    if (!isAdmin && !isTrafficApprover && parentBatch.createdByUserId !== req.user.userId) {
+      return res.status(403).json({ success: false, message: "Access denied" });
+    }
+
+    // Check if this is actually a parent batch
+    if (!parentBatch.multipleSubmissionsEnabled) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "This batch does not have multiple submissions enabled" 
+      });
+    }
+
+    // Get child submissions using the schema method
+    // For department-created parent batches, source is 'DEPARTMENT'
+    const childBatches = await BulkPassSchema.getChildBatches(parentId, 'DEPARTMENT');
+
+    return res.status(200).json({
+      success: true,
+      parentBatch: {
+        id: parentBatch.id,
+        refNo: parentBatch.refNo,
+        companyName: parentBatch.companyName,
+        multipleSubmissionsEnabled: parentBatch.multipleSubmissionsEnabled,
+        validityFrom: parentBatch.validityFrom,
+        validityUpto: parentBatch.validityUpto,
+        status: parentBatch.status,
+      },
+      submissions: childBatches.map(batch => ({
+        id: batch.id,
+        submissionNumber: batch.submission_number,
+        refNo: batch.refNo,
+        personsCount: batch.noOfPersons || 0,
+        vehiclesCount: batch.noOfVehicles || 0,
+        status: batch.status,
+        createdAt: batch.createdAt,
+      })),
+      totalSubmissions: childBatches.length,
+    });
+  } catch (err) {
+    console.error("[bulkPass] getChildSubmissions error:", err.message);
     return res.status(500).json({ success: false, message: "Internal server error" });
   }
 };

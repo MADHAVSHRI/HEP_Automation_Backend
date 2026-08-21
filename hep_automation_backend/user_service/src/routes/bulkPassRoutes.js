@@ -24,6 +24,12 @@ const verifyService = require("../middlewares/verifyService");
 const upload = require("../middlewares/uploadMiddleware");
 const { validateUploadedFileTypes } = require("../middlewares/uploadMiddleware");
 const bulkPassController = require("../controllers/bulkPassController");
+const publicRequestController = require("../controllers/publicRequestController");
+const adminPublicRequestController = require("../controllers/adminPublicRequestController");
+const authorizeToken = require("../middlewares/authorizeToken");
+const authorizeDepartment = require("../middlewares/authorizeDepartment");
+const { otpRateLimiter, publicRequestRateLimiter } = require("../middlewares/rateLimitMiddleware");
+const { validatePublicRequest } = require("../validations/publicRequestValidator");
 
 // ── Excel-upload multer instance (Req 11.8) ────────────────────────────────
 const EXCEL_TMP_DIR = "/tmp/bulk_pass_excel";
@@ -100,11 +106,23 @@ function handleExcelUploadError(err, req, res, next) {
 
 // ── Public routes (no verifyToken) ─────────────────────────────────────────
 
+// Public request OTP endpoints (Multiple Pass Submissions Feature)
+// Request OTP for email verification
+router.post("/public/request-otp", otpRateLimiter, publicRequestController.requestOTP);
+
+// Verify OTP for email verification
+router.post("/public/verify-otp", publicRequestController.verifyOTP);
+
+// Submit public bulk pass request (with validation and rate limiting)
+// Requirements: 21.1-21.15, 23.6-23.8, 24.1-24.7
+router.post("/public/request", validatePublicRequest, publicRequestRateLimiter, publicRequestController.submitPublicRequest);
+
 // Download Excel template
 router.get("/template", bulkPassController.downloadTemplate);
 
-// Lookup batch by token
-router.get("/public/:token", bulkPassController.getPublicByToken);
+// Validate token (enhanced validation for multiple submissions feature)
+// Requirements: 8.1-8.6, 3.2-3.5, 7.1-7.2
+router.get("/validate-token/:token", bulkPassController.validateToken);
 
 // Real-time blacklist check for the public upload form (no auth needed)
 // GET /public/blacklist-check?entity_type=PERSON&identifier=123456789012
@@ -113,6 +131,9 @@ router.get("/public/blacklist-check", bulkPassController.publicBlacklistCheck);
 // ULIP vehicle validity check for the public upload form (no auth needed)
 // POST /public/vehicle-check  { vehiclenumber: "TN01AB1234" }
 router.post("/public/vehicle-check", bulkPassController.publicVehicleCheck);
+
+// Lookup batch by token
+router.get("/public/:token", bulkPassController.getPublicByToken);
 
 // Upload Excel files (up to 5) — dedicated excelUpload middleware
 router.post(
@@ -187,10 +208,28 @@ router.post(
 
 // ── Protected routes (verifyToken required) ────────────────────────────────
 
+// Admin routes for public requests (Multiple Pass Submissions Feature)
+// Get pending/filtered public requests with pagination
+router.get("/admin/public-requests", verifyToken, authorizeDepartment("General Administration"), adminPublicRequestController.getPendingRequests);
+
+// Get public request detail by ID
+router.get("/admin/public-requests/:id", verifyToken, adminPublicRequestController.getRequestDetail);
+
+// Approve public request
+router.post("/admin/public-requests/:id/approve", verifyToken, authorizeDepartment("General Administration"), adminPublicRequestController.approveRequest);
+
+// Reject public request
+router.post("/admin/public-requests/:id/reject", verifyToken, authorizeDepartment("General Administration"), adminPublicRequestController.rejectRequest);
+
+// Get child submissions for a parent batch (Multiple Pass Submissions Feature)
+// Requirements: 3.1-3.5, 8.1-8.6, 13.4
+router.get("/batches/:parentId/submissions", verifyToken, bulkPassController.getChildSubmissions);
+
 // Get bulk visitor types
 router.get("/visitor-types", verifyToken, bulkPassController.getBulkVisitorTypes);
 
 // Create intake (with optional work order file)
+// Accepts multipleSubmissionsEnabled field in request body (Requirements: 1.1-1.5, 13.1-13.5)
 router.post(
   "/intake",
   verifyToken,
