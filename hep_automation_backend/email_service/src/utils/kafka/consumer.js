@@ -13,20 +13,21 @@ const kafka = new Kafka({
 const consumer = kafka.consumer({ groupId: "email-group" });
 
 const startConsumer = async () => {
+  const fromBeginning = process.env.KAFKA_FROM_BEGINNING === "true";
 
   await consumer.connect();
 
   await consumer.subscribe({
     topic: "agent-registration-email",
-    fromBeginning: true,
+    fromBeginning,
   });
   await consumer.subscribe({
     topic: "deptUser-events",
-    fromBeginning: true,
+    fromBeginning,
   });
   await consumer.subscribe({
     topic: "appointment-sms",
-    fromBeginning: true
+    fromBeginning
   });
 
   await consumer.run({
