@@ -1,5 +1,41 @@
 const Report = require("../models/reportSchema");
 
+exports.getAllPassIssuanceOptions = async (req, res) => {
+  try {
+    const options = await Report.getAllPassIssuanceOptions();
+
+    return res.status(200).json({
+      success: true,
+      data: options,
+    });
+  } catch (error) {
+    console.error("All pass issuance report options error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch all pass issuance report options",
+    });
+  }
+};
+
+exports.getAllPassIssuanceReport = async (req, res) => {
+  try {
+    const report = await Report.getAllPassIssuanceReport(req.query);
+
+    return res.status(200).json({
+      success: true,
+      ...report,
+    });
+  } catch (error) {
+    console.error("All pass issuance report error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch all pass issuance report",
+    });
+  }
+};
+
 exports.getRegisteredUserOptions = async (req, res) => {
   try {
     const companyTypes = await Report.getRegisteredUserOptions();
