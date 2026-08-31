@@ -702,7 +702,12 @@ const PassRequest = {
                 agentId,
                 vehicle.vehicleTypeId,
                 vehicle.registrationNo,
-                vehicle.rfidCardNumber || null,
+                // rfidCardNumber is retained only as the legacy database column.
+                // New clients should send qrCode/qrPassReference.
+                vehicle.qrCode ||
+                  vehicle.qrPassReference ||
+                  vehicle.rfidCardNumber ||
+                  null,
 
                 vehicleFile?.path || null,
                 vehicleFile?.originalname || null,

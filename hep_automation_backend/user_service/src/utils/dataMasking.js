@@ -134,7 +134,7 @@ function sanitizePassRequestRow(row, requesterRole) {
     out.persons = out.persons.map((p) => sanitizePersonRecord(p, fullAccess));
   }
 
-  // Nested vehicles[] — no PII fields today (registrationNo/RFID aren't
+  // Nested vehicles[] — no PII fields today (registration/QR references aren't
   // personal data), so left as-is. Add masking here if you add owner
   // contact fields to vehicles later.
 

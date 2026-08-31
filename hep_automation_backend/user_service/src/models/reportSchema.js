@@ -12,312 +12,6 @@ function normalizeLimit(value) {
 }
 
 const Report = {
-  async getAllPassIssuanceOptions() {
-    const [
-      companyTypes,
-      passTypes,
-      approvalStatuses,
-      passHolderTypes,
-      nationalities,
-      departments,
-      paymentTypes,
-      cardTypes,
-      issuedCardTypes,
-      passRequestTypes,
-      transactionTypes,
-      paymentStatuses,
-    ] = await Promise.all([
-      this.getRegisteredUserOptions(),
-      pool.query(`
-        SELECT e.enumlabel AS value
-        FROM pg_type t
-        JOIN pg_enum e ON e.enumtypid = t.oid
-        WHERE t.typname = 'enum_pass_persons_passType'
-        ORDER BY e.enumsortorder
-      `).then((result) => result.rows.map((row) => row.value)),
-      pool.query(`
-        SELECT e.enumlabel AS value
-        FROM pg_type t
-        JOIN pg_enum e ON e.enumtypid = t.oid
-        WHERE t.typname = 'enum_pass_requests_status'
-        ORDER BY e.enumsortorder
-      `).then((result) => result.rows.map((row) => row.value)),
-      pool.query(`
-        SELECT name AS value
-        FROM hep_types
-        WHERE "isActive" = true AND name IS NOT NULL AND TRIM(name) <> ''
-        ORDER BY name
-      `).then((result) => result.rows.map((row) => row.value)),
-      pool.query(`
-        SELECT e.enumlabel AS value
-        FROM pg_type t
-        JOIN pg_enum e ON e.enumtypid = t.oid
-        WHERE t.typname = 'enum_pass_persons_nationality'
-        ORDER BY e.enumsortorder
-      `).then((result) => result.rows.map((row) => row.value)),
-      pool.query(`
-        SELECT "departmentName" AS value
-        FROM port_departments
-        WHERE "departmentName" IS NOT NULL AND TRIM("departmentName") <> ''
-        ORDER BY "departmentName"
-      `).then((result) => result.rows.map((row) => row.value)),
-      pool.query(`
-        SELECT DISTINCT e.enumlabel AS value
-        FROM pg_type t
-        JOIN pg_enum e ON e.enumtypid = t.oid
-        WHERE t.typname IN (
-          'enum_pass_requests_paymentMode',
-          'enum_vendor_pass_requests_paymentMode',
-          'enum_bulk_pass_batches_paymentMode',
-          'enum_material_pass_request_paymentMode'
-        )
-        ORDER BY value
-      `).then((result) => result.rows.map((row) => row.value)),
-      pool.query(`
-        SELECT DISTINCT value
-        FROM (
-          SELECT CASE WHEN name ILIKE 'Driver%' THEN 'Driver' ELSE 'Person' END AS value
-          FROM hep_types
-          WHERE "isActive" = true
-
-          UNION ALL
-
-          SELECT 'Vehicle' AS value
-          WHERE EXISTS (SELECT 1 FROM pass_vehicles)
-             OR EXISTS (SELECT 1 FROM vendor_pass_vehicles)
-        ) card_types
-        WHERE value IS NOT NULL
-        ORDER BY value
-      `).then((result) => result.rows.map((row) => row.value)),
-      pool.query(`
-        SELECT DISTINCT value
-        FROM (
-          SELECT CASE WHEN name ILIKE 'Driver%' THEN 'Driver' ELSE 'Individual' END AS value
-          FROM hep_types
-          WHERE "isActive" = true
-
-          UNION ALL
-
-          SELECT 'Vehicle' AS value
-          WHERE EXISTS (SELECT 1 FROM pass_vehicles)
-             OR EXISTS (SELECT 1 FROM vendor_pass_vehicles)
-        ) issued_card_types
-        WHERE value IS NOT NULL
-        ORDER BY value
-      `).then((result) => result.rows.map((row) => row.value)),
-      pool.query(`
-        SELECT e.enumlabel AS value
-        FROM pg_type t
-        JOIN pg_enum e ON e.enumtypid = t.oid
-        WHERE t.typname = 'enum_pass_requests_originType'
-        ORDER BY e.enumsortorder
-      `).then((result) => result.rows.map((row) => row.value)),
-      pool.query(`
-        SELECT value, label
-        FROM report_filter_options
-        WHERE "groupKey" = 'revenue_transaction_type' AND "isActive" = true
-        ORDER BY "sortOrder", label
-      `).then((result) => result.rows),
-      pool.query(`
-        SELECT DISTINCT status AS value
-        FROM (
-          SELECT NULLIF(TRIM(status), '') AS status FROM overstay_charges
-          UNION ALL
-          SELECT NULLIF(TRIM(status), '') AS status FROM blacklist_entries
-        ) payment_statuses
-        WHERE status IS NOT NULL
-        ORDER BY status
-      `).then((result) => result.rows.map((row) => row.value)),
-    ]);
-
-    return {
-      companyTypes: companyTypes.map((row) => row.name),
-      passTypes,
-      approvalStatuses,
-      passHolderTypes,
-      nationalities,
-      departments,
-      paymentTypes,
-      cardTypes,
-      issuedCardTypes,
-      passRequestTypes,
-      transactionTypes,
-      paymentStatuses,
-    };
-  },
-
-  async getAllPassIssuanceReport(filters = {}) {
-    const limit = normalizeLimit(filters.limit);
-    const page = toPositiveInt(filters.page, 1);
-    const offset = (page - 1) * limit;
-    const params = [];
-    const where = [];
-
-    const addFilter = (value, expression, wildcard = false) => {
-      if (!value || !String(value).trim()) return;
-      params.push(wildcard ? `%${String(value).trim()}%` : String(value).trim());
-      where.push(`${expression} $${params.length}`);
-    };
-
-    addFilter(filters.fromDate, `entry."createdAt" >=`);
-    addFilter(filters.toDate, `entry."createdAt" <=`);
-    addFilter(filters.passId, `entry."passId" ILIKE`, true);
-    addFilter(filters.cardHolder, `entry."cardHolder" ILIKE`, true);
-    addFilter(filters.idProof, `entry."idProof" ILIKE`, true);
-    addFilter(filters.companyCodeOrName, `entry."companySearch" ILIKE`, true);
-    addFilter(filters.companyType, `entry."companyType" =`);
-    addFilter(filters.passType, `entry."passType" =`);
-    if (filters.approvalStatus) {
-      params.push(filters.approvalStatus.trim().toUpperCase());
-      where.push(`UPPER(entry."approvalStatus") = $${params.length}`);
-    }
-    addFilter(filters.passHolderType, `entry."passHolderType" =`);
-    if (filters.nationality) {
-      params.push(filters.nationality.trim().toUpperCase());
-      where.push(`UPPER(entry.nationality) = $${params.length}`);
-    }
-    addFilter(filters.department, `entry.department =`);
-    addFilter(filters.paymentType, `entry."paymentType" =`);
-    addFilter(filters.aadhaar, `entry.aadhaar ILIKE`, true);
-
-    const baseQuery = `
-      WITH entry AS (
-        SELECT
-          'STANDARD'::text AS source,
-          COALESCE(pp."personPassNo", pr."referenceNo")::text AS "passId",
-          pp.name::text AS "cardHolder",
-          COALESCE(ht.name, 'Personnel')::text AS "passHolderType",
-          COALESCE(pp."idProofNumber", pp."aadharNo")::text AS "idProof",
-          pp."aadharNo"::text AS aadhaar,
-          pp.nationality::text AS nationality,
-          pp."passType"::text AS "passType",
-          a."loginId"::text AS "companyCode",
-          a."entityName"::text AS "companyName",
-          CONCAT_WS(' ', a."loginId", a."entityName")::text AS "companySearch",
-          a."userTypeName"::text AS "companyType",
-          pp.status::text AS "approvalStatus",
-          NULL::text AS department,
-          pr."paymentMode"::text AS "paymentType",
-          pp."dateFrom",
-          pp."dateTo",
-          pp.amount,
-          pp."createdAt"
-        FROM pass_persons pp
-        JOIN pass_requests pr ON pr.id = pp."passRequestId"
-        LEFT JOIN "Agents" a ON a.id = pr."agentId"
-        LEFT JOIN hep_types ht ON ht.id = pp."hepTypeId"
-
-        UNION ALL
-
-        SELECT
-          'STANDARD', COALESCE(pv."vehiclePassNo", pr."referenceNo"), pv."registrationNo",
-          'Vehicle', pv."registrationNo", NULL, NULL, pv."passType"::text,
-          a."loginId", a."entityName", CONCAT_WS(' ', a."loginId", a."entityName"),
-          a."userTypeName", pv.status::text, NULL, pr."paymentMode"::text,
-          pv."dateFrom", pv."dateTo", pv.amount, pv."createdAt"
-        FROM pass_vehicles pv
-        JOIN pass_requests pr ON pr.id = pv."passRequestId"
-        LEFT JOIN "Agents" a ON a.id = pr."agentId"
-
-        UNION ALL
-
-        SELECT
-          'VENDOR', COALESCE(vpp."personPassNo", vpr."referenceNo"), vpp.name,
-          COALESCE(ht.name, 'Personnel'), COALESCE(vpp."idProofNumber", vpp."aadharNo"),
-          vpp."aadharNo", vpp.nationality::text, vpp."passType"::text,
-          vpr."referenceNo", vpr."companyName", CONCAT_WS(' ', vpr."referenceNo", vpr."companyName"),
-          'Vendor', vpp.status::text, vpr."departmentName", vpr."paymentMode"::text,
-          vpp."dateFrom", vpp."dateTo", vpp.amount, vpp."createdAt"
-        FROM vendor_pass_persons vpp
-        JOIN vendor_pass_requests vpr ON vpr.id = vpp."vendorPassRequestId"
-        LEFT JOIN hep_types ht ON ht.id = vpp."hepTypeId"
-
-        UNION ALL
-
-        SELECT
-          'VENDOR', COALESCE(vpv."vehiclePassNo", vpr."referenceNo"), vpv."vehicleRegistrationNo",
-          'Vehicle', vpv."vehicleRegistrationNo", NULL, NULL, vpv."passType"::text,
-          vpr."referenceNo", vpr."companyName", CONCAT_WS(' ', vpr."referenceNo", vpr."companyName"),
-          'Vendor', vpv.status::text, vpr."departmentName", vpr."paymentMode"::text,
-          vpv."dateFrom", vpv."dateTo", vpv.amount, vpv."createdAt"
-        FROM vendor_pass_vehicles vpv
-        JOIN vendor_pass_requests vpr ON vpr.id = vpv."vendorPassRequestId"
-
-        UNION ALL
-
-        SELECT
-          'MATERIAL', COALESCE(pm."materialPassNo", mpr."referenceNo"), COALESCE(mpt.name, 'Material'),
-          'Material', mpr."referenceNo", NULL, NULL, NULL,
-          a."loginId", a."entityName", CONCAT_WS(' ', a."loginId", a."entityName"),
-          a."userTypeName", pm.status::text, pd."departmentName", mpr."paymentMode"::text,
-          mpr."dateOfEntry", mpr."expiryDate", mpr."netAmount", pm."createdAt"
-        FROM pass_material pm
-        JOIN material_pass_request mpr ON mpr.id = pm."materialPassRequestId"
-        LEFT JOIN material_pass_type mpt ON mpt.id = pm."materialPassTypeId"
-        LEFT JOIN "Agents" a ON a.id = mpr."agentId"
-        LEFT JOIN port_departments pd ON pd.id = mpr."concernedDepartmentId"
-
-        UNION ALL
-
-        SELECT
-          'BULK', bpb."refNo", COALESCE(bpp.name, bpp."vehicleNumber"),
-          CASE WHEN bpp."vehicleNumber" IS NULL THEN 'Personnel' ELSE 'Vehicle' END,
-          bpp.aadhaar, bpp.aadhaar, NULL, NULL,
-          bpb."refNo", bpb."companyName", CONCAT_WS(' ', bpb."refNo", bpb."companyName"),
-          bpb."visitorType", bpb.status::text, bpb."departmentName", bpb."paymentMode"::text,
-          bpb."validityFrom", bpb."validityUpto", NULL, bpp."createdAt"
-        FROM bulk_pass_persons bpp
-        JOIN bulk_pass_batches bpb ON bpb.id = bpp."batchId"
-
-        UNION ALL
-
-        SELECT
-          'VVIP', vvr."referenceNo", vvp.name, 'VVIP Person', vvp."idProofNo",
-          NULL, NULL, NULL, vvr."referenceNo", vvr."departmentName",
-          CONCAT_WS(' ', vvr."referenceNo", vvr."departmentName"), 'Department',
-          vvr.status::text, vvr."departmentName", NULL,
-          vvr."validityFrom", vvr."validityTo", NULL, vvp."createdAt"
-        FROM vvip_pass_persons vvp
-        JOIN vvip_pass_requests vvr ON vvr.id = vvp."requestId"
-
-        UNION ALL
-
-        SELECT
-          'VVIP', vvr."referenceNo", vv."vehicleNo", 'VVIP Vehicle', vv."vehicleNo",
-          NULL, NULL, NULL, vvr."referenceNo", vvr."departmentName",
-          CONCAT_WS(' ', vvr."referenceNo", vvr."departmentName"), 'Department',
-          vvr.status::text, vvr."departmentName", NULL,
-          vvr."validityFrom", vvr."validityTo", NULL, vv."createdAt"
-        FROM vvip_pass_vehicles vv
-        JOIN vvip_pass_requests vvr ON vvr.id = vv."requestId"
-      )
-    `;
-
-    const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
-    const countResult = await pool.query(
-      `${baseQuery} SELECT COUNT(*)::int AS total FROM entry ${whereSql}`,
-      params,
-    );
-
-    const dataParams = [...params, limit, offset];
-    const dataResult = await pool.query(
-      `${baseQuery}
-       SELECT * FROM entry ${whereSql}
-       ORDER BY "createdAt" DESC
-       LIMIT $${dataParams.length - 1} OFFSET $${dataParams.length}`,
-      dataParams,
-    );
-
-    return {
-      data: dataResult.rows,
-      pagination: {
-        page,
-        limit,
-        totalRecords: countResult.rows[0]?.total || 0,
-      },
-    };
-  },
-
   async getRegisteredUserOptions() {
     const result = await pool.query(`
       SELECT MIN(id) AS id, name
@@ -608,6 +302,169 @@ const Report = {
       },
     };
   },
+
+  async getAllPassIssuanceOptions() {
+    const result = await pool.query(`
+      SELECT
+        ARRAY(SELECT DISTINCT "userTypeName" FROM "Agents" WHERE "userTypeName" IS NOT NULL ORDER BY 1) AS "companyTypes",
+        ARRAY(SELECT DISTINCT "passType"::text FROM pass_persons WHERE "passType" IS NOT NULL ORDER BY 1) AS "passTypes",
+        ARRAY(SELECT DISTINCT status::text FROM pass_requests WHERE status IS NOT NULL ORDER BY 1) AS "approvalStatuses",
+        ARRAY['Person','Vehicle']::text[] AS "passHolderTypes",
+        ARRAY(SELECT DISTINCT nationality::text FROM pass_persons WHERE nationality IS NOT NULL ORDER BY 1) AS nationalities,
+        ARRAY(SELECT DISTINCT "departmentName" FROM bulk_pass_batches WHERE "departmentName" IS NOT NULL ORDER BY 1) AS departments,
+        ARRAY(SELECT DISTINCT "paymentMode"::text FROM pass_requests WHERE "paymentMode" IS NOT NULL ORDER BY 1) AS "paymentTypes",
+        ARRAY['Person','Vehicle']::text[] AS "cardTypes",
+        ARRAY['Person','Vehicle']::text[] AS "issuedCardTypes",
+        ARRAY['Online Transporter','Vendor Pass']::text[] AS "passRequestTypes",
+        ARRAY[]::text[] AS "transactionTypes",
+        ARRAY[]::text[] AS "paymentStatuses"
+    `);
+    return result.rows[0];
+  },
+
+  async getAllPassIssuanceReport(filters = {}) {
+    const limit = normalizeLimit(filters.limit);
+    const page = toPositiveInt(filters.page, 1);
+    const offset = (page - 1) * limit;
+    const params = [];
+    const where = [];
+    const addLike = (column, value) => {
+      if (!value) return;
+      params.push(`%${String(value).trim()}%`);
+      where.push(`${column} ILIKE $${params.length}`);
+    };
+    if (filters.fromDate) { params.push(filters.fromDate); where.push(`entry."createdAt" >= $${params.length}`); }
+    if (filters.toDate) { params.push(filters.toDate); where.push(`entry."createdAt" <= $${params.length}`); }
+    addLike(`entry."passId"`, filters.passId);
+    addLike(`entry."requestNumber"`, filters.requestNumber);
+    addLike(`entry."cardHolder"`, filters.cardHolder);
+    addLike(`entry."companySearch"`, filters.companyCodeOrName);
+    addLike(`entry."idProof"`, filters.idProof);
+    addLike(`entry.aadhaar`, filters.aadhaar);
+    if (filters.companyType) { params.push(filters.companyType); where.push(`entry."companyType" = $${params.length}`); }
+    if (filters.passType) { params.push(filters.passType); where.push(`entry."passType" = $${params.length}`); }
+    if (filters.approvalStatus) { params.push(filters.approvalStatus); where.push(`entry."approvalStatus" = $${params.length}`); }
+    if (filters.passHolderType) { params.push(filters.passHolderType); where.push(`entry."passHolderType" = $${params.length}`); }
+    if (filters.nationality) { params.push(filters.nationality); where.push(`entry.nationality = $${params.length}`); }
+    if (filters.paymentType) { params.push(filters.paymentType); where.push(`entry."paymentType" = $${params.length}`); }
+    const baseQuery = `WITH entry AS (
+      SELECT 'Regular'::text AS source, pp."personPassNo" AS "passId", pr."referenceNo" AS "requestNumber", pp.name AS "cardHolder",
+        'Person'::text AS "passHolderType", a."entityName" AS "companyName", a."loginId" AS "companyCode",
+        CONCAT_WS(' ', a."entityName", a."loginId") AS "companySearch", a."userTypeName" AS "companyType",
+        pp."passType"::text AS "passType", pr.status::text AS "approvalStatus", pr."paymentMode"::text AS "paymentType",
+        pp."dateFrom", pp."dateTo", pp.amount, pp."createdAt", pp."idProofNumber" AS "idProof",
+        pp."aadharNo" AS aadhaar, pp.nationality::text AS nationality, pp."qrUuid"::text AS "qrReference",
+        pp."qrIssuedAt", COALESCE(pp."qrRevoked", false) AS "qrRevoked", COALESCE(pp."scanCount", 0) AS "scanCount", pp."lastScannedAt"
+      FROM pass_persons pp JOIN pass_requests pr ON pr.id=pp."passRequestId" LEFT JOIN "Agents" a ON a.id=pr."agentId"
+      UNION ALL
+      SELECT 'Regular', pv."vehiclePassNo", pr."referenceNo", pv."registrationNo", 'Vehicle', a."entityName", a."loginId",
+        CONCAT_WS(' ', a."entityName", a."loginId"), a."userTypeName", pv."passType"::text, pr.status::text,
+        pr."paymentMode"::text, pv."dateFrom", pv."dateTo", pv.amount, pv."createdAt", NULL, NULL, NULL,
+        pv."qrUuid"::text, pv."qrIssuedAt", COALESCE(pv."qrRevoked", false), COALESCE(pv."scanCount",0), pv."lastScannedAt"
+      FROM pass_vehicles pv JOIN pass_requests pr ON pr.id=pv."passRequestId" LEFT JOIN "Agents" a ON a.id=pr."agentId"
+      UNION ALL
+      SELECT 'Vendor', vpp."personPassNo", vpr."referenceNo", vpp.name, 'Person', vpr."companyName", vpr."referenceNo",
+        CONCAT_WS(' ',vpr."companyName",vpr."referenceNo"), 'Vendor', vpp."passType", vpr.status::text,
+        vpr."paymentMode"::text, vpp."dateFrom", vpp."dateTo", vpp.amount, vpp."createdAt", vpp."idProofNumber",
+        vpp."aadharNo", vpp.nationality::text, NULL, NULL, false, 0, NULL
+      FROM vendor_pass_persons vpp JOIN vendor_pass_requests vpr ON vpr.id=vpp."vendorPassRequestId"
+      UNION ALL
+      SELECT 'Vendor', vpv."vehiclePassNo", vpr."referenceNo", vpv."vehicleRegistrationNo", 'Vehicle', vpr."companyName", vpr."referenceNo",
+        CONCAT_WS(' ',vpr."companyName",vpr."referenceNo"), 'Vendor', vpv."passType", vpr.status::text,
+        vpr."paymentMode"::text, vpv."dateFrom", vpv."dateTo", vpv.amount, vpv."createdAt", NULL, NULL, NULL,
+        NULL, NULL, false, 0, NULL
+      FROM vendor_pass_vehicles vpv JOIN vendor_pass_requests vpr ON vpr.id=vpv."vendorPassRequestId"
+    )`;
+    const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
+    const countResult = await pool.query(`${baseQuery} SELECT COUNT(*)::int AS total FROM entry ${whereSql}`, params);
+    params.push(limit, offset);
+    const dataResult = await pool.query(`${baseQuery} SELECT * FROM entry ${whereSql} ORDER BY "createdAt" DESC LIMIT $${params.length - 1} OFFSET $${params.length}`, params);
+    return { data: dataResult.rows, pagination: { page, limit, totalRecords: countResult.rows[0]?.total || 0 } };
+  },
+
+  async getRevenueReport(filters = {}) {
+    const report = await this.getAllPassIssuanceReport(filters);
+    report.data = report.data.map((row) => ({
+      passId: row.passId, companyCode: row.companyCode, companyName: row.companyName,
+      holder: row.cardHolder, holderType: row.passHolderType, passType: row.passType,
+      paymentType: row.paymentType, approvalStatus: row.approvalStatus,
+      amount: row.amount, issuedAt: row.createdAt,
+    }));
+    return report;
+  },
+
+  async getPassApprovalReport(filters = {}) {
+    return this.getAllPassIssuanceReport({
+      ...filters,
+      cardHolder: filters.vehicleOrPersonName,
+      companyCodeOrName: filters.transporterNameOrCode,
+      requestNumber: filters.requestNumber,
+      approvalStatus: filters.approvalStatus,
+    });
+  },
+
+  async getQrInventorySummary(filters = {}) {
+    const params = [];
+    let companyFilter = "";
+    if (filters.companyCode) {
+      params.push(`%${filters.companyCode.trim()}%`);
+      companyFilter = `AND (a."loginId" ILIKE $1 OR a."entityName" ILIKE $1)`;
+    }
+    const result = await pool.query(`
+      SELECT "holderType", "qrStatus", COUNT(*)::int AS count
+      FROM (
+        SELECT 'Person' AS "holderType", CASE WHEN pp."qrRevoked" THEN 'Revoked' WHEN pp."qrIssuedAt" IS NOT NULL THEN 'Issued' ELSE 'Pending' END AS "qrStatus"
+        FROM pass_persons pp JOIN pass_requests pr ON pr.id=pp."passRequestId" LEFT JOIN "Agents" a ON a.id=pr."agentId" WHERE TRUE ${companyFilter}
+        UNION ALL
+        SELECT 'Vehicle', CASE WHEN pv."qrRevoked" THEN 'Revoked' WHEN pv."qrIssuedAt" IS NOT NULL THEN 'Issued' ELSE 'Pending' END
+        FROM pass_vehicles pv JOIN pass_requests pr ON pr.id=pv."passRequestId" LEFT JOIN "Agents" a ON a.id=pr."agentId" WHERE TRUE ${companyFilter}
+      ) q GROUP BY "holderType", "qrStatus" ORDER BY "holderType", "qrStatus"
+    `, params);
+    return { data: result.rows, pagination: { page: 1, limit: 500, totalRecords: result.rowCount } };
+  },
+
+  async getGateSummary(filters = {}, laneWise = false) {
+    const params = [];
+    let dateFilterPerson = "";
+    let dateFilterVehicle = "";
+    if (filters.fromDate) {
+      params.push(filters.fromDate);
+      dateFilterPerson = `AND pp."lastScannedAt" >= $1`;
+      dateFilterVehicle = `AND pv."lastScannedAt" >= $1`;
+    }
+    const dimension = laneWise ? "lane" : "gate";
+    const result = await pool.query(`
+      SELECT 'Not Recorded'::text AS "${dimension}", "holderType", SUM("scanCount")::int AS "scanCount",
+        COUNT(*) FILTER (WHERE "lastScannedAt" IS NOT NULL)::int AS "scannedPasses", MAX("lastScannedAt") AS "lastScan"
+      FROM (
+        SELECT 'Person'::text AS "holderType", COALESCE(pp."scanCount",0) AS "scanCount", pp."lastScannedAt" FROM pass_persons pp WHERE TRUE ${dateFilterPerson}
+        UNION ALL
+        SELECT 'Vehicle', COALESCE(pv."scanCount",0), pv."lastScannedAt" FROM pass_vehicles pv WHERE TRUE ${dateFilterVehicle}
+      ) scans GROUP BY "holderType" ORDER BY "holderType"
+    `, params);
+    return { data: result.rows, limitation: "Gate and lane identifiers are not stored yet; scan totals use available QR scan data.", pagination: { page: 1, limit: 500, totalRecords: result.rowCount } };
+  },
+
+  async getPassPenaltyReport(filters = {}) {
+    const params = [];
+    const where = [];
+    if (filters.cardNo) { params.push(`%${filters.cardNo.trim()}%`); where.push(`p.identifier ILIKE $${params.length}`); }
+    if (filters.fromDate) { params.push(filters.fromDate); where.push(`p."createdAt" >= $${params.length}`); }
+    if (filters.toDate) { params.push(`${filters.toDate} 23:59:59`); where.push(`p."createdAt" <= $${params.length}`); }
+    const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
+    const result = await pool.query(`
+      WITH p AS (
+        SELECT 'Blacklist' AS source, identifier, entity_name AS "entityName", entity_type AS "entityType", reason,
+          penalty_amount AS amount, penalty_status AS status, payment_method AS "paymentMethod", transaction_id AS "transactionId", "createdAt"
+        FROM blacklist_entries WHERE has_penalty = true
+        UNION ALL
+        SELECT 'Overstay', identifier, entity_name, entity_type, COALESCE(notes,'Overstay charge'), total_amount,
+          status, payment_method, transaction_id, created_at FROM overstay_charges
+      ) SELECT * FROM p ${whereSql} ORDER BY "createdAt" DESC LIMIT 500
+    `, params);
+    return { data: result.rows, pagination: { page: 1, limit: 500, totalRecords: result.rowCount } };
+  },
+
 };
 
 module.exports = Report;
