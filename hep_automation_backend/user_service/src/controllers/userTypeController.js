@@ -4,13 +4,14 @@ const captchaService = require("../services/captchaService");
 exports.getUserTypes = async (req, res) => {
   try {
     const userTypes = await UserType.getAllUserTypes();
-    const captcha = await captchaService.createCaptcha();
+    const captcha = captchaService.generateCaptcha();
+    await captchaService.storeCaptchaAnswer(captcha.token, captcha.answer);
 
     res.status(200).json({
       success: true,
       userTypes,
-      captchaQuestion: captcha.captchaQuestion,
-      captchaToken: captcha.captchaToken,
+      captchaQuestion: captcha.question,
+      captchaToken: captcha.token,
       expiresIn: captcha.expiresIn,
     });
   } catch (error) {
