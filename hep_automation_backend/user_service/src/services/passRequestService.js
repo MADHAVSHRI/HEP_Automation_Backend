@@ -63,6 +63,66 @@ const formatISTDateTime = (dateValue, isEndOfDay = false) => {
 
 exports.getQrData = async (passRequestId, type ='null', entityId='null') => {
 
+  // ============================================================
+  // MARINE SAFETY QR GUARD
+  // Annual/Yearly Trailer or Trailer Lorry vehicles
+  // MUST have Marine Safety approval before QR generation.
+  // ============================================================
+
+  if (type === "vehicle" && entityId) {
+    const marineCheck = await pool.query(
+      `
+        SELECT
+          pv.id,
+          pv."passType",
+          pv."marineSafetyApproved",
+          vt.name AS "vehicleTypeName"
+        FROM pass_vehicles pv
+        LEFT JOIN vehicle_types vt
+          ON vt.id = pv."vehicleTypeId"
+        WHERE
+          pv.id = $1
+          AND pv."passRequestId" = $2
+      `,
+      [Number(entityId), passRequestId],
+    );
+
+    const vehicle = marineCheck.rows[0];
+
+    if (vehicle) {
+      const vehicleTypeName = String(
+        vehicle.vehicleTypeName || "",
+      )
+        .trim()
+        .toUpperCase();
+
+      const passType = String(
+        vehicle.passType || "",
+      )
+        .trim()
+        .toUpperCase();
+
+      const isMarineVehicle =
+        (
+          vehicleTypeName === "TRAILORS" ||
+          vehicleTypeName === "TRAILER LORRY"
+        ) &&
+        (
+          passType === "YEARLY" ||
+          passType === "ANNUAL"
+        );
+
+      if (
+        isMarineVehicle &&
+        vehicle.marineSafetyApproved !== true
+      ) {
+        throw new Error(
+          "Marine Safety approval is required before QR can be generated.",
+        );
+      }
+    }
+  }
+
   const personsQuery = `
   SELECT
     pp.id,
@@ -430,6 +490,66 @@ exports.validateQr = async ({
   }
 
   const row = result.rows[0];
+
+  // ============================================================
+  // MARINE SAFETY QR GUARD
+  // Annual/Yearly Trailer or Trailer Lorry vehicles
+  // MUST have Marine Safety approval before QR generation.
+  // ============================================================
+
+  if (type === "vehicle" && entityId) {
+    const marineCheck = await pool.query(
+      `
+        SELECT
+          pv.id,
+          pv."passType",
+          pv."marineSafetyApproved",
+          vt.name AS "vehicleTypeName"
+        FROM pass_vehicles pv
+        LEFT JOIN vehicle_types vt
+          ON vt.id = pv."vehicleTypeId"
+        WHERE
+          pv.id = $1
+          AND pv."passRequestId" = $2
+      `,
+      [Number(entityId), passRequestId],
+    );
+
+    const vehicle = marineCheck.rows[0];
+
+    if (vehicle) {
+      const vehicleTypeName = String(
+        vehicle.vehicleTypeName || "",
+      )
+        .trim()
+        .toUpperCase();
+
+      const passType = String(
+        vehicle.passType || "",
+      )
+        .trim()
+        .toUpperCase();
+
+      const isMarineVehicle =
+        (
+          vehicleTypeName === "TRAILORS" ||
+          vehicleTypeName === "TRAILER LORRY"
+        ) &&
+        (
+          passType === "YEARLY" ||
+          passType === "ANNUAL"
+        );
+
+      if (
+        isMarineVehicle &&
+        vehicle.marineSafetyApproved !== true
+      ) {
+        throw new Error(
+          "Marine Safety approval is required before QR can be generated.",
+        );
+      }
+    }
+  }
 
   // approved?
   if (row.status !== "approved") {

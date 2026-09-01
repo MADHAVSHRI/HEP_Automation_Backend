@@ -23,6 +23,7 @@ const {
 } = require("../models/passRequestSchema");
 const { pool } = require("../dbconfig/db");
 const { sendEmailEvent } = require("../utils/kafka/producer");
+const { get } = require( "http" );
 
 const isOilDockArea = (val) => {
   if (!val) return false;
@@ -367,7 +368,7 @@ const createPassRequest = async (req, res) => {
            FROM overstay_charges
            WHERE agent_id = $1 AND status IN ('PENDING','EXCEPTION_REJECTED')
            LIMIT 5`,
-          [payload.agentId]
+          [payload.agentId],
         );
         if (overstayBlock.rows.length > 0) {
           return res.status(403).json({
@@ -379,19 +380,22 @@ const createPassRequest = async (req, res) => {
         }
       } else {
         // Per-company block: enforce only for agents explicitly switched on by ATM.
-        const agentBlockSetting = await Overstay.getAgentPassBlockSetting(payload.agentId);
+        const agentBlockSetting = await Overstay.getAgentPassBlockSetting(
+          payload.agentId,
+        );
         if (agentBlockSetting.value) {
           const overstayBlock = await pool.query(
             `SELECT id, identifier, total_amount, status
              FROM overstay_charges
              WHERE agent_id = $1 AND status IN ('PENDING','EXCEPTION_REJECTED')
              LIMIT 5`,
-            [payload.agentId]
+            [payload.agentId],
           );
           if (overstayBlock.rows.length > 0) {
             return res.status(403).json({
               success: false,
-              message: "Your company has been blocked from applying for new passes due to an unpaid overstay charge. Please contact the ATM office.",
+              message:
+                "Your company has been blocked from applying for new passes due to an unpaid overstay charge. Please contact the ATM office.",
               overstay_charges: overstayBlock.rows,
             });
           }
@@ -952,6 +956,10 @@ const approveVehicle = async (req, res) => {
     const { vehicleId, remarks } = req.body;
     const role = req.user?.role;
     const roleId = req.user?.roleId;
+    const departmentId = req.user?.departmentId;
+
+    const isMarineFireSafety =
+      role === "Fire Safety Officer" && Number(departmentId) === 7;
 
     if (roleId === 26 || role === "Safety Officer") {
       const query = `
@@ -1014,7 +1022,156 @@ const approveVehicle = async (req, res) => {
         success: true,
         data: vehicle,
       });
-    } else if (roleId === 27 || role === "Fire Safety Officer") {
+    } else if (isMarineFireSafety) {
+      const vehicleCheck = await pool.query(
+        `
+      SELECT
+        pv.*,
+        vt.name AS "vehicleTypeName",
+        pr."workflowState"
+      FROM pass_vehicles pv
+      LEFT JOIN vehicle_types vt
+        ON vt.id = pv."vehicleTypeId"
+      INNER JOIN pass_requests pr
+        ON pr.id = pv."passRequestId"
+      WHERE pv.id = $1
+    `,
+        [vehicleId],
+      );
+
+      const vehicle = vehicleCheck.rows[0];
+
+      if (!vehicle) {
+        return res.status(404).json({
+          success: false,
+          message: "Vehicle not found",
+        });
+      }
+
+      const vehicleTypeName = String(vehicle.vehicleTypeName || "")
+        .trim()
+        .toUpperCase();
+
+      const isTrailerVehicle =
+        vehicleTypeName === "TRAILORS" || vehicleTypeName === "TRAILER LORRY";
+
+      const isAnnual =
+        String(vehicle.passType || "")
+          .trim()
+          .toUpperCase() === "YEARLY" ||
+        String(vehicle.passType || "")
+          .trim()
+          .toUpperCase() === "ANNUAL";
+
+      if (!isTrailerVehicle || !isAnnual) {
+        return res.status(403).json({
+          success: false,
+          message:
+            "Marine Fire Safety approval is applicable only for Annual Trailers and Trailer Lorry vehicles.",
+        });
+      }
+
+      if (vehicle.workflowState !== "PENDING_MARINE_SAFETY") {
+        return res.status(403).json({
+          success: false,
+          message: "This vehicle is not pending Marine Fire Safety approval.",
+        });
+      }
+
+      const updateQuery = `
+    UPDATE pass_vehicles
+    SET
+      "marineSafetyApproved" = true,
+      "marineSafetyRemarks" = $2,
+      "marineSafetyApprovedBy" = $3,
+      "marineSafetyApprovedAt" = NOW(),
+      "qrUuid" = CASE
+        WHEN "qrUuid" IS NULL
+        THEN gen_random_uuid()
+        ELSE "qrUuid"
+      END,
+      "qrIssuedAt" = CASE
+        WHEN "qrIssuedAt" IS NULL
+        THEN NOW()
+        ELSE "qrIssuedAt"
+      END,
+      "updatedAt" = NOW()
+    WHERE id = $1
+    RETURNING *
+  `;
+
+      const vehicleRes = await pool.query(updateQuery, [
+        vehicleId,
+        remarks || null,
+        req.user?.userId || null,
+      ]);
+
+      const approvedVehicle = vehicleRes.rows[0];
+
+      const remainingQuery = `
+    SELECT
+      pv.id,
+      pv.status,
+      pv."marineSafetyApproved",
+      pv."passType",
+      vt.name AS "vehicleTypeName"
+    FROM pass_vehicles pv
+    LEFT JOIN vehicle_types vt
+      ON vt.id = pv."vehicleTypeId"
+    WHERE pv."passRequestId" = $1
+  `;
+
+      const remainingRes = await pool.query(remainingQuery, [
+        approvedVehicle.passRequestId,
+      ]);
+
+      const marineVehicles = remainingRes.rows.filter((v) => {
+        const typeName = String(v.vehicleTypeName || "")
+          .trim()
+          .toUpperCase();
+
+        const annual =
+          String(v.passType || "")
+            .trim()
+            .toUpperCase() === "YEARLY" ||
+          String(v.passType || "")
+            .trim()
+            .toUpperCase() === "ANNUAL";
+
+        return (
+          (typeName === "TRAILORS" || typeName === "TRAILER LORRY") &&
+          annual &&
+          v.status !== "rejected" &&
+          v.status !== "reverted"
+        );
+      });
+
+      const allMarineApproved = marineVehicles.every(
+        (v) => v.marineSafetyApproved === true,
+      );
+
+      if (marineVehicles.length > 0 && allMarineApproved) {
+        await pool.query(
+          `
+        UPDATE pass_requests
+        SET
+          "workflowState" = 'COMPLETED',
+          "status" = 'COMPLETED',
+          "updatedAt" = NOW()
+        WHERE id = $1
+      `,
+          [approvedVehicle.passRequestId],
+        );
+      }
+
+      return res.json({
+        success: true,
+        data: approvedVehicle,
+      });
+    } else if (
+      (roleId === 27 || role === "Fire Safety Officer") &&
+      Number(departmentId) !== 7
+    ) {
       const query = `
         UPDATE pass_vehicles
         SET "sparkArresterCertified" = true, "sparkArresterRemarks" = $2, "updatedAt" = NOW()
@@ -1291,7 +1448,10 @@ const getPassDetails = async (req, res) => {
   try {
     const { passRequestId } = req.params;
 
-    const passData = await getAgentPassRequestsDetails.getPassById(passRequestId, req.user.role );
+    const passData = await getAgentPassRequestsDetails.getPassById(
+      passRequestId,
+      req.user.role,
+    );
 
     if (!passData) {
       return res.status(404).json({
@@ -1377,7 +1537,12 @@ const updatePassPerson = async (req, res) => {
     );
     attachFile(updateData, "passportDoc", "passportPath", "passportName");
     attachFile(updateData, "visaDoc", "visaDocPath", "visaDocName");
-    attachFile(updateData, "immigrationDoc", "immigrationDocPath", "immigrationDocName");
+    attachFile(
+      updateData,
+      "immigrationDoc",
+      "immigrationDocPath",
+      "immigrationDocName",
+    );
     attachFile(updateData, "cdcDocument", "cdcDocumentPath", "cdcDocumentName");
     attachFile(
       updateData,
@@ -1839,12 +2004,10 @@ const submitTwoWheelerUpdate = async (req, res) => {
   try {
     const { personId, passRequestId, newVehicleNo, reason } = req.body;
     if (!personId || !newVehicleNo) {
-      return res
-        .status(400)
-        .json({
-          success: false,
-          message: "Person ID and new vehicle number are required.",
-        });
+      return res.status(400).json({
+        success: false,
+        message: "Person ID and new vehicle number are required.",
+      });
     }
 
     // Vehicle Number Regex Validation (Indian vehicle registration number)
@@ -1888,13 +2051,11 @@ const submitTwoWheelerUpdate = async (req, res) => {
       passTypeStr === "ANNUAL" ||
       passTypeStr === "3";
     if (!isAnnual) {
-      return res
-        .status(400)
-        .json({
-          success: false,
-          message:
-            "Two-wheeler number update is only permitted for Annual/Yearly passes.",
-        });
+      return res.status(400).json({
+        success: false,
+        message:
+          "Two-wheeler number update is only permitted for Annual/Yearly passes.",
+      });
     }
 
     // Check two wheeler enablement
@@ -1902,12 +2063,10 @@ const submitTwoWheelerUpdate = async (req, res) => {
       person.withTwoWheeler === true ||
       String(person.withTwoWheeler) === "true";
     if (!hasTwoWheeler) {
-      return res
-        .status(400)
-        .json({
-          success: false,
-          message: "Two-wheeler pass was not availed for this person.",
-        });
+      return res.status(400).json({
+        success: false,
+        message: "Two-wheeler pass was not availed for this person.",
+      });
     }
 
     // Check 3-change limit
@@ -2044,12 +2203,10 @@ const approveTwoWheelerUpdate = async (req, res) => {
 
     const changeReq = reqRes.rows[0];
     if (changeReq.status !== "PENDING") {
-      return res
-        .status(400)
-        .json({
-          success: false,
-          message: `Request is already ${changeReq.status}`,
-        });
+      return res.status(400).json({
+        success: false,
+        message: `Request is already ${changeReq.status}`,
+      });
     }
 
     // Update person vehicleNo & twoWheelerChangeCount
@@ -2130,12 +2287,10 @@ const rejectTwoWheelerUpdate = async (req, res) => {
 
     const changeReq = reqRes.rows[0];
     if (changeReq.status !== "PENDING") {
-      return res
-        .status(400)
-        .json({
-          success: false,
-          message: `Request is already ${changeReq.status}`,
-        });
+      return res.status(400).json({
+        success: false,
+        message: `Request is already ${changeReq.status}`,
+      });
     }
 
     const finalReason = rejectedReason || "Request rejected by approver";
@@ -2358,10 +2513,7 @@ const enablePersonPass = async (req, res) => {
 
     const agentId = req.user?.id || req.user?.userId;
 
-    const result = await getPassRequest.enablePersonPass(
-      agentId,
-      passPersonId,
-    );
+    const result = await getPassRequest.enablePersonPass(agentId, passPersonId);
 
     return res.status(result.success ? 200 : 400).json(result);
   } catch (error) {
@@ -2399,6 +2551,500 @@ const enableVehiclePass = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: error.message || "Unable to enable vehicle pass.",
+    });
+  }
+};
+
+const getMarineSafetyPassRequests = async (req, res) => {
+  try {
+    const userId = Number(req.user?.userId ?? req.user?.id);
+
+    if (!Number.isInteger(userId)) {
+      return res.status(401).json({
+        success: false,
+        message: "Unable to identify logged-in user.",
+      });
+    }
+
+    const {
+      page = 1,
+      limit = 20,
+      status = "pending",
+      search = "",
+      sortOrder = "DESC",
+    } = req.query;
+
+    console.log("========== MARINE SAFETY REQUEST ==========");
+    console.log("Marine user ID :", userId);
+    console.log("Status         :", status);
+    console.log("Search         :", search);
+    console.log("============================================");
+
+    const result = await getPassRequest.getMarineSafetyPassRequests({
+      userId,
+      page,
+      limit,
+      status,
+      search,
+      sortOrder,
+    });
+
+    return res.json({
+      success: true,
+      ...result,
+    });
+  } catch (error) {
+    console.error("Marine safety pass request error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Internal server error",
+    });
+  }
+};
+
+const approveMarineSafetyVehicle = async (req, res) => {
+  try {
+    const role = req.user?.role;
+    const departmentId = Number(req.user?.departmentId);
+
+    if (role !== "Fire Safety Officer" || departmentId !== 7) {
+      return res.status(403).json({
+        success: false,
+        message: "Access denied",
+      });
+    }
+
+    const { vehicleId, remarks } = req.body;
+
+    if (!vehicleId) {
+      return res.status(400).json({
+        success: false,
+        message: "vehicleId is required",
+      });
+    }
+
+    const result = await PassRequest.approveMarineSafetyVehicle(
+      vehicleId,
+      req.user.userId,
+      remarks,
+    );
+
+    return res.json({
+      success: true,
+      data: result,
+    });
+  } catch (error) {
+    console.error("MARINE SAFETY APPROVAL ERROR", error);
+
+    return res.status(400).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+const rejectMarineSafetyVehicle = async (req, res) => {
+  try {
+    const role = req.user?.role;
+    const departmentId = Number(req.user?.departmentId);
+
+    if (role !== "Fire Safety Officer" || departmentId !== 7) {
+      return res.status(403).json({
+        success: false,
+        message: "Access denied",
+      });
+    }
+
+    const { vehicleId, rejectedReason } = req.body;
+
+    if (!vehicleId) {
+      return res.status(400).json({
+        success: false,
+        message: "vehicleId is required",
+      });
+    }
+
+    if (!rejectedReason?.trim()) {
+      return res.status(400).json({
+        success: false,
+        message: "Rejection reason is required",
+      });
+    }
+    const userId = Number(req.user?.userId ?? req.user?.id);
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: "Authenticated user ID is missing",
+      });
+    }
+
+    const vehicle = await PassRequest.rejectMarineSafetyVehicle(
+      vehicleId,
+      rejectedReason.trim(),
+      userId,
+    );
+
+    return res.status(200).json({
+      success: true,
+      data: vehicle,
+    });
+  } catch (error) {
+    console.error("MARINE SAFETY REJECT ERROR:", error);
+
+    return res.status(400).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+const revertMarineSafetyVehicle = async (req, res) => {
+  try {
+    const role = req.user?.role;
+    const departmentId = Number(req.user?.departmentId);
+
+    if (role !== "Fire Safety Officer" || departmentId !== 7) {
+      return res.status(403).json({
+        success: false,
+        message: "Access denied",
+      });
+    }
+
+    const { vehicleId, revertReason } = req.body;
+
+    if (!vehicleId) {
+      return res.status(400).json({
+        success: false,
+        message: "vehicleId is required",
+      });
+    }
+
+    if (!revertReason?.trim()) {
+      return res.status(400).json({
+        success: false,
+        message: "Revert reason is required",
+      });
+    }
+
+    const userId = Number(req.user?.userId ?? req.user?.id);
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: "Authenticated user ID is missing",
+      });
+    }
+
+    const vehicle = await PassRequest.revertMarineSafetyVehicle(
+      vehicleId,
+      revertReason.trim(),
+      userId,
+    );
+
+    return res.status(200).json({
+      success: true,
+      data: vehicle,
+    });
+  } catch (error) {
+    console.error("MARINE SAFETY REVERT ERROR:", error);
+
+    return res.status(400).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+const getEssentialOilDockStage = (req) => {
+  const role = String(req.user?.role || "").trim();
+  const departmentId = Number(req.user?.departmentId);
+
+  if (
+    departmentId === 7 &&
+    ["Dy. Conservator", "Fire Safety Officer"].includes(role)
+  ) {
+    return "PENDING_MARINE_ESSENTIAL";
+  }
+
+  if (role === "Approval" && departmentId === 3) {
+    return "PENDING_CIVIL_ESSENTIAL";
+  }
+
+  if (role === "Approval" && departmentId === 4) {
+    return "PENDING_MECHANICAL_ESSENTIAL";
+  }
+
+  if (
+    [
+      "CISF",
+      "CISF Asst Commandant",
+      "CISF Assistant Commandant",
+      "Cisf.Assistant Commandant",
+    ].includes(role)
+  ) {
+    return "PENDING_CISF_ESSENTIAL";
+  }
+
+  if (role === "Approval" && departmentId === 9) {
+    return "PENDING_PASS_SECTION_ESSENTIAL";
+  }
+
+  return null;
+};
+
+const getEssentialOilDockPassRequests = async (req, res) => {
+  try {
+    const stage = getEssentialOilDockStage(req);
+
+    if (!stage) {
+      return res.status(403).json({
+        success: false,
+        message: "You are not authorized for the Essential Oil Dock workflow.",
+      });
+    }
+
+    // const result = await PassRequest.getEssentialOilDockPassRequests({
+    //   userId: Number(req.user?.userId ?? req.user?.id),
+    //   stage,
+    //   status: req.query.status || "pending",
+    //   page: req.query.page || 1,
+    //   limit: req.query.limit || 20,
+    //   search: req.query.search || "",
+    //   sortOrder: req.query.sortOrder || "DESC",
+    // });
+
+    const result = await PassRequest.getEssentialOilDockPassRequests({
+      userId: Number(req.user?.userId ?? req.user?.id),
+      roleId: Number(req.user?.roleId),
+      departmentId: Number(req.user?.departmentId),
+      stage,
+      status: req.query.status || "pending",
+      page: req.query.page || 1,
+      limit: req.query.limit || 20,
+      search: req.query.search || "",
+      sortOrder: req.query.sortOrder || "DESC",
+    });
+
+    return res.json({
+      success: true,
+      ...result,
+    });
+  } catch (error) {
+    console.error("ESSENTIAL OIL DOCK FETCH ERROR:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+const essentialOilDockVehicleAction = async (req, res) => {
+  try {
+    const stage = getEssentialOilDockStage(req);
+    console.log("ESSENTIAL VEHICLE ACTION REQUEST:", {
+      userId: req.user?.userId ?? req.user?.id,
+      role: req.user?.role,
+      departmentId: req.user?.departmentId,
+      stage,
+      body: req.body,
+    });
+
+    if (!stage) {
+      return res.status(403).json({
+        success: false,
+        message: "You are not authorized for the Essential Oil Dock workflow.",
+      });
+    }
+
+    const { vehicleId, decision, rejectedReason, revertReason, remarks } =
+      req.body;
+
+    if (!vehicleId || !decision) {
+      return res.status(400).json({
+        success: false,
+        message: "vehicleId and decision are required",
+      });
+    }
+
+    const userId = Number(req.user?.userId ?? req.user?.id);
+    console.log("ESSENTIAL ACTION IDENTITY CHECK:", {
+      userId,
+      roleId: req.user?.roleId,
+      role: req.user?.role,
+      departmentId: req.user?.departmentId,
+      stage,
+      vehicleId,
+      decision,
+    });
+
+    const result = await PassRequest.actionEssentialOilDockVehicle({
+      vehicleId,
+      stage,
+      decision: String(decision).toUpperCase(),
+      remarks: rejectedReason || revertReason || remarks || null,
+      userId,
+      roleId: req.user?.roleId || null,
+      departmentId: Number(req.user?.departmentId) || null,
+    });
+
+    return res.json({
+      success: true,
+      data: result,
+    });
+  } catch (error) {
+    console.error("ESSENTIAL OIL DOCK ACTION ERROR:", error);
+
+    return res.status(400).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+const getEssentialOilDockPersonPassRequests = async (req, res) => {
+  try {
+    const workflow = getEssentialOilDockPersonStage(req);
+
+    if (!workflow) {
+      return res.status(403).json({
+        success: false,
+        message:
+          "You are not authorized for the Essential person workflow.",
+      });
+    }
+
+    const result =
+      await PassRequest.getEssentialOilDockPersonPassRequests({
+        userId: workflow.assignedUserId,
+        departmentId: Number(req.user?.departmentId),
+        stage: workflow.stage,
+        status: req.query.status || "pending",
+        page: req.query.page || 1,
+        limit: req.query.limit || 20,
+        search: req.query.search || "",
+        sortOrder: req.query.sortOrder || "DESC",
+      });
+
+    return res.json({
+      success: true,
+      ...result,
+    });
+  } catch (error) {
+    console.error(
+      "ESSENTIAL OIL DOCK PERSON FETCH ERROR:",
+      error,
+    );
+
+    return res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+const getEssentialOilDockPersonStage = (req) => {
+  const role = String(req.user?.role || "").trim();
+  const departmentId = Number(req.user?.departmentId);
+  const userId = Number(req.user?.userId ?? req.user?.id);
+
+  // Civil
+  if (
+    role === "Approval" &&
+    departmentId === 3
+  ) {
+    return {
+      stage: "PENDING_CIVIL_PERSON_ESSENTIAL",
+      assignedUserId: userId,
+    };
+  }
+
+  // Mechanical
+  if (
+    role === "Approval" &&
+    departmentId === 4
+  ) {
+    return {
+      stage: "PENDING_MECHANICAL_PERSON_ESSENTIAL",
+      assignedUserId: userId,
+    };
+  }
+
+  // Traffic / Pass Section
+  if (
+    role === "Approval" &&
+    departmentId === 9
+  ) {
+    return {
+      stage: "PENDING_TRAFFIC_PERSON_ESSENTIAL",
+      assignedUserId: userId,
+    };
+  }
+
+  return null;
+};
+
+const essentialOilDockPersonAction = async (req, res) => {
+  try {
+    const workflowStage = getEssentialOilDockStage(req);
+
+    if (!workflowStage) {
+      return res.status(403).json({
+        success: false,
+        message: "You are not authorized for the Essential Oil Dock workflow.",
+      });
+    }
+
+    const personStageMap = {
+      PENDING_CIVIL_ESSENTIAL: "PENDING_CIVIL_PERSON_ESSENTIAL",
+      PENDING_MECHANICAL_ESSENTIAL: "PENDING_MECHANICAL_PERSON_ESSENTIAL",
+      PENDING_PASS_SECTION_ESSENTIAL: "PENDING_TRAFFIC_PERSON_ESSENTIAL",
+    };
+
+    const stage = personStageMap[workflowStage];
+
+    if (!stage) {
+      return res.status(403).json({
+        success: false,
+        message:
+          "You are not authorized for the Essential Oil Dock person workflow.",
+      });
+    }
+
+    const { personId, decision, rejectedReason, revertReason, remarks } =
+      req.body;
+
+    if (!personId || !decision) {
+      return res.status(400).json({
+        success: false,
+        message: "personId and decision are required",
+      });
+    }
+
+    const userId = Number(req.user?.userId ?? req.user?.id);
+
+    const result = await PassRequest.actionEssentialOilDockPerson({
+      personId,
+      stage,
+      decision: String(decision).trim().toUpperCase(),
+      remarks: rejectedReason || revertReason || remarks || null,
+      userId,
+      roleId: req.user?.roleId || null,
+      departmentId: Number(req.user?.departmentId) || null,
+    });
+
+    return res.json({
+      success: true,
+      data: result,
+    });
+  } catch (error) {
+    console.error("ESSENTIAL OIL DOCK PERSON ACTION ERROR:", error);
+
+    return res.status(400).json({
+      success: false,
+      message: error.message,
     });
   }
 };
@@ -2449,4 +3095,14 @@ module.exports = {
   disableVehiclePass,
   enablePersonPass,
   enableVehiclePass,
+  getMarineSafetyPassRequests,
+  approveMarineSafetyVehicle,
+  rejectMarineSafetyVehicle,
+  revertMarineSafetyVehicle,
+  getEssentialOilDockPassRequests,
+  essentialOilDockVehicleAction,
+  getEssentialOilDockPersonPassRequests,
+  getEssentialOilDockPersonStage,
+  essentialOilDockPersonAction
+
 };

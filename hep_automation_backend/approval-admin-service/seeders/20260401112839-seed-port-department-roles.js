@@ -36,7 +36,7 @@ module.exports = {
       `SELECT "roleName" FROM port_department_roles WHERE "roleName" IN (:names)`,
       {
         replacements: { names: allRoles.map((r) => r.roleName) },
-      }
+      },
     );
 
     const existingNames = new Set((existingRows || []).map((r) => r.roleName));

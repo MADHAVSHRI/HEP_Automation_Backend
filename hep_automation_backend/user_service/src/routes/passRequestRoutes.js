@@ -201,4 +201,52 @@ router.put(
   passRequestController.rejectTwoWheelerUpdate,
 );
 
+router.get(
+  "/marine-safety-passes",
+  verifyToken,
+  passRequestController.getMarineSafetyPassRequests,
+);
+
+router.put(
+  "/approve-marine-safety-vehicle",
+  verifyToken,
+  passRequestController.approveMarineSafetyVehicle,
+);
+
+router.put(
+  "/reject-marine-safety-vehicle",
+  verifyToken,
+  passRequestController.rejectMarineSafetyVehicle,
+);
+
+router.put(
+  "/revert-marine-safety-vehicle",
+  verifyToken,
+  passRequestController.revertMarineSafetyVehicle,
+);
+
+router.get(
+  "/essential-oil-dock-passes",
+  verifyToken,
+  passRequestController.getEssentialOilDockPassRequests,
+);
+
+router.put(
+  "/essential-oil-dock/vehicle-action",
+  verifyToken,
+  passRequestController.essentialOilDockVehicleAction,
+);
+
+router.get(
+  "/essential-oil-dock-person-passes",
+  verifyToken,
+  passRequestController.getEssentialOilDockPersonPassRequests,
+);
+
+router.put(
+  "/essential-oil-dock/person-action",
+  verifyToken,
+  passRequestController.essentialOilDockPersonAction,
+);
+
 module.exports = router;
