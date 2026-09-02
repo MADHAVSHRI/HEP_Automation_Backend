@@ -38,11 +38,36 @@ async function initOverstayTable() {
     CREATE INDEX IF NOT EXISTS idx_overstay_status     ON overstay_charges (status);
     CREATE INDEX IF NOT EXISTS idx_overstay_entity     ON overstay_charges (entity_type, identifier);
   `);
-  // Idempotent migration: add per-charge pass_blocked flag if not already present
+  // Idempotent migration: add per-charge pass_blocked flag, pass_type, initial_overstay_days, initial_total_amount
   await pool.query(`
     ALTER TABLE overstay_charges
     ADD COLUMN IF NOT EXISTS pass_blocked BOOLEAN NOT NULL DEFAULT false,
-    ADD COLUMN IF NOT EXISTS pass_type VARCHAR(50);
+    ADD COLUMN IF NOT EXISTS pass_type VARCHAR(50),
+    ADD COLUMN IF NOT EXISTS initial_overstay_days INTEGER DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS initial_total_amount DECIMAL(12,2) DEFAULT 0;
+  `);
+
+  // Backfill initial levy fields for pre-existing levied charges if unpopulated
+  await pool.query(`
+    UPDATE overstay_charges
+    SET initial_overstay_days = overstay_days,
+        initial_total_amount = total_amount
+    WHERE (initial_overstay_days IS NULL OR initial_overstay_days = 0)
+      AND status != 'NOTIFIED'
+      AND overstay_days > 0;
+  `);
+
+  // Idempotent migration: clean up duplicate active overstay charges for the same entity/identifier, keeping the latest one
+  await pool.query(`
+    DELETE FROM overstay_charges a
+    USING overstay_charges b
+    WHERE a.id < b.id
+      AND a.entity_type = b.entity_type
+      AND a.entity_id IS NOT DISTINCT FROM b.entity_id
+      AND a.pass_request_id IS NOT DISTINCT FROM b.pass_request_id
+      AND a.identifier = b.identifier
+      AND a.status IN ('PENDING', 'NOTIFIED', 'EXCEPTION_REQUESTED', 'EXCEPTION_REJECTED')
+      AND b.status IN ('PENDING', 'NOTIFIED', 'EXCEPTION_REQUESTED', 'EXCEPTION_REJECTED');
   `);
 }
 
@@ -54,6 +79,8 @@ const CARGO_EQUIPMENT_TYPES = [
   "JCB EARTHMOVER", "MOBILE CRANE", "PAY LOADER", "POCLAIN",
 ];
 const LIVE_AMOUNT_SELECT = `
+  COALESCE(NULLIF(oc.initial_overstay_days, 0), oc.overstay_days) AS initial_overstay_days,
+  COALESCE(NULLIF(oc.initial_total_amount, 0), oc.total_amount) AS initial_total_amount,
   CASE
     WHEN oc.status IN ('PENDING', 'EXCEPTION_REQUESTED', 'EXCEPTION_REJECTED')
       THEN GREATEST(CURRENT_DATE - oc.date_to::date, 0)
@@ -63,7 +90,17 @@ const LIVE_AMOUNT_SELECT = `
     WHEN oc.status IN ('PENDING', 'EXCEPTION_REQUESTED', 'EXCEPTION_REJECTED')
       THEN ROUND((oc.daily_rate * GREATEST(CURRENT_DATE - oc.date_to::date, 0))::numeric, 2)
     ELSE oc.total_amount
-  END AS current_total_amount
+  END AS current_total_amount,
+  CASE
+    WHEN oc.status IN ('PENDING', 'EXCEPTION_REQUESTED', 'EXCEPTION_REJECTED')
+      THEN GREATEST(GREATEST(CURRENT_DATE - oc.date_to::date, 0) - COALESCE(NULLIF(oc.initial_overstay_days, 0), oc.overstay_days), 0)
+    ELSE GREATEST(oc.overstay_days - COALESCE(NULLIF(oc.initial_overstay_days, 0), oc.overstay_days), 0)
+  END AS additional_overstay_days,
+  CASE
+    WHEN oc.status IN ('PENDING', 'EXCEPTION_REQUESTED', 'EXCEPTION_REJECTED')
+      THEN ROUND((oc.daily_rate * GREATEST(GREATEST(CURRENT_DATE - oc.date_to::date, 0) - COALESCE(NULLIF(oc.initial_overstay_days, 0), oc.overstay_days), 0))::numeric, 2)
+    ELSE ROUND((oc.daily_rate * GREATEST(oc.overstay_days - COALESCE(NULLIF(oc.initial_overstay_days, 0), oc.overstay_days), 0))::numeric, 2)
+  END AS additional_penalty_amount
 `;
 
 const COALESCE_PASS_TYPE = `
@@ -147,20 +184,24 @@ const Overstay = {
         pp."passType"::text  AS pass_type,
         pp."dateFrom"        AS date_from,
         pp."dateTo"          AS date_to,
-        CURRENT_DATE - pp."dateTo"::date AS overstay_days
+        CURRENT_DATE - pp."dateTo"::date AS overstay_days,
+        oc.id                AS charge_id,
+        oc.status            AS charge_status
       FROM pass_persons pp
       JOIN pass_requests pr ON pr.id = pp."passRequestId"
       LEFT JOIN hep_types ht ON ht.id = pp."hepTypeId"
       LEFT JOIN "Agents" a ON a.id = pr."agentId"
+      LEFT JOIN LATERAL (
+        SELECT oc2.id, oc2.status
+        FROM overstay_charges oc2
+        WHERE oc2.entity_type IN ('PERSON','DRIVER')
+          AND oc2.entity_id = pp.id
+          AND oc2.pass_request_id = pp."passRequestId"
+        ORDER BY oc2.created_at DESC
+        LIMIT 1
+      ) oc ON true
       WHERE (LOWER(pp.status::text) = 'approved' OR pp.status IS NULL)
         AND pp."dateTo"::date < CURRENT_DATE
-        AND NOT EXISTS (
-          SELECT 1 FROM overstay_charges oc
-          WHERE oc.entity_type IN ('PERSON','DRIVER')
-            AND oc.entity_id = pp.id
-            AND oc.pass_request_id = pp."passRequestId"
-            AND oc.status <> 'NOTIFIED'
-        )
       ORDER BY overstay_days DESC
     `;
 
@@ -179,20 +220,24 @@ const Overstay = {
         pv."passType"::text  AS pass_type,
         pv."dateFrom"        AS date_from,
         pv."dateTo"          AS date_to,
-        CURRENT_DATE - pv."dateTo"::date AS overstay_days
+        CURRENT_DATE - pv."dateTo"::date AS overstay_days,
+        oc.id                AS charge_id,
+        oc.status            AS charge_status
       FROM pass_vehicles pv
       JOIN pass_requests pr ON pr.id = pv."passRequestId"
       LEFT JOIN vehicle_types vt ON vt.id = pv."vehicleTypeId"
       LEFT JOIN "Agents" a ON a.id = pr."agentId"
+      LEFT JOIN LATERAL (
+        SELECT oc2.id, oc2.status
+        FROM overstay_charges oc2
+        WHERE oc2.entity_type = 'VEHICLE'
+          AND oc2.entity_id = pv.id
+          AND oc2.pass_request_id = pv."passRequestId"
+        ORDER BY oc2.created_at DESC
+        LIMIT 1
+      ) oc ON true
       WHERE (LOWER(pv.status::text) = 'approved' OR pv.status IS NULL)
         AND pv."dateTo"::date < CURRENT_DATE
-        AND NOT EXISTS (
-          SELECT 1 FROM overstay_charges oc
-          WHERE oc.entity_type = 'VEHICLE'
-            AND oc.entity_id = pv.id
-            AND oc.pass_request_id = pv."passRequestId"
-            AND oc.status <> 'NOTIFIED'
-        )
       ORDER BY overstay_days DESC
     `;
 
@@ -279,24 +324,29 @@ const Overstay = {
   
   /* ── 2. LEVY: insert a new charge ── */
   async levyCharge(data) {
-    // If an expiry reminder already exists for this entity, promote that row
+    const initDays = data.initial_overstay_days ?? data.overstay_days;
+    const initTotal = data.initial_total_amount ?? data.total_amount;
+
+    // If an active charge already exists for this entity, promote/update that row
     // into a payable charge instead of inserting a duplicate row.
     const promoted = await pool.query(
       `UPDATE overstay_charges
        SET overstay_days = $5,
            daily_rate = $6,
            total_amount = $7,
+           initial_overstay_days = COALESCE(NULLIF(initial_overstay_days, 0), $11),
+           initial_total_amount = COALESCE(NULLIF(initial_total_amount, 0), $12),
            pass_type = COALESCE($10, pass_type),
            status = 'PENDING',
-           levied_by = $8,
-           levied_at = NOW(),
-           notes = $9,
+           levied_by = COALESCE($8, levied_by),
+           levied_at = COALESCE(levied_at, NOW()),
+           notes = COALESCE($9, notes),
            updated_at = NOW()
        WHERE entity_type = $1
          AND entity_id IS NOT DISTINCT FROM $2
          AND pass_request_id IS NOT DISTINCT FROM $3
          AND identifier = $4
-         AND status = 'NOTIFIED'
+         AND status IN ('NOTIFIED', 'PENDING', 'EXCEPTION_REQUESTED', 'EXCEPTION_REJECTED')
        RETURNING *`,
       [
         data.entity_type,
@@ -309,21 +359,23 @@ const Overstay = {
         data.levied_by || null,
         data.notes || null,
         data.pass_type || null,
+        initDays,
+        initTotal,
       ]
     );
     if (promoted.rows[0]) {
-      return promoted.rows[0];
+      return { ...promoted.rows[0], _isUpdated: true };
     }
 
     const res = await pool.query(
       `INSERT INTO overstay_charges (
           entity_type, entity_id, pass_request_id, agent_id,
           identifier, entity_name, pass_no, pass_type, date_from, date_to,
-          overstay_days, daily_rate, total_amount, status,
+          overstay_days, daily_rate, total_amount, initial_overstay_days, initial_total_amount, status,
           levied_by, levied_at, notes
        ) VALUES (
-          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
-          'PENDING', $14, NOW(), $15
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
+          'PENDING', $16, NOW(), $17
        ) RETURNING *`,
       [
         data.entity_type,
@@ -339,11 +391,13 @@ const Overstay = {
         data.overstay_days,
         data.daily_rate,
         data.total_amount,
+        initDays,
+        initTotal,
         data.levied_by || null,
         data.notes || null,
       ]
     );
-    return res.rows[0];
+    return { ...res.rows[0], _isUpdated: false };
   },
 
   /* ── 3. LIST ALL CHARGES (ATM/Traffic) with optional filters ── */

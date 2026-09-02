@@ -18,22 +18,11 @@ function overstayReminderTemplate({
   pass_no,
   date_to,
   overstay_days,
-  total_amount,
-  daily_rate,
   charge_id,
 }) {
   const formattedExpiry = date_to
     ? new Date(date_to).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })
     : "N/A";
-
-  const formattedTotal = `₹${parseFloat(total_amount || 0).toLocaleString("en-IN", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}`;
-
-  const formattedDailyRate = daily_rate
-    ? `₹${parseFloat(daily_rate).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-    : null;
 
   const entityLabel =
     entity_type === "VEHICLE" ? "Vehicle" : entity_type === "DRIVER" ? "Driver" : "Person";
@@ -93,13 +82,12 @@ function overstayReminderTemplate({
               overstay charges have been paid.</strong>
             </p>
 
-            <!-- ── Daily Accrual Warning ── -->
             <table width="100%" cellpadding="0" cellspacing="0"
               style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;margin-bottom:24px;">
               <tr>
                 <td style="padding:14px 18px;">
                   📅 <strong>Important:</strong>
-                  Overstay charges are calculated for each day the entity remains inside the port after pass expiry. The outstanding amount will continue to increase until a valid Gate-OUT transaction is recorded or the applicable charges are settled.
+                  This is a notification reminder that your pass validity has expired. Please review your pass status and take the required action as soon as possible.
                 </td>
               </tr>
             </table>

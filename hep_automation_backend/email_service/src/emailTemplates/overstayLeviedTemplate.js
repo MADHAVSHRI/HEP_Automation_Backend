@@ -86,7 +86,7 @@ function overstayLeviedTemplate({
               <tr style="background:#0a1e4d;">
                 <td colspan="2" style="padding:11px 20px;">
                   <p style="margin:0;color:#ffffff;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1.1px;">
-                    Overstay Charge Details — Charge Ref #${charge_id}
+                    Overstay Charge Details
                   </p>
                 </td>
               </tr>

@@ -263,6 +263,8 @@ exports.levyCharge = async (req, res) => {
       overstay_days: overstayDaysInt,
       daily_rate: dailyRate,
       total_amount: totalAmount,
+      initial_overstay_days: overstayDaysInt,
+      initial_total_amount: totalAmount,
       levied_by: leviedBy,
       notes,
     });
@@ -291,7 +293,12 @@ exports.levyCharge = async (req, res) => {
       console.warn("Kafka OVERSTAY_LEVIED event failed (non-critical):", _kafkaErr.message);
     }
 
-    res.status(201).json({ success: true, message: "Overstay charge levied successfully", data: charge });
+    const isUpdated = Boolean(charge._isUpdated);
+    const message = isUpdated
+      ? `Existing overstay fine updated for ${charge.identifier} (₹${charge.total_amount || totalAmount})`
+      : `Overstay charge levied successfully for ${charge.identifier} (₹${charge.total_amount || totalAmount})`;
+
+    res.status(200).json({ success: true, message, data: charge, isUpdated });
   } catch (err) {
     console.error("levyCharge error:", err);
     const status = /fee configuration|fee category/i.test(err.message) ? 422 : 500;
@@ -445,6 +452,10 @@ exports.notifyCharge = async (req, res) => {
       overstay_days: liveOverstayDays,
       daily_rate: charge.daily_rate,
       total_amount: liveTotalAmount,
+      initial_overstay_days: charge.initial_overstay_days || charge.overstay_days,
+      initial_total_amount: charge.initial_total_amount || charge.total_amount,
+      additional_overstay_days: charge.additional_overstay_days || 0,
+      additional_penalty_amount: charge.additional_penalty_amount || 0,
       charge_id: charge.id,
     });
 
