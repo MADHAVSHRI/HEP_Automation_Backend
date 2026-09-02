@@ -1,0 +1,238 @@
+{
+  "metadata": {
+    "name": "APACS Reports Module Test Data",
+    "prefix": "RPTTEST",
+    "purpose": "Local functional testing of the nine reports",
+    "generatedFor": "hep_automation",
+    "notes": [
+      "These identifiers correspond to records already inserted in the local database.",
+      "Use RPTTEST in supported search fields to find these records.",
+      "Gate and lane names remain Not Recorded because those fields are not stored in the current database schema."
+    ]
+  },
+  "agents": [
+    {
+      "referenceNumber": "RPTTEST-AGENT-001",
+      "loginId": "RPTTEST-ALPHA",
+      "userTypeName": "Transporting firms",
+      "entityName": "RPTTEST Alpha Logistics",
+      "mobileNo": "9000001001",
+      "email": "reports.alpha@localhost.test",
+      "status": "approved",
+      "isApproved": true,
+      "city": "Chennai",
+      "state": "Tamil Nadu"
+    },
+    {
+      "referenceNumber": "RPTTEST-AGENT-002",
+      "loginId": "RPTTEST-BETA",
+      "userTypeName": "Importer/Exporter",
+      "entityName": "RPTTEST Beta Exports",
+      "mobileNo": "9000001002",
+      "email": "reports.beta@localhost.test",
+      "status": "approved",
+      "isApproved": true,
+      "city": "Chennai",
+      "state": "Tamil Nadu"
+    }
+  ],
+  "regularPassRequests": [
+    {
+      "referenceNo": "RPTTEST-REQ-APPROVED",
+      "agentLoginId": "RPTTEST-ALPHA",
+      "purposeOfVisit": "Inspection",
+      "paymentMode": "ACCOUNT",
+      "status": "APPROVED",
+      "baseTotal": 1500,
+      "gstAmount": 270,
+      "netAmount": 1770,
+      "originType": "AGENT"
+    },
+    {
+      "referenceNo": "RPTTEST-REQ-PENDING",
+      "agentLoginId": "RPTTEST-ALPHA",
+      "purposeOfVisit": "Site Visit",
+      "paymentMode": "E-CASH",
+      "status": "UNDER_REVIEW",
+      "baseTotal": 700,
+      "gstAmount": 126,
+      "netAmount": 826,
+      "originType": "AGENT"
+    },
+    {
+      "referenceNo": "RPTTEST-REQ-REJECTED",
+      "agentLoginId": "RPTTEST-BETA",
+      "purposeOfVisit": "Maintenance",
+      "paymentMode": "ACCOUNT",
+      "status": "REJECTED",
+      "baseTotal": 1000,
+      "gstAmount": 180,
+      "netAmount": 1180,
+      "originType": "AGENT"
+    }
+  ],
+  "regularPersonPasses": [
+    {
+      "passRequestReferenceNo": "RPTTEST-REQ-APPROVED",
+      "personPassNo": "RPTTEST-PER-ISSUED",
+      "name": "RPTTEST Arun Kumar",
+      "mobile": "9000010001",
+      "email": "arun.rpttest@localhost.test",
+      "nationality": "INDIAN",
+      "hepType": "Personnel",
+      "passType": "MONTHLY",
+      "amount": 1500,
+      "status": "approved",
+      "qrUuid": "11111111-1111-4111-8111-111111111111",
+      "qrStatus": "Issued",
+      "qrRevoked": false,
+      "scanCount": 5
+    },
+    {
+      "passRequestReferenceNo": "RPTTEST-REQ-PENDING",
+      "personPassNo": "RPTTEST-PER-PENDING",
+      "name": "RPTTEST Priya Driver",
+      "mobile": "9000010002",
+      "email": "priya.rpttest@localhost.test",
+      "nationality": "INDIAN",
+      "hepType": "Drivers",
+      "passType": "DAILY",
+      "amount": 50,
+      "status": "pending",
+      "qrUuid": null,
+      "qrStatus": "Pending",
+      "qrRevoked": false,
+      "scanCount": 0
+    },
+    {
+      "passRequestReferenceNo": "RPTTEST-REQ-REJECTED",
+      "personPassNo": "RPTTEST-PER-REVOKED",
+      "name": "RPTTEST Revoked Person",
+      "mobile": "9000010003",
+      "email": "revoked.rpttest@localhost.test",
+      "nationality": "FOREIGNER",
+      "hepType": "Personnel",
+      "passType": "YEARLY",
+      "amount": 10000,
+      "status": "rejected",
+      "qrUuid": "33333333-3333-4333-8333-333333333333",
+      "qrStatus": "Revoked",
+      "qrRevoked": true,
+      "scanCount": 2
+    }
+  ],
+  "regularVehiclePasses": [
+    {
+      "passRequestReferenceNo": "RPTTEST-REQ-APPROVED",
+      "vehiclePassNo": "RPTTEST-VEH-ISSUED",
+      "registrationNo": "TN01RT1001",
+      "passType": "MONTHLY",
+      "amount": 1000,
+      "status": "approved",
+      "qrUuid": "22222222-2222-4222-8222-222222222222",
+      "qrStatus": "Issued",
+      "qrRevoked": false,
+      "scanCount": 8
+    },
+    {
+      "passRequestReferenceNo": "RPTTEST-REQ-PENDING",
+      "vehiclePassNo": "RPTTEST-VEH-PENDING",
+      "registrationNo": "TN01RT1002",
+      "passType": "DAILY",
+      "amount": 70,
+      "status": "pending",
+      "qrUuid": null,
+      "qrStatus": "Pending",
+      "qrRevoked": false,
+      "scanCount": 0
+    },
+    {
+      "passRequestReferenceNo": "RPTTEST-REQ-REJECTED",
+      "vehiclePassNo": "RPTTEST-VEH-REVOKED",
+      "registrationNo": "TN01RT1003",
+      "passType": "YEARLY",
+      "amount": 15000,
+      "status": "rejected",
+      "qrUuid": "44444444-4444-4444-8444-444444444444",
+      "qrStatus": "Revoked",
+      "qrRevoked": true,
+      "scanCount": 3
+    }
+  ],
+  "vendorPassRequests": [
+    {
+      "referenceNo": "RPTTEST-VENDOR-REQ-001",
+      "token": "rpttest-vendor-token-001",
+      "companyName": "RPTTEST Gamma Vendors",
+      "departmentName": "RPTTEST Operations",
+      "vendorEmail": "gamma.rpttest@localhost.test",
+      "vendorMobile": "9000020001",
+      "paymentMode": "CASH",
+      "status": "APPROVED"
+    }
+  ],
+  "vendorPersonPasses": [
+    {
+      "vendorRequestReferenceNo": "RPTTEST-VENDOR-REQ-001",
+      "personPassNo": "RPTTEST-VPER-001",
+      "name": "RPTTEST Vendor Visitor",
+      "mobile": "9000021001",
+      "email": "visitor.rpttest@localhost.test",
+      "nationality": "INDIAN",
+      "passType": "MONTHLY",
+      "amount": 1200,
+      "status": "approved"
+    }
+  ],
+  "vendorVehiclePasses": [
+    {
+      "vendorRequestReferenceNo": "RPTTEST-VENDOR-REQ-001",
+      "vehiclePassNo": "RPTTEST-VVEH-001",
+      "vehicleRegistrationNo": "TN01VT2001",
+      "vehicleType": "Van",
+      "passType": "MONTHLY",
+      "amount": 1800,
+      "status": "approved"
+    }
+  ],
+  "penalties": {
+    "blacklist": [
+      {
+        "entityType": "PERSON",
+        "identifier": "RPTTEST-PER-ISSUED",
+        "entityName": "RPTTEST Arun Kumar",
+        "reason": "Reports test blacklist violation",
+        "hasPenalty": true,
+        "penaltyAmount": 500,
+        "penaltyStatus": "PAID",
+        "paymentMethod": "E-CASH",
+        "transactionId": "RPTTEST-TXN-BL-001"
+      }
+    ],
+    "overstay": [
+      {
+        "entityType": "VEHICLE",
+        "identifier": "TN01RT1001",
+        "entityName": "RPTTEST Alpha Logistics Vehicle",
+        "passNo": "RPTTEST-VEH-ISSUED",
+        "overstayDays": 2,
+        "dailyRate": 150,
+        "totalAmount": 300,
+        "status": "PENDING",
+        "paymentMethod": "ACCOUNT",
+        "transactionId": "RPTTEST-TXN-OS-001"
+      }
+    ]
+  },
+  "reportSearchExamples": {
+    "passPenalty": ["RPTTEST-PER-ISSUED", "TN01RT1001"],
+    "registeredUsers": "RPTTEST",
+    "typeOfPassIssued": "RPTTEST",
+    "revenue": "RPTTEST",
+    "passApproval": "RPTTEST",
+    "gateInOut": "Uses stored scanCount values",
+    "gateLaneWiseInOut": "Uses stored scanCount values",
+    "qrPassInventory": ["RPTTEST-ALPHA", "RPTTEST-BETA"],
+    "allPassIssuance": "RPTTEST"
+  }
+}

@@ -122,12 +122,12 @@ const Report = {
 
     if (filters.fromDate) {
       params.push(filters.fromDate);
-      where.push(`entry."createdAt" >= $${params.length}`);
+      where.push(`entry."createdAt" >= ($${params.length}::timestamp AT TIME ZONE 'Asia/Kolkata')`);
     }
 
     if (filters.toDate) {
       params.push(filters.toDate);
-      where.push(`entry."createdAt" <= $${params.length}`);
+      where.push(`entry."createdAt" <= ($${params.length}::timestamp AT TIME ZONE 'Asia/Kolkata')`);
     }
 
     if (filters.requestNumber) {
@@ -306,13 +306,49 @@ const Report = {
   async getAllPassIssuanceOptions() {
     const result = await pool.query(`
       SELECT
-        ARRAY(SELECT DISTINCT "userTypeName" FROM "Agents" WHERE "userTypeName" IS NOT NULL ORDER BY 1) AS "companyTypes",
-        ARRAY(SELECT DISTINCT "passType"::text FROM pass_persons WHERE "passType" IS NOT NULL ORDER BY 1) AS "passTypes",
-        ARRAY(SELECT DISTINCT status::text FROM pass_requests WHERE status IS NOT NULL ORDER BY 1) AS "approvalStatuses",
+        ARRAY(
+          SELECT DISTINCT value FROM (
+            SELECT "userTypeName" AS value FROM "Agents"
+            UNION ALL SELECT 'Vendor'
+          ) option_values WHERE value IS NOT NULL ORDER BY 1
+        ) AS "companyTypes",
+        ARRAY(
+          SELECT DISTINCT value FROM (
+            SELECT "passType"::text AS value FROM pass_persons
+            UNION ALL SELECT "passType"::text FROM pass_vehicles
+            UNION ALL SELECT "passType"::text FROM vendor_pass_persons
+            UNION ALL SELECT "passType"::text FROM vendor_pass_vehicles
+          ) option_values WHERE value IS NOT NULL ORDER BY 1
+        ) AS "passTypes",
+        ARRAY(
+          SELECT DISTINCT value FROM (
+            SELECT status::text AS value FROM pass_requests
+            UNION ALL SELECT status::text FROM vendor_pass_requests
+          ) option_values WHERE value IS NOT NULL ORDER BY 1
+        ) AS "approvalStatuses",
         ARRAY['Person','Vehicle']::text[] AS "passHolderTypes",
-        ARRAY(SELECT DISTINCT nationality::text FROM pass_persons WHERE nationality IS NOT NULL ORDER BY 1) AS nationalities,
-        ARRAY(SELECT DISTINCT "departmentName" FROM bulk_pass_batches WHERE "departmentName" IS NOT NULL ORDER BY 1) AS departments,
-        ARRAY(SELECT DISTINCT "paymentMode"::text FROM pass_requests WHERE "paymentMode" IS NOT NULL ORDER BY 1) AS "paymentTypes",
+        ARRAY(
+          SELECT DISTINCT value FROM (
+            SELECT nationality::text AS value FROM pass_persons
+            UNION ALL SELECT nationality::text FROM vendor_pass_persons
+          ) option_values WHERE value IS NOT NULL ORDER BY 1
+        ) AS nationalities,
+        ARRAY(
+          SELECT DISTINCT "departmentName"
+          FROM (
+            SELECT "departmentName" FROM bulk_pass_batches
+            UNION ALL
+            SELECT "departmentName" FROM vendor_pass_requests
+          ) department_sources
+          WHERE "departmentName" IS NOT NULL AND TRIM("departmentName") <> ''
+          ORDER BY 1
+        ) AS departments,
+        ARRAY(
+          SELECT DISTINCT value FROM (
+            SELECT "paymentMode"::text AS value FROM pass_requests
+            UNION ALL SELECT "paymentMode"::text FROM vendor_pass_requests
+          ) option_values WHERE value IS NOT NULL ORDER BY 1
+        ) AS "paymentTypes",
         ARRAY['Person','Vehicle']::text[] AS "cardTypes",
         ARRAY['Person','Vehicle']::text[] AS "issuedCardTypes",
         ARRAY['Online Transporter','Vendor Pass']::text[] AS "passRequestTypes",
@@ -333,8 +369,14 @@ const Report = {
       params.push(`%${String(value).trim()}%`);
       where.push(`${column} ILIKE $${params.length}`);
     };
-    if (filters.fromDate) { params.push(filters.fromDate); where.push(`entry."createdAt" >= $${params.length}`); }
-    if (filters.toDate) { params.push(filters.toDate); where.push(`entry."createdAt" <= $${params.length}`); }
+    if (filters.fromDate) {
+      params.push(filters.fromDate);
+      where.push(`entry."createdAt" >= ($${params.length}::timestamp AT TIME ZONE 'Asia/Kolkata')`);
+    }
+    if (filters.toDate) {
+      params.push(filters.toDate);
+      where.push(`entry."createdAt" <= ($${params.length}::timestamp AT TIME ZONE 'Asia/Kolkata')`);
+    }
     addLike(`entry."passId"`, filters.passId);
     addLike(`entry."requestNumber"`, filters.requestNumber);
     addLike(`entry."cardHolder"`, filters.cardHolder);
@@ -346,11 +388,12 @@ const Report = {
     if (filters.approvalStatus) { params.push(filters.approvalStatus); where.push(`entry."approvalStatus" = $${params.length}`); }
     if (filters.passHolderType) { params.push(filters.passHolderType); where.push(`entry."passHolderType" = $${params.length}`); }
     if (filters.nationality) { params.push(filters.nationality); where.push(`entry.nationality = $${params.length}`); }
+    if (filters.department) { params.push(filters.department); where.push(`entry.department = $${params.length}`); }
     if (filters.paymentType) { params.push(filters.paymentType); where.push(`entry."paymentType" = $${params.length}`); }
     const baseQuery = `WITH entry AS (
       SELECT 'Regular'::text AS source, pp."personPassNo" AS "passId", pr."referenceNo" AS "requestNumber", pp.name AS "cardHolder",
         'Person'::text AS "passHolderType", a."entityName" AS "companyName", a."loginId" AS "companyCode",
-        CONCAT_WS(' ', a."entityName", a."loginId") AS "companySearch", a."userTypeName" AS "companyType",
+        CONCAT_WS(' ', a."entityName", a."loginId") AS "companySearch", a."userTypeName" AS "companyType", NULL::text AS department,
         pp."passType"::text AS "passType", pr.status::text AS "approvalStatus", pr."paymentMode"::text AS "paymentType",
         pp."dateFrom", pp."dateTo", pp.amount, pp."createdAt", pp."idProofNumber" AS "idProof",
         pp."aadharNo" AS aadhaar, pp.nationality::text AS nationality, pp."qrUuid"::text AS "qrReference",
@@ -358,19 +401,19 @@ const Report = {
       FROM pass_persons pp JOIN pass_requests pr ON pr.id=pp."passRequestId" LEFT JOIN "Agents" a ON a.id=pr."agentId"
       UNION ALL
       SELECT 'Regular', pv."vehiclePassNo", pr."referenceNo", pv."registrationNo", 'Vehicle', a."entityName", a."loginId",
-        CONCAT_WS(' ', a."entityName", a."loginId"), a."userTypeName", pv."passType"::text, pr.status::text,
+        CONCAT_WS(' ', a."entityName", a."loginId"), a."userTypeName", NULL::text, pv."passType"::text, pr.status::text,
         pr."paymentMode"::text, pv."dateFrom", pv."dateTo", pv.amount, pv."createdAt", NULL, NULL, NULL,
         pv."qrUuid"::text, pv."qrIssuedAt", COALESCE(pv."qrRevoked", false), COALESCE(pv."scanCount",0), pv."lastScannedAt"
       FROM pass_vehicles pv JOIN pass_requests pr ON pr.id=pv."passRequestId" LEFT JOIN "Agents" a ON a.id=pr."agentId"
       UNION ALL
       SELECT 'Vendor', vpp."personPassNo", vpr."referenceNo", vpp.name, 'Person', vpr."companyName", vpr."referenceNo",
-        CONCAT_WS(' ',vpr."companyName",vpr."referenceNo"), 'Vendor', vpp."passType", vpr.status::text,
+        CONCAT_WS(' ',vpr."companyName",vpr."referenceNo"), 'Vendor', vpr."departmentName", vpp."passType", vpr.status::text,
         vpr."paymentMode"::text, vpp."dateFrom", vpp."dateTo", vpp.amount, vpp."createdAt", vpp."idProofNumber",
         vpp."aadharNo", vpp.nationality::text, NULL, NULL, false, 0, NULL
       FROM vendor_pass_persons vpp JOIN vendor_pass_requests vpr ON vpr.id=vpp."vendorPassRequestId"
       UNION ALL
       SELECT 'Vendor', vpv."vehiclePassNo", vpr."referenceNo", vpv."vehicleRegistrationNo", 'Vehicle', vpr."companyName", vpr."referenceNo",
-        CONCAT_WS(' ',vpr."companyName",vpr."referenceNo"), 'Vendor', vpv."passType", vpr.status::text,
+        CONCAT_WS(' ',vpr."companyName",vpr."referenceNo"), 'Vendor', vpr."departmentName", vpv."passType", vpr.status::text,
         vpr."paymentMode"::text, vpv."dateFrom", vpv."dateTo", vpv.amount, vpv."createdAt", NULL, NULL, NULL,
         NULL, NULL, false, 0, NULL
       FROM vendor_pass_vehicles vpv JOIN vendor_pass_requests vpr ON vpr.id=vpv."vendorPassRequestId"
@@ -429,8 +472,8 @@ const Report = {
     let dateFilterVehicle = "";
     if (filters.fromDate) {
       params.push(filters.fromDate);
-      dateFilterPerson = `AND pp."lastScannedAt" >= $1`;
-      dateFilterVehicle = `AND pv."lastScannedAt" >= $1`;
+      dateFilterPerson = `AND pp."lastScannedAt" >= ($1::timestamp AT TIME ZONE 'Asia/Kolkata')`;
+      dateFilterVehicle = `AND pv."lastScannedAt" >= ($1::timestamp AT TIME ZONE 'Asia/Kolkata')`;
     }
     const dimension = laneWise ? "lane" : "gate";
     const result = await pool.query(`
@@ -449,17 +492,41 @@ const Report = {
     const params = [];
     const where = [];
     if (filters.cardNo) { params.push(`%${filters.cardNo.trim()}%`); where.push(`p.identifier ILIKE $${params.length}`); }
-    if (filters.fromDate) { params.push(filters.fromDate); where.push(`p."createdAt" >= $${params.length}`); }
-    if (filters.toDate) { params.push(`${filters.toDate} 23:59:59`); where.push(`p."createdAt" <= $${params.length}`); }
+    if (filters.companyCode) {
+      params.push(`%${filters.companyCode.trim()}%`);
+      where.push(`(p."companyCode" ILIKE $${params.length} OR p."companyName" ILIKE $${params.length})`);
+    }
+    if (filters.fromDate) {
+      params.push(filters.fromDate);
+      where.push(`p."createdAt" >= ($${params.length}::timestamp AT TIME ZONE 'Asia/Kolkata')`);
+    }
+    if (filters.toDate) {
+      params.push(`${filters.toDate} 23:59:59`);
+      where.push(`p."createdAt" <= ($${params.length}::timestamp AT TIME ZONE 'Asia/Kolkata')`);
+    }
     const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
     const result = await pool.query(`
-      WITH p AS (
-        SELECT 'Blacklist' AS source, identifier, entity_name AS "entityName", entity_type AS "entityType", reason,
-          penalty_amount AS amount, penalty_status AS status, payment_method AS "paymentMethod", transaction_id AS "transactionId", "createdAt"
-        FROM blacklist_entries WHERE has_penalty = true
+      WITH pass_company AS (
+        SELECT pp."personPassNo" AS identifier, a."loginId" AS "companyCode", a."entityName" AS "companyName"
+        FROM pass_persons pp JOIN pass_requests pr ON pr.id=pp."passRequestId" LEFT JOIN "Agents" a ON a.id=pr."agentId"
+        WHERE pp."personPassNo" IS NOT NULL
         UNION ALL
-        SELECT 'Overstay', identifier, entity_name, entity_type, COALESCE(notes,'Overstay charge'), total_amount,
-          status, payment_method, transaction_id, created_at FROM overstay_charges
+        SELECT pv."registrationNo", a."loginId", a."entityName"
+        FROM pass_vehicles pv JOIN pass_requests pr ON pr.id=pv."passRequestId" LEFT JOIN "Agents" a ON a.id=pr."agentId"
+        WHERE pv."registrationNo" IS NOT NULL
+        UNION ALL
+        SELECT pv."vehiclePassNo", a."loginId", a."entityName"
+        FROM pass_vehicles pv JOIN pass_requests pr ON pr.id=pv."passRequestId" LEFT JOIN "Agents" a ON a.id=pr."agentId"
+        WHERE pv."vehiclePassNo" IS NOT NULL
+      ), p AS (
+        SELECT 'Blacklist' AS source, b.identifier, b.entity_name AS "entityName", b.entity_type AS "entityType", b.reason,
+          b.penalty_amount AS amount, b.penalty_status AS status, b.payment_method AS "paymentMethod", b.transaction_id AS "transactionId",
+          pc."companyCode", pc."companyName", b."createdAt"
+        FROM blacklist_entries b LEFT JOIN pass_company pc ON pc.identifier=b.identifier WHERE b.has_penalty = true
+        UNION ALL
+        SELECT 'Overstay', o.identifier, o.entity_name, o.entity_type, COALESCE(o.notes,'Overstay charge'), o.total_amount,
+          o.status, o.payment_method, o.transaction_id, pc."companyCode", pc."companyName", o.created_at
+        FROM overstay_charges o LEFT JOIN pass_company pc ON pc.identifier=o.identifier
       ) SELECT * FROM p ${whereSql} ORDER BY "createdAt" DESC LIMIT 500
     `, params);
     return { data: result.rows, pagination: { page: 1, limit: 500, totalRecords: result.rowCount } };
