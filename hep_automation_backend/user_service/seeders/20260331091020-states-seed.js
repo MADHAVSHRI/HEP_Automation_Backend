@@ -57,14 +57,28 @@ module.exports = {
       }
     }
 
-    // Fetch existing state IDs to prevent duplicate rows
+    // Fetch existing state IDs and normalized country+name keys to prevent duplicate rows
     const existingStates = await queryInterface.sequelize.query(
-      'SELECT id FROM states;',
+      'SELECT id, "countryId", lower(btrim(name::text)) AS name_key FROM states;',
       { type: queryInterface.sequelize.QueryTypes.SELECT }
     );
     const existingStateIds = new Set((existingStates || []).map((s) => s.id));
+    const existingStateKeys = new Set((existingStates || []).map((s) => `${s.countryId}|${s.name_key}`));
 
-    const newStatesToInsert = statesToInsert.filter((s) => !existingStateIds.has(s.id));
+    const seenStateKeys = new Set();
+    const newStatesToInsert = statesToInsert.filter((state) => {
+      if (existingStateIds.has(state.id)) {
+        return false;
+      }
+
+      const normalizedKey = `${state.countryId}|${String(state.name || "").trim().toLowerCase()}`;
+      if (existingStateKeys.has(normalizedKey) || seenStateKeys.has(normalizedKey)) {
+        return false;
+      }
+
+      seenStateKeys.add(normalizedKey);
+      return true;
+    });
 
     // Bulk insert in chunks to avoid parameter limits in Postgres (max 65,535 parameters)
     if (newStatesToInsert.length > 0) {

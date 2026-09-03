@@ -72,14 +72,28 @@ module.exports = {
       }
     }
 
-    // Fetch existing city IDs to prevent duplicate rows
+    // Fetch existing city IDs and normalized state+name keys to prevent duplicate rows
     const existingCities = await queryInterface.sequelize.query(
-      'SELECT id FROM cities;',
+      'SELECT id, "stateId", lower(btrim(name::text)) AS name_key FROM cities;',
       { type: queryInterface.sequelize.QueryTypes.SELECT }
     );
     const existingCityIds = new Set((existingCities || []).map((c) => c.id));
+    const existingCityKeys = new Set((existingCities || []).map((c) => `${c.stateId}|${c.name_key}`));
 
-    const newCitiesToInsert = citiesToInsert.filter((c) => !existingCityIds.has(c.id));
+    const seenCityKeys = new Set();
+    const newCitiesToInsert = citiesToInsert.filter((city) => {
+      if (existingCityIds.has(city.id)) {
+        return false;
+      }
+
+      const normalizedKey = `${city.stateId}|${String(city.name || "").trim().toLowerCase()}`;
+      if (existingCityKeys.has(normalizedKey) || seenCityKeys.has(normalizedKey)) {
+        return false;
+      }
+
+      seenCityKeys.add(normalizedKey);
+      return true;
+    });
 
     // Bulk insert in chunks to avoid parameter limits in Postgres (max 65,535 parameters)
     if (newCitiesToInsert.length > 0) {
