@@ -11,6 +11,8 @@ module.exports = {
     const names = ['Ramesh Kumar', 'Priya Devi', 'Arun Prakash', 'Kavitha Rajan'];
     const passTypes = ['DAILY', 'MONTHLY', 'YEARLY'];
     const statuses = ['approved', 'pending', 'rejected'];
+    const requestStatuses = ['APPROVED', 'UNDER_REVIEW', 'REJECTED'];
+    const vendorRequestStatuses = ['APPROVED', 'VENDOR_SUBMITTED', 'REJECTED'];
 
     const insert = async (table, rows) => {
       for (let i = 0; i < rows.length; i += 250) {
@@ -51,7 +53,7 @@ module.exports = {
       const allPassRequests = [
         ...Array.from({ length: count }, (_, i) => {
         const n = String(i + 1).padStart(5, '0'); const base = [50, 500, 1500][i % 3];
-        return { agentId: agentIds.get(`APACS-TEST-AGENT-${n}`), referenceNo: `APACS-TEST-REQ-${n}`, purposeOfVisitId: purpose.id, authLetterFilePath: 'test/authorization.pdf', authLetterFileName: 'authorization.pdf', baseTotal: base, grossTotal: base, gstAmount: base * 0.18, netAmount: base * 1.18, paymentMode: i % 2 ? 'ACCOUNT' : 'E-CASH', status: statuses[i % 3].toUpperCase(), submittedAt: now, isActive: true, isBlocked: false, originType: 'AGENT', createdAt: now, updatedAt: now };
+        return { agentId: agentIds.get(`APACS-TEST-AGENT-${n}`), referenceNo: `APACS-TEST-REQ-${n}`, purposeOfVisitId: purpose.id, authLetterFilePath: 'test/authorization.pdf', authLetterFileName: 'authorization.pdf', baseTotal: base, grossTotal: base, gstAmount: base * 0.18, netAmount: base * 1.18, paymentMode: i % 2 ? 'ACCOUNT' : 'E-CASH', status: requestStatuses[i % 3], submittedAt: now, isActive: true, isBlocked: false, originType: 'AGENT', createdAt: now, updatedAt: now };
         }),
       ];
       const existingRequests = await existing('pass_requests', 'referenceNo', 'APACS-TEST-REQ-');
@@ -62,7 +64,7 @@ module.exports = {
       const allPassPersons = [
         ...Array.from({ length: count }, (_, i) => {
         const n = String(i + 1).padStart(5, '0'); const status = statuses[i % 3]; const from = new Date(now - (i % 30) * 86400000); const to = new Date(+from + [1, 30, 365][i % 3] * 86400000);
-        return { passRequestId: requestIds.get(`APACS-TEST-REQ-${n}`), rateId: rate.id, hepTypeId: hepType.id, name: names[i % names.length], aadharNo: `7${String(10000000000 + i).slice(-11)}`, mobile: `9${String(100000000 + i).slice(-9)}`, nationality: 'INDIAN', idProofType: 'AADHAAR', passType: passTypes[i % 3], passPeriod: passTypes[i % 3], dateFrom: from, dateTo: to, amount: [50, 500, 1500][i % 3], status, personPassNo: `APACS-TEST-P-${n}`, qrUuid: status === 'approved' ? `10000000-0000-4000-8000-${String(i + 1).padStart(12, '0')}` : null, qrIssuedAt: status === 'approved' ? now : null, qrRevoked: status === 'rejected', scanCount: i % 20, passStatus: status === 'approved' ? 'Issued' : status === 'rejected' ? 'Revoked' : 'Pending', createdAt: now, updatedAt: now };
+        return { passRequestId: requestIds.get(`APACS-TEST-REQ-${n}`), rateId: rate.id, hepTypeId: hepType.id, name: names[i % names.length], aadharNo: `7${String(10000000000 + i).slice(-11)}`, mobile: `9${String(100000000 + i).slice(-9)}`, nationality: 'INDIAN', idProofType: 'AADHAAR', passType: passTypes[i % 3], passPeriod: [1, 30, 365][i % 3], dateFrom: from, dateTo: to, amount: [50, 500, 1500][i % 3], status, personPassNo: `APACS-TEST-P-${n}`, qrUuid: status === 'approved' ? `10000000-0000-4000-8000-${String(i + 1).padStart(12, '0')}` : null, qrIssuedAt: status === 'approved' ? now : null, qrRevoked: status === 'rejected', scanCount: i % 20, passStatus: status === 'rejected' ? 'DISABLED' : 'ACTIVE', createdAt: now, updatedAt: now };
         }),
       ];
       const existingPersons = await existing('pass_persons', 'personPassNo', 'APACS-TEST-P-');
@@ -71,14 +73,14 @@ module.exports = {
       const allPassVehicles = [
         ...Array.from({ length: count }, (_, i) => {
         const n = String(i + 1).padStart(5, '0'); const status = statuses[i % 3]; const from = new Date(now - (i % 30) * 86400000); const to = new Date(+from + [1, 30, 365][i % 3] * 86400000);
-        return { passRequestId: requestIds.get(`APACS-TEST-REQ-${n}`), rateId: rate.id, vehicleTypeId: vehicleType?.id || null, registrationNo: `TN${String(i % 99 + 1).padStart(2, '0')}AP${n.slice(-4)}`, passType: passTypes[i % 3], passPeriod: passTypes[i % 3], dateFrom: from, dateTo: to, amount: [100, 1000, 3000][i % 3], status, vehiclePassNo: `APACS-TEST-V-${n}`, qrUuid: status === 'approved' ? `20000000-0000-4000-8000-${String(i + 1).padStart(12, '0')}` : null, qrIssuedAt: status === 'approved' ? now : null, qrRevoked: status === 'rejected', scanCount: i % 20, passStatus: status === 'approved' ? 'Issued' : status === 'rejected' ? 'Revoked' : 'Pending', createdAt: now, updatedAt: now };
+        return { passRequestId: requestIds.get(`APACS-TEST-REQ-${n}`), rateId: rate.id, vehicleTypeId: vehicleType?.id || null, registrationNo: `TN${String(i % 99 + 1).padStart(2, '0')}AP${n.slice(-4)}`, passType: passTypes[i % 3], passPeriod: [1, 30, 365][i % 3], dateFrom: from, dateTo: to, amount: [100, 1000, 3000][i % 3], status, vehiclePassNo: `APACS-TEST-V-${n}`, qrUuid: status === 'approved' ? `20000000-0000-4000-8000-${String(i + 1).padStart(12, '0')}` : null, qrIssuedAt: status === 'approved' ? now : null, qrRevoked: status === 'rejected', scanCount: i % 20, passStatus: status === 'rejected' ? 'DISABLED' : 'ACTIVE', createdAt: now, updatedAt: now };
         }),
       ];
       const existingVehicles = await existing('pass_vehicles', 'vehiclePassNo', 'APACS-TEST-V-');
       await insert('pass_vehicles', allPassVehicles.filter((r) => !existingVehicles.has(r.vehiclePassNo)));
 
       const allVendorPassRequests = [
-        ...Array.from({ length: count }, (_, i) => { const n = String(i + 1).padStart(5, '0'); return { referenceNo: `APACS-TEST-VREQ-${n}`, token: `APACS-TEST-TOKEN-${n}`, createdByUserId: user.id, departmentId: department.id, departmentName: department.name, companyName: `${companies[i % companies.length]} - Vendor ${n}`, vendorEmail: `vendor.${n}@example.test`, vendorMobile: `8${String(200000000 + i).slice(-9)}`, noOfPersonsAllowed: 1, noOfVehiclesAllowed: 1, paymentMode: i % 2 ? 'ACCOUNT' : 'E-CASH', validUpto: new Date(+now + 365 * 86400000), status: statuses[i % 3].toUpperCase(), submittedAt: now, createdAt: now, updatedAt: now }; }),
+        ...Array.from({ length: count }, (_, i) => { const n = String(i + 1).padStart(5, '0'); return { referenceNo: `APACS-TEST-VREQ-${n}`, token: `APACS-TEST-TOKEN-${n}`, createdByUserId: user.id, departmentId: department.id, departmentName: department.name, companyName: `${companies[i % companies.length]} - Vendor ${n}`, vendorEmail: `vendor.${n}@example.test`, vendorMobile: `8${String(200000000 + i).slice(-9)}`, noOfPersonsAllowed: 1, noOfVehiclesAllowed: 1, paymentMode: i % 2 ? 'CASH' : 'FREE', validUpto: new Date(+now + 365 * 86400000), status: vendorRequestStatuses[i % 3], submittedAt: now, createdAt: now, updatedAt: now }; }),
       ];
       const existingVendorRequests = await existing('vendor_pass_requests', 'referenceNo', 'APACS-TEST-VREQ-');
       await insert('vendor_pass_requests', allVendorPassRequests.filter((r) => !existingVendorRequests.has(r.referenceNo)));
