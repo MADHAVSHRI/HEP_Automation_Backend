@@ -9,10 +9,13 @@ module.exports = {
     const transaction = await queryInterface.sequelize.transaction();
     const companies = ['Chennai Port Logistics', 'Bayline Exports', 'HarbourLink Transport', 'Gateway Customs Agency'];
     const names = ['Ramesh Kumar', 'Priya Devi', 'Arun Prakash', 'Kavitha Rajan'];
-    const passTypes = ['DAILY', 'MONTHLY', 'YEARLY'];
-    const statuses = ['approved', 'pending', 'rejected'];
-    const requestStatuses = ['APPROVED', 'UNDER_REVIEW', 'REJECTED'];
-    const vendorRequestStatuses = ['APPROVED', 'VENDOR_SUBMITTED', 'REJECTED'];
+    let passTypes;
+    let statuses;
+    let passStatuses;
+    let requestStatuses;
+    let requestPaymentModes;
+    let vendorRequestStatuses;
+    let vendorPaymentModes;
 
     const insert = async (table, rows) => {
       for (let i = 0; i < rows.length; i += 250) {
@@ -26,6 +29,24 @@ module.exports = {
       );
       return new Set(rows.map((row) => row.value));
     };
+    const enumValues = async (table, column) => {
+      const values = await queryInterface.sequelize.query(
+        `SELECT e.enumlabel AS value
+         FROM pg_attribute a
+         JOIN pg_class c ON c.oid = a.attrelid
+         JOIN pg_type t ON t.oid = a.atttypid
+         JOIN pg_enum e ON e.enumtypid = t.oid
+         WHERE c.relname = :table AND a.attname = :column
+         ORDER BY e.enumsortorder`,
+        { replacements: { table, column }, transaction, type: QueryTypes.SELECT }
+      );
+      return values.map((row) => row.value);
+    };
+    const preferredValues = (available, preferred, label) => {
+      const selected = preferred.filter((value) => available.includes(value));
+      if (!selected.length) throw new Error(`No supported ${label} enum values found.`);
+      return selected;
+    };
 
     try {
       const [userType] = await queryInterface.sequelize.query('SELECT id, name FROM "User_types" ORDER BY id LIMIT 1', { transaction, type: QueryTypes.SELECT });
@@ -37,6 +58,16 @@ module.exports = {
       const [department] = await queryInterface.sequelize.query('SELECT id, "departmentName" AS name FROM port_departments ORDER BY id LIMIT 1', { transaction, type: QueryTypes.SELECT });
       if (!userType || !purpose || !hepType || !rate || !user || !department) {
         throw new Error('Run all master seeders before the APACS report test-data seeder.');
+      }
+      passTypes = preferredValues(await enumValues('pass_persons', 'passType'), ['DAILY', 'MONTHLY', 'YEARLY'], 'pass type');
+      statuses = preferredValues(await enumValues('pass_persons', 'status'), ['approved', 'pending', 'rejected'], 'person status');
+      passStatuses = preferredValues(await enumValues('pass_persons', 'passStatus'), ['ACTIVE', 'DISABLED'], 'pass status');
+      requestStatuses = preferredValues(await enumValues('pass_requests', 'status'), ['APPROVED', 'UNDER_REVIEW', 'SUBMITTED', 'REJECTED'], 'request status');
+      requestPaymentModes = await enumValues('pass_requests', 'paymentMode');
+      vendorRequestStatuses = preferredValues(await enumValues('vendor_pass_requests', 'status'), ['APPROVED', 'VENDOR_SUBMITTED', 'LINK_SENT', 'REJECTED'], 'vendor request status');
+      vendorPaymentModes = await enumValues('vendor_pass_requests', 'paymentMode');
+      if (!requestPaymentModes.length || !vendorPaymentModes.length) {
+        throw new Error('Payment mode enum values are missing from the target database.');
       }
 
       const allAgents = [
@@ -53,7 +84,7 @@ module.exports = {
       const allPassRequests = [
         ...Array.from({ length: count }, (_, i) => {
         const n = String(i + 1).padStart(5, '0'); const base = [50, 500, 1500][i % 3];
-        return { agentId: agentIds.get(`APACS-TEST-AGENT-${n}`), referenceNo: `APACS-TEST-REQ-${n}`, purposeOfVisitId: purpose.id, authLetterFilePath: 'test/authorization.pdf', authLetterFileName: 'authorization.pdf', baseTotal: base, grossTotal: base, gstAmount: base * 0.18, netAmount: base * 1.18, paymentMode: i % 2 ? 'ACCOUNT' : 'E-CASH', status: requestStatuses[i % 3], submittedAt: now, isActive: true, isBlocked: false, originType: 'AGENT', createdAt: now, updatedAt: now };
+        return { agentId: agentIds.get(`APACS-TEST-AGENT-${n}`), referenceNo: `APACS-TEST-REQ-${n}`, purposeOfVisitId: purpose.id, authLetterFilePath: 'test/authorization.pdf', authLetterFileName: 'authorization.pdf', baseTotal: base, grossTotal: base, gstAmount: base * 0.18, netAmount: base * 1.18, paymentMode: requestPaymentModes[i % requestPaymentModes.length], status: requestStatuses[i % requestStatuses.length], submittedAt: now, isActive: true, isBlocked: false, originType: 'AGENT', createdAt: now, updatedAt: now };
         }),
       ];
       const existingRequests = await existing('pass_requests', 'referenceNo', 'APACS-TEST-REQ-');
@@ -64,7 +95,7 @@ module.exports = {
       const allPassPersons = [
         ...Array.from({ length: count }, (_, i) => {
         const n = String(i + 1).padStart(5, '0'); const status = statuses[i % 3]; const from = new Date(now - (i % 30) * 86400000); const to = new Date(+from + [1, 30, 365][i % 3] * 86400000);
-        return { passRequestId: requestIds.get(`APACS-TEST-REQ-${n}`), rateId: rate.id, hepTypeId: hepType.id, name: names[i % names.length], aadharNo: `7${String(10000000000 + i).slice(-11)}`, mobile: `9${String(100000000 + i).slice(-9)}`, nationality: 'INDIAN', idProofType: 'AADHAAR', passType: passTypes[i % 3], passPeriod: [1, 30, 365][i % 3], dateFrom: from, dateTo: to, amount: [50, 500, 1500][i % 3], status, personPassNo: `APACS-TEST-P-${n}`, qrUuid: status === 'approved' ? `10000000-0000-4000-8000-${String(i + 1).padStart(12, '0')}` : null, qrIssuedAt: status === 'approved' ? now : null, qrRevoked: status === 'rejected', scanCount: i % 20, passStatus: status === 'rejected' ? 'DISABLED' : 'ACTIVE', createdAt: now, updatedAt: now };
+        return { passRequestId: requestIds.get(`APACS-TEST-REQ-${n}`), rateId: rate.id, hepTypeId: hepType.id, name: names[i % names.length], aadharNo: `7${String(10000000000 + i).slice(-11)}`, mobile: `9${String(100000000 + i).slice(-9)}`, nationality: 'INDIAN', idProofType: 'AADHAAR', passType: passTypes[i % passTypes.length], passPeriod: [1, 30, 365][i % 3], dateFrom: from, dateTo: to, amount: [50, 500, 1500][i % 3], status, personPassNo: `APACS-TEST-P-${n}`, qrUuid: status === 'approved' ? `10000000-0000-4000-8000-${String(i + 1).padStart(12, '0')}` : null, qrIssuedAt: status === 'approved' ? now : null, qrRevoked: status === 'rejected', scanCount: i % 20, passStatus: passStatuses[i % passStatuses.length], createdAt: now, updatedAt: now };
         }),
       ];
       const existingPersons = await existing('pass_persons', 'personPassNo', 'APACS-TEST-P-');
@@ -80,7 +111,7 @@ module.exports = {
       await insert('pass_vehicles', allPassVehicles.filter((r) => !existingVehicles.has(r.vehiclePassNo)));
 
       const allVendorPassRequests = [
-        ...Array.from({ length: count }, (_, i) => { const n = String(i + 1).padStart(5, '0'); return { referenceNo: `APACS-TEST-VREQ-${n}`, token: `APACS-TEST-TOKEN-${n}`, createdByUserId: user.id, departmentId: department.id, departmentName: department.name, companyName: `${companies[i % companies.length]} - Vendor ${n}`, vendorEmail: `vendor.${n}@example.test`, vendorMobile: `8${String(200000000 + i).slice(-9)}`, noOfPersonsAllowed: 1, noOfVehiclesAllowed: 1, paymentMode: i % 2 ? 'CASH' : 'FREE', validUpto: new Date(+now + 365 * 86400000), status: vendorRequestStatuses[i % 3], submittedAt: now, createdAt: now, updatedAt: now }; }),
+        ...Array.from({ length: count }, (_, i) => { const n = String(i + 1).padStart(5, '0'); return { referenceNo: `APACS-TEST-VREQ-${n}`, token: `APACS-TEST-TOKEN-${n}`, createdByUserId: user.id, departmentId: department.id, departmentName: department.name, companyName: `${companies[i % companies.length]} - Vendor ${n}`, vendorEmail: `vendor.${n}@example.test`, vendorMobile: `8${String(200000000 + i).slice(-9)}`, noOfPersonsAllowed: 1, noOfVehiclesAllowed: 1, paymentMode: vendorPaymentModes[i % vendorPaymentModes.length], validUpto: new Date(+now + 365 * 86400000), status: vendorRequestStatuses[i % vendorRequestStatuses.length], submittedAt: now, createdAt: now, updatedAt: now }; }),
       ];
       const existingVendorRequests = await existing('vendor_pass_requests', 'referenceNo', 'APACS-TEST-VREQ-');
       await insert('vendor_pass_requests', allVendorPassRequests.filter((r) => !existingVendorRequests.has(r.referenceNo)));
