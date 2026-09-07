@@ -1,4 +1,5 @@
 const TERMINAL = Object.freeze({
+  CCTL: "CCTL",
   CCTPL: "CCTPL",
   CITPL: "CITPL",
 });

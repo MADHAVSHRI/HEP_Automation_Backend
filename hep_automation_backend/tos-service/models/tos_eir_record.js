@@ -28,7 +28,7 @@ module.exports = (sequelize, DataTypes) => {
       },
       outGateDateTime: {
         type: DataTypes.DATE,
-        allowNull: false,
+        allowNull: true,
       },
       containerNumber: {
         type: DataTypes.STRING,
@@ -60,7 +60,7 @@ module.exports = (sequelize, DataTypes) => {
       },
       oocStatus: {
         type: DataTypes.STRING,
-        allowNull: false,
+        allowNull: true,
       },
       destinationGroup: {
         type: DataTypes.STRING,
@@ -68,11 +68,11 @@ module.exports = (sequelize, DataTypes) => {
       },
       destinationName: {
         type: DataTypes.STRING,
-        allowNull: false,
+        allowNull: true,
       },
       markedForScanning: {
         type: DataTypes.STRING,
-        allowNull: false,
+        allowNull: true,
       },
       createdBy: {
         type: DataTypes.INTEGER,

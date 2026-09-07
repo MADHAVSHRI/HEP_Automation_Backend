@@ -25,7 +25,7 @@ module.exports = {
       },
       outGateDateTime: {
         type: Sequelize.DATE,
-        allowNull: false,
+        allowNull: true,
       },
       containerNumber: {
         type: Sequelize.STRING,
@@ -57,19 +57,19 @@ module.exports = {
       },
       oocStatus: {
         type: Sequelize.STRING,
-        allowNull: false,
+        allowNull: true,
       },
       destinationGroup: {
         type: Sequelize.STRING,
-        allowNull: false,
+        allowNull: true,
       },
       destinationName: {
         type: Sequelize.STRING,
-        allowNull: false,
+        allowNull: true,
       },
       markedForScanning: {
         type: Sequelize.STRING,
-        allowNull: false,
+        allowNull: true,
       },
       createdBy: {
         type: Sequelize.INTEGER,
