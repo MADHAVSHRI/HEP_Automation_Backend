@@ -272,12 +272,6 @@ const PassRequest = {
 
       if (hasEssentialOilDockVehicle) {
         initialWorkflowState = "PENDING_MARINE_ESSENTIAL";
-      } else if (hasAnnualTrailerVehicle) {
-        initialWorkflowState = "PENDING_PASS_SECTION";
-      } else if (hasMonthlyYearlyVehicle) {
-        initialWorkflowState = "PENDING_SAFETY";
-      } else if (hasOilDockVehicle) {
-        initialWorkflowState = "PENDING_FIRE_SAFETY";
       } else if (hasOilDockPerson) {
         const essentialPerson = (persons || []).find((p) =>
           isOilDockArea(p.accessAreaId || p.accessArea),
@@ -1400,60 +1394,39 @@ const PassRequest = {
       };
 
       if (isSafety) {
-        const uncertifiedVehicles = vehicles.filter(
-          (v) =>
-            v.status !== "rejected" &&
-            v.status !== "reverted" &&
-            (v.passType === "MONTHLY" ||
-              v.passType === "YEARLY" ||
-              v.passType === "ANNUAL") &&
-            !v.twistLockCertified,
-        );
-        if (uncertifiedVehicles.length > 0) {
-          throw new Error(
-            "All monthly/yearly/annual vehicles must be certified by the Safety Officer.",
-          );
-        }
-
         const isOilDock = request.isOilDock;
-        const nextState = isOilDock
-          ? "PENDING_FIRE_SAFETY"
-          : "PENDING_PASS_SECTION";
+        if (!isOilDock) {
+          await client.query(
+            `UPDATE pass_vehicles
+             SET "marineSafetyApproved" = true,
+                 "marineSafetyApprovedBy" = $2,
+                 "marineSafetyApprovedAt" = COALESCE("marineSafetyApprovedAt", NOW()),
+                 "qrUuid" = CASE WHEN "qrUuid" IS NULL THEN gen_random_uuid() ELSE "qrUuid" END,
+                 "qrIssuedAt" = CASE WHEN "qrIssuedAt" IS NULL THEN NOW() ELSE "qrIssuedAt" END,
+                 "updatedAt" = NOW()
+             WHERE "passRequestId" = $1
+               AND "twistLockCertified" = true`,
+            [passRequestId, approvedByUserId],
+          );
 
-        // Reset entity statuses to 'pending' when entering Pass Section queue
-        if (nextState === "PENDING_PASS_SECTION") {
-          await client.query(
-            `
-            UPDATE "pass_persons" SET status = 'pending', "updatedAt" = NOW()
-            WHERE "passRequestId" = $1 AND status = 'approved'
-          `,
-            [passRequestId],
+          const result = await client.query(
+            `UPDATE pass_requests
+              SET status = 'COMPLETED',
+                  "workflowState" = 'COMPLETED',
+                  "approvedBy" = $2,
+                  "updatedAt" = NOW()
+              WHERE id = $1
+              RETURNING *`,
+            [passRequestId, approvedBy],
           );
-          await client.query(
-            `
-            UPDATE "pass_vehicles" SET status = 'pending', "updatedAt" = NOW()
-            WHERE "passRequestId" = $1 AND status = 'approved'
-          `,
-            [passRequestId],
-          );
+          await client.query("COMMIT");
+          client.release();
+          return {
+            ...result.rows[0],
+            reviewStatus: "COMPLETED",
+            message: "Safety Officer Twist Lock certification completed. Pass approved successfully.",
+          };
         }
-
-        const result = await client.query(
-          `
-          UPDATE "pass_requests"
-          SET "workflowState" = $2, "approvedBy" = $3, "updatedAt" = NOW()
-          WHERE id = $1
-          RETURNING *
-        `,
-          [passRequestId, nextState, approvedBy],
-        );
-        await client.query("COMMIT");
-        client.release();
-        return {
-          ...result.rows[0],
-          reviewStatus: "PENDING_NEXT",
-          message: "Safety Officer pre-approval completed.",
-        };
       }
 
       if (isFireSafety) {
@@ -1472,14 +1445,20 @@ const PassRequest = {
           );
         }
 
+        const deptId = Number(request.departmentId);
+        const nextState =
+          deptId === 2 || deptId === 3
+            ? "PENDING_DEPARTMENT"
+            : "PENDING_PASS_SECTION";
+
         const result = await client.query(
           `
           UPDATE "pass_requests"
-          SET "workflowState" = 'PENDING_SR_DTM', "approvedBy" = $2, "updatedAt" = NOW()
+          SET "workflowState" = $2, "approvedBy" = $3, "updatedAt" = NOW()
           WHERE id = $1
           RETURNING *
         `,
-          [passRequestId, approvedBy],
+          [passRequestId, nextState, approvedBy],
         );
         await client.query("COMMIT");
         client.release();
@@ -1561,7 +1540,9 @@ const PassRequest = {
       );
       const allReviewed = allPersonsReviewed && allVehiclesReviewed;
 
-      const marineSafetyVehicles = vehicles.filter((v) => {
+      // Check if this request has annual container vehicles (non-oil-dock)
+      // that require Safety Officer Twist Lock certification after Pass Section approval
+      const annualContainerVehicles = vehicles.filter((v) => {
         const vehicleTypeName = String(v.vehicleTypeName || "")
           .trim()
           .toUpperCase();
@@ -1580,22 +1561,30 @@ const PassRequest = {
         return isTrailer && isAnnual;
       });
 
-      const requiresMarineSafety = marineSafetyVehicles.length > 0;
+      // Only non-oil-dock annual container vehicles go to Safety Officer
+      const requiresSafetyOfficer =
+        annualContainerVehicles.length > 0 && !request.isOilDock;
 
-      // let finalStatus = "SUBMITTED";
-      // if (allReviewed) {
-      //   finalStatus = "COMPLETED";
-      // }
       let finalStatus = "SUBMITTED";
       let nextWorkflowState = null;
 
       if (allReviewed) {
-        if (requiresMarineSafety) {
-          nextWorkflowState = "PENDING_MARINE_SAFETY";
+        if (requiresSafetyOfficer) {
+          // Pass Section approved → route to Safety Officer for Twist Lock check
+          nextWorkflowState = "PENDING_SAFETY";
           finalStatus = "SUBMITTED";
         } else {
           nextWorkflowState = "COMPLETED";
           finalStatus = "COMPLETED";
+
+          await client.query(
+            `UPDATE pass_persons SET status = 'approved', "updatedAt" = NOW() WHERE "passRequestId" = $1 AND status = 'pending'`,
+            [passRequestId],
+          );
+          await client.query(
+            `UPDATE pass_vehicles SET status = 'approved', "updatedAt" = NOW() WHERE "passRequestId" = $1 AND status = 'pending'`,
+            [passRequestId],
+          );
         }
       }
 
@@ -2013,13 +2002,14 @@ const PassRequest = {
 
       // ============================================================
       // EXISTING NORMAL FLOWS
+      // All normal (non-oil-dock) resubmissions must go back to
+      // Pass Section first. Safety Officer routing happens only
+      // after Pass Section approval for annual container vehicles.
       // ============================================================
-      else if (hasMonthlyYearlyVehicle) {
-        workflowState = "PENDING_SAFETY";
-      } else if (hasOilDockVehicle) {
+      else if (hasOilDockVehicle) {
         workflowState = "PENDING_FIRE_SAFETY";
       } else if (hasOilDockPerson) {
-        workflowState = "PENDING_SR_DTM";
+        workflowState = "PENDING_PASS_SECTION";
       }
 
       // Reset reverted persons and vehicles to 'pending' so only they need re-review
@@ -2651,17 +2641,33 @@ const PassRequest = {
           [personId, nextStage],
         );
 
+        let approvedByUserName = null;
+        if (userId) {
+          try {
+            const userRes = await client.query(
+              'SELECT "userName" FROM "users" WHERE id = $1',
+              [userId],
+            );
+            if (userRes.rows.length > 0) {
+              approvedByUserName = userRes.rows[0].userName;
+            }
+          } catch (userErr) {
+            console.error("Error looking up approver user details:", userErr);
+          }
+        }
+
         if (nextStage === "COMPLETED_PERSON_ESSENTIAL") {
           await client.query(
             `
     UPDATE pass_requests
     SET
       "workflowState" = 'COMPLETED_PERSON_ESSENTIAL',
+      "approvedBy" = COALESCE($2, "approvedBy"),
       "hasRevertedEntities" = false,
       "updatedAt" = NOW()
     WHERE id = $1
     `,
-            [person.passRequestId],
+            [person.passRequestId, approvedByUserName],
           );
         } else {
           await client.query(
@@ -2669,11 +2675,12 @@ const PassRequest = {
     UPDATE pass_requests
     SET
       "workflowState" = $2,
+      "approvedBy" = COALESCE($3, "approvedBy"),
       "hasRevertedEntities" = false,
       "updatedAt" = NOW()
     WHERE id = $1
     `,
-            [person.passRequestId, nextStage],
+            [person.passRequestId, nextStage, approvedByUserName],
           );
         }
       }
@@ -2951,6 +2958,21 @@ const PassRequest = {
           [vehicleId, isFinal ? "approved" : "pending", nextStage, isFinal],
         );
 
+        let approvedByUserName = null;
+        if (userId) {
+          try {
+            const userRes = await client.query(
+              'SELECT "userName" FROM "users" WHERE id = $1',
+              [userId],
+            );
+            if (userRes.rows.length > 0) {
+              approvedByUserName = userRes.rows[0].userName;
+            }
+          } catch (userErr) {
+            console.error("Error looking up approver user details:", userErr);
+          }
+        }
+
         // ------------------------------------------------------------
         // UPDATE PASS REQUEST WORKFLOW STATE
         // ------------------------------------------------------------
@@ -2960,6 +2982,7 @@ const PassRequest = {
     SET
       "workflowState" = $2,
       status = $3,
+      "approvedBy" = COALESCE($4, "approvedBy"),
       "updatedAt" = NOW()
     WHERE id = $1
     `,
@@ -2967,6 +2990,7 @@ const PassRequest = {
             vehicle.passRequestId,
             nextStage,
             isFinal ? "COMPLETED" : "SUBMITTED",
+            approvedByUserName,
           ],
         );
       }
@@ -3070,7 +3094,7 @@ const PassRequest = {
 
     // PROCESSED
     else {
-      params.push(Number(roleId), Number(departmentId));
+      params.push(Number(roleId || 0), Number(departmentId || 0), stage);
 
       statusCondition = `
     AND EXISTS (
@@ -3078,8 +3102,7 @@ const PassRequest = {
       FROM pass_vehicle_workflow_history h
       WHERE
         h."passVehicleId" = pv.id
-        AND h."actorRoleId" = $1
-        AND h."actorDepartmentId" = $2
+        AND (h."actorDepartmentId" = $2 OR h.stage = $3 OR ($1 > 0 AND h."actorRoleId" = $1))
         AND h.action IN (
           'APPROVED',
           'REJECTED',
@@ -3088,8 +3111,6 @@ const PassRequest = {
     )
   `;
 
-      // Do not filter processed records by the current
-      // workflow stage or current user.
       commonCondition = "";
     }
 
@@ -3243,7 +3264,7 @@ const PassRequest = {
 
     const offsetIndex = dataParams.length + 2;
 
-    dataParams.push(safeLimit, offset);
+    dataParams.push(Number(safeLimit), Number(offset));
 
     const orderClause =
       String(sortOrder).toUpperCase() === "ASC"
@@ -3257,14 +3278,36 @@ const PassRequest = {
     pr."agentId",
     pr.status,
     pr."workflowState",
+    COALESCE(
+      (
+        SELECT u."userName"
+        FROM pass_vehicle_workflow_history h
+        INNER JOIN pass_vehicles pv_sub ON pv_sub.id = h."passVehicleId"
+        LEFT JOIN "users" u ON u.id = h."actorUserId"
+        WHERE pv_sub."passRequestId" = pr.id
+          AND (h."actorDepartmentId" = $2 OR h.stage = $3)
+        ORDER BY h.id DESC LIMIT 1
+      ),
+      (
+        SELECT d."departmentName"
+        FROM pass_vehicle_workflow_history h
+        INNER JOIN pass_vehicles pv_sub ON pv_sub.id = h."passVehicleId"
+        LEFT JOIN port_departments d ON d.id = h."actorDepartmentId"
+        WHERE pv_sub."passRequestId" = pr.id
+          AND (h."actorDepartmentId" = $2 OR h.stage = $3)
+        ORDER BY h.id DESC LIMIT 1
+      ),
+      pr."approvedBy"
+    ) AS "approvedBy",
     pr."createdAt",
     pr."submittedAt",
 
     MAX(a."entityName") AS "companyName",
-MAX(a."mobileNo") AS "mobileNo",
-MAX(a."email") AS "email",
-MAX(a."gstinNumber") AS "gstinNumber",
-MAX(a."panNumber") AS "panNumber",
+    MAX(a."entityName") AS "entityName",
+    MAX(a."mobileNo") AS "mobileNo",
+    MAX(a."email") AS "email",
+    MAX(a."gstinNumber") AS "gstinNumber",
+    MAX(a."panNumber") AS "panNumber",
 
     COALESCE(
       jsonb_agg(
@@ -3322,6 +3365,7 @@ MAX(a."panNumber") AS "panNumber",
     pr."agentId",
     pr.status,
     pr."workflowState",
+    pr."approvedBy",
     pr."createdAt",
     pr."submittedAt",
     a."entityName",
@@ -3333,8 +3377,8 @@ MAX(a."panNumber") AS "panNumber",
   ORDER BY
     ${orderClause}
 
-  LIMIT $${limitIndex}
-  OFFSET $${offsetIndex}
+  LIMIT $${limitIndex}::INTEGER
+  OFFSET $${offsetIndex}::INTEGER
     `;
 
     const dataResult = await pool.query(dataQuery, dataParams);
@@ -3360,7 +3404,7 @@ MAX(a."panNumber") AS "panNumber",
       AND pv.status = 'pending'
     `;
       } else {
-        countParams.push(Number(roleId), Number(departmentId));
+        countParams.push(stage, Number(departmentId || 0), Number(userId || 0));
 
         condition = `
     AND EXISTS (
@@ -3368,8 +3412,7 @@ MAX(a."panNumber") AS "panNumber",
       FROM pass_vehicle_workflow_history h
       WHERE
         h."passVehicleId" = pv.id
-        AND h."actorRoleId" = $1
-        AND h."actorDepartmentId" = $2
+        AND (h.stage = $1 OR h."actorDepartmentId" = $2 OR h."actorUserId" = $3)
         AND h.action IN (
           'APPROVED',
           'REJECTED',
@@ -3454,6 +3497,66 @@ MAX(a."panNumber") AS "panNumber",
       throw new Error("Invalid Essential person workflow stage.");
     }
 
+    const fetchPersonCounts = async () => {
+      try {
+        const vehicleStage = stage.replace("_PERSON_", "_");
+        const countsRes = await pool.query(
+          `
+          SELECT
+            (
+              SELECT COUNT(DISTINCT pr.id)::INTEGER
+              FROM pass_requests pr
+              WHERE pr."isActive" = true
+                AND (
+                  EXISTS (
+                    SELECT 1 FROM pass_persons pp
+                    WHERE pp."passRequestId" = pr.id
+                      AND pp."essentialWorkflowState" = $1
+                      AND pp.status = 'pending'
+                  )
+                  OR
+                  EXISTS (
+                    SELECT 1 FROM pass_vehicles pv
+                    WHERE pv."passRequestId" = pr.id
+                      AND pv."essentialWorkflowState" = $4
+                      AND pv.status = 'pending'
+                  )
+                )
+            ) AS "pending",
+            (
+              SELECT COUNT(DISTINCT pr.id)::INTEGER
+              FROM pass_requests pr
+              WHERE pr."isActive" = true
+                AND (
+                  EXISTS (
+                    SELECT 1 FROM pass_persons pp
+                    INNER JOIN pass_person_workflow_history ph ON ph."passPersonId" = pp.id
+                    WHERE pp."passRequestId" = pr.id
+                      AND (ph.stage = $1 OR ph."actorDepartmentId" = $3 OR ph."actorUserId" = $2)
+                      AND ph.action IN ('APPROVED', 'REJECTED', 'REVERTED')
+                  )
+                  OR
+                  EXISTS (
+                    SELECT 1 FROM pass_vehicles pv
+                    INNER JOIN pass_vehicle_workflow_history vh ON vh."passVehicleId" = pv.id
+                    WHERE pv."passRequestId" = pr.id
+                      AND (vh.stage = $4 OR vh."actorDepartmentId" = $3 OR vh."actorRoleId" = $2)
+                      AND vh.action IN ('APPROVED', 'REJECTED', 'REVERTED')
+                  )
+                )
+            ) AS "processed"
+          `,
+          [stage, Number(userId), Number(departmentId), vehicleStage],
+        );
+        const p = Number(countsRes.rows[0]?.pending || 0);
+        const pr = Number(countsRes.rows[0]?.processed || 0);
+        return { pending: p, processed: pr, total: p + pr };
+      } catch (err) {
+        console.error("Error fetching person counts:", err);
+        return { pending: 0, processed: 0, total: 0 };
+      }
+    };
+
     if (!["pending", "processed"].includes(normalizedStatus)) {
       throw new Error("Invalid Essential person status.");
     }
@@ -3498,7 +3601,7 @@ MAX(a."panNumber") AS "panNumber",
       `;
       }
 
-      const dataParams = [...params, safeLimit, offset];
+      const dataParams = [...params, Number(safeLimit), Number(offset)];
       const limitParam = dataParams.length - 1;
       const offsetParam = dataParams.length;
 
@@ -3506,8 +3609,10 @@ MAX(a."panNumber") AS "panNumber",
   SELECT
     pr.id AS "passRequestId",
     pr."referenceNo",
+    pr."approvedBy" AS "approvedBy",
 
     a."entityName" AS "companyName",
+    a."entityName" AS "entityName",
     a."mobileNo" AS "companyMobile",
     a."email" AS "companyEmail",
     a."gstinNumber" AS "companyGst",
@@ -3516,17 +3621,64 @@ MAX(a."panNumber") AS "panNumber",
     pp.id AS "personId",
     pp."personPassNo",
     pp.name,
+    pp."aadharNo",
+    pp.mobile,
+    pp.email,
+    pp.nationality,
+    pp."visaNo",
+    pp.dob,
+    pp."hepTypeId",
+    ht.name AS "hepType",
+    pp."designationId",
+    pp."designationOther",
+    COALESCE(d.name, pp."designationOther") AS "designationName",
+    pp."cardNumber",
     pp."accessAreaId",
+    pp."withTwoWheeler",
+    pp."vehicleNo",
+    pp."idProofType",
+    pp."idProofNumber",
     pp."passType",
     pp."passPeriod",
     pp."dateFrom",
     pp."dateTo",
     pp.status,
     pp."essentialDepartmentId",
+    ed."departmentName" AS "essentialDepartmentName",
     pp."essentialWorkflowState",
     pp."essentialRevertStage",
     pp."essentialAssignedUserId",
     pp."amount",
+    pp."cdcNumber",
+    pp."countryId",
+    c.name AS "countryName",
+
+    pp."photoFilePath",
+    pp."photoFileName",
+    pp."aadharPDFFilePATH",
+    pp."aadharPDFFileName",
+    pp."idProofFilePath",
+    pp."idProofFileName",
+    pp."driverLicensePath",
+    pp."driverLicenseName",
+    pp."policeVerificationPath",
+    pp."policeVerificationName",
+    pp."employmentProofPath",
+    pp."employmentProofName",
+    pp."chaLicensePath",
+    pp."chaLicenseName",
+    pp."passportPath",
+    pp."passportName",
+    pp."visaDocPath",
+    pp."visaDocName",
+    pp."immigrationDocPath",
+    pp."immigrationDocName",
+    pp."cdcDocumentPath",
+    pp."cdcDocumentName",
+    pp."entryAuthorizationFilePath",
+    pp."entryAuthorizationFileName",
+    pp."rejectedReason",
+    CASE WHEN pp.status = 'reverted' THEN pp."rejectedReason" ELSE NULL END AS "revertReason",
 
     pr."createdAt" AS "createdAt",
     pr."submittedAt" AS "submittedAt"
@@ -3539,14 +3691,26 @@ MAX(a."panNumber") AS "panNumber",
   LEFT JOIN "Agents" a
     ON a.id = pr."agentId"
 
+  LEFT JOIN hep_types ht
+    ON ht.id = pp."hepTypeId"
+
+  LEFT JOIN designations d
+    ON d.id = pp."designationId"
+
+  LEFT JOIN countries c
+    ON c.id = pp."countryId"
+
+  LEFT JOIN port_departments ed
+    ON ed.id = pp."essentialDepartmentId"
+
   WHERE
     ${whereCondition}
 
   ORDER BY
     pp."updatedAt" ${normalizedSort}
 
-  LIMIT $${limitParam}
-  OFFSET $${offsetParam}
+  LIMIT $${limitParam}::INTEGER
+  OFFSET $${offsetParam}::INTEGER
 `;
 
       const countQuery = `
@@ -3565,6 +3729,7 @@ MAX(a."panNumber") AS "panNumber",
         pool.query(countQuery, params),
       ]);
 
+      const personCounts = await fetchPersonCounts();
       const total = Number(countResult.rows[0]?.count || 0);
 
       return {
@@ -3572,9 +3737,10 @@ MAX(a."panNumber") AS "panNumber",
         pagination: {
           page: safePage,
           limit: safeLimit,
-          total,
-          totalPages: Math.max(1, Math.ceil(total / safeLimit)),
+          total: personCounts.pending,
+          totalPages: Math.max(1, Math.ceil(personCounts.pending / safeLimit)),
         },
+        counts: personCounts,
       };
     }
 
@@ -3590,15 +3756,14 @@ MAX(a."panNumber") AS "panNumber",
      * We therefore use the workflow history/action record.
      */
 
-    const params = [Number(userId), stage];
+    const params = [Number(userId), stage, Number(departmentId)];
     let whereCondition = `
     EXISTS (
       SELECT 1
       FROM pass_person_workflow_history h
       WHERE
         h."passPersonId" = pp.id
-        AND h."actorUserId" = $1
-        AND h.stage = $2
+        AND (h."actorUserId" = $1 OR h.stage = $2 OR h."actorDepartmentId" = $3)
         AND h.action IN (
           'APPROVED',
           'REJECTED',
@@ -3620,7 +3785,7 @@ MAX(a."panNumber") AS "panNumber",
     `;
     }
 
-    const dataParams = [...params, safeLimit, offset];
+    const dataParams = [...params, Number(safeLimit), Number(offset)];
     const limitParam = dataParams.length - 1;
     const offsetParam = dataParams.length;
 
@@ -3628,22 +3793,85 @@ MAX(a."panNumber") AS "panNumber",
     SELECT
       pr.id AS "passRequestId",
       pr."referenceNo",
+      COALESCE(
+        (
+          SELECT u."userName"
+          FROM pass_person_workflow_history h
+          LEFT JOIN "users" u ON u.id = h."actorUserId"
+          WHERE h."passPersonId" = pp.id AND (h."actorUserId" = $1 OR h.stage = $2 OR h."actorDepartmentId" = $3)
+          ORDER BY h.id DESC LIMIT 1
+        ),
+        pr."approvedBy"
+      ) AS "approvedBy",
       a."entityName" AS "companyName",
+      a."entityName" AS "entityName",
+      a."mobileNo" AS "companyMobile",
+      a."email" AS "companyEmail",
+      a."gstinNumber" AS "companyGst",
+      a."panNumber" AS "companyPan",
 
       pp.id AS "personId",
       pp."personPassNo",
       pp.name,
+      pp."aadharNo",
+      pp.mobile,
+      pp.email,
+      pp.nationality,
+      pp."visaNo",
+      pp.dob,
+      pp."hepTypeId",
+      ht.name AS "hepType",
+      pp."designationId",
+      pp."designationOther",
+      COALESCE(d.name, pp."designationOther") AS "designationName",
+      pp."cardNumber",
       pp."accessAreaId",
+      pp."withTwoWheeler",
+      pp."vehicleNo",
+      pp."idProofType",
+      pp."idProofNumber",
       pp."passType",
       pp."passPeriod",
       pp."dateFrom",
       pp."dateTo",
       pp.status,
+      pp."amount",
+      pp."cdcNumber",
+      pp."countryId",
+      c.name AS "countryName",
 
       pp."essentialDepartmentId",
+      ed."departmentName" AS "essentialDepartmentName",
       pp."essentialWorkflowState",
       pp."essentialRevertStage",
-      pp."essentialAssignedUserId"
+      pp."essentialAssignedUserId",
+
+      pp."photoFilePath",
+      pp."photoFileName",
+      pp."aadharPDFFilePATH",
+      pp."aadharPDFFileName",
+      pp."idProofFilePath",
+      pp."idProofFileName",
+      pp."driverLicensePath",
+      pp."driverLicenseName",
+      pp."policeVerificationPath",
+      pp."policeVerificationName",
+      pp."employmentProofPath",
+      pp."employmentProofName",
+      pp."chaLicensePath",
+      pp."chaLicenseName",
+      pp."passportPath",
+      pp."passportName",
+      pp."visaDocPath",
+      pp."visaDocName",
+      pp."immigrationDocPath",
+      pp."immigrationDocName",
+      pp."cdcDocumentPath",
+      pp."cdcDocumentName",
+      pp."entryAuthorizationFilePath",
+      pp."entryAuthorizationFileName",
+      pp."rejectedReason",
+      CASE WHEN pp.status = 'reverted' THEN pp."rejectedReason" ELSE NULL END AS "revertReason"
 
     FROM pass_persons pp
 
@@ -3653,6 +3881,18 @@ MAX(a."panNumber") AS "panNumber",
     LEFT JOIN "Agents" a
       ON a.id = pr."agentId"
 
+    LEFT JOIN hep_types ht
+      ON ht.id = pp."hepTypeId"
+
+    LEFT JOIN designations d
+      ON d.id = pp."designationId"
+
+    LEFT JOIN countries c
+      ON c.id = pp."countryId"
+
+    LEFT JOIN port_departments ed
+      ON ed.id = pp."essentialDepartmentId"
+
     WHERE
       pr."isActive" = true
       AND ${whereCondition}
@@ -3660,8 +3900,8 @@ MAX(a."panNumber") AS "panNumber",
     ORDER BY
       pp."updatedAt" ${normalizedSort}
 
-    LIMIT $${limitParam}
-    OFFSET $${offsetParam}
+    LIMIT $${limitParam}::INTEGER
+    OFFSET $${offsetParam}::INTEGER
   `;
 
     const countQuery = `
@@ -3684,6 +3924,7 @@ MAX(a."panNumber") AS "panNumber",
       pool.query(countQuery, params),
     ]);
 
+    const personCounts = await fetchPersonCounts();
     const total = Number(countResult.rows[0]?.count || 0);
 
     return {
@@ -3691,9 +3932,10 @@ MAX(a."panNumber") AS "panNumber",
       pagination: {
         page: safePage,
         limit: safeLimit,
-        total,
-        totalPages: Math.max(1, Math.ceil(total / safeLimit)),
+        total: personCounts.processed,
+        totalPages: Math.max(1, Math.ceil(personCounts.processed / safeLimit)),
       },
+      counts: personCounts,
     };
   },
 
@@ -6066,7 +6308,30 @@ const getAgentPassRequestsDetails = {
     const isMarineFireSafety =
       role === "Fire Safety Officer" && Number(departmentId) === 7;
     const isSrDtm = roleId === 28 || role === "Senior Deputy Traffic Manager";
-    const isPassSection = role === "Approval";
+
+    const isCivil =
+      (role === "Approval" || Number(roleId) === 3) && Number(departmentId) === 3;
+    const isMechanical =
+      (role === "Approval" || Number(roleId) === 4) && Number(departmentId) === 4;
+    const isCisf =
+      Number(departmentId) === 1 ||
+      [
+        "CISF",
+        "CISF Asst Commandant",
+        "CISF Assistant Commandant",
+        "Cisf.Assistant Commandant",
+      ].includes(role);
+
+    const isPassSection =
+      (role === "Approval" && Number(departmentId) === 9) ||
+      (!isSafety &&
+        !isFireSafety &&
+        !isMarineFireSafety &&
+        !isSrDtm &&
+        !isCivil &&
+        !isMechanical &&
+        !isCisf &&
+        role === "Approval");
 
     // Define SQL conditions for pending/processed normal requests
     let normalPendingCond =
@@ -6086,7 +6351,7 @@ const getAgentPassRequestsDetails = {
         )
         OR (
           pr.status::TEXT = 'SUBMITTED'
-          AND pr."workflowState" = 'PENDING_MARINE_SAFETY'
+          AND pr."workflowState" IN ('PENDING_SAFETY', 'PENDING_MARINE_SAFETY')
         )
       )
     `;
@@ -6099,21 +6364,27 @@ const getAgentPassRequestsDetails = {
 
     if (isSafety) {
       normalPendingCond += `
+        AND pr."workflowState" = 'PENDING_SAFETY'
         AND EXISTS (
           SELECT 1 FROM pass_vehicles pv
+          LEFT JOIN vehicle_types vt ON vt.id = pv."vehicleTypeId"
           WHERE pv."passRequestId" = pr.id
-            AND pv.status = 'pending'
             AND pv."twistLockCertified" = false
-            AND pv."passType"::TEXT IN ('MONTHLY', 'YEARLY', 'ANNUAL')
+            AND pv."passType"::TEXT IN ('YEARLY', 'ANNUAL')
+            AND UPPER(TRIM(vt.name)) IN ('TRAILORS', 'TRAILER LORRY')
+            AND (pv."accessAreaId"::TEXT NOT IN ('1') AND pv."accessAreaId"::TEXT NOT ILIKE '%oil%jetty%')
         )
       `;
       vendorPendingCond += `
+        AND v."workflowState" = 'PENDING_SAFETY'
         AND EXISTS (
           SELECT 1 FROM vendor_pass_vehicles vpv
+          LEFT JOIN vehicle_types vt ON vt.id = vpv."vehicleTypeId"
           WHERE vpv."vendorPassRequestId" = v.id
-            AND vpv.status = 'pending'
             AND vpv."twistLockCertified" = false
-            AND vpv."passType"::TEXT IN ('MONTHLY', 'YEARLY', 'ANNUAL')
+            AND vpv."passType"::TEXT IN ('YEARLY', 'ANNUAL')
+            AND UPPER(TRIM(vt.name)) IN ('TRAILORS', 'TRAILER LORRY')
+            AND (vpv."accessAreaId"::TEXT NOT IN ('1') AND vpv."accessAreaId"::TEXT NOT ILIKE '%oil%jetty%')
         )
       `;
     } else if (isMarineFireSafety) {
@@ -6191,6 +6462,60 @@ const getAgentPassRequestsDetails = {
           )
         )
       `;
+    } else if (isCivil) {
+      normalPendingCond += `
+        AND (
+          EXISTS (
+            SELECT 1 FROM pass_persons pp
+            WHERE pp."passRequestId" = pr.id
+              AND pp.status = 'pending'
+              AND pp."essentialWorkflowState" = 'PENDING_CIVIL_PERSON_ESSENTIAL'
+          )
+          OR EXISTS (
+            SELECT 1 FROM pass_vehicles pv
+            WHERE pv."passRequestId" = pr.id
+              AND pv.status = 'pending'
+              AND pv."essentialWorkflowState" = 'PENDING_CIVIL_ESSENTIAL'
+          )
+        )
+      `;
+      vendorPendingCond += ` AND 1 = 0 `;
+    } else if (isMechanical) {
+      normalPendingCond += `
+        AND (
+          EXISTS (
+            SELECT 1 FROM pass_persons pp
+            WHERE pp."passRequestId" = pr.id
+              AND pp.status = 'pending'
+              AND pp."essentialWorkflowState" = 'PENDING_MECHANICAL_PERSON_ESSENTIAL'
+          )
+          OR EXISTS (
+            SELECT 1 FROM pass_vehicles pv
+            WHERE pv."passRequestId" = pr.id
+              AND pv.status = 'pending'
+              AND pv."essentialWorkflowState" = 'PENDING_MECHANICAL_ESSENTIAL'
+          )
+        )
+      `;
+      vendorPendingCond += ` AND 1 = 0 `;
+    } else if (isCisf) {
+      normalPendingCond += `
+        AND (
+          EXISTS (
+            SELECT 1 FROM pass_persons pp
+            WHERE pp."passRequestId" = pr.id
+              AND pp.status = 'pending'
+              AND (pp."essentialWorkflowState" = 'PENDING_CISF_PERSON_ESSENTIAL' OR pp."essentialWorkflowState" = 'PENDING_CISF_ESSENTIAL')
+          )
+          OR EXISTS (
+            SELECT 1 FROM pass_vehicles pv
+            WHERE pv."passRequestId" = pr.id
+              AND pv.status = 'pending'
+              AND pv."essentialWorkflowState" = 'PENDING_CISF_ESSENTIAL'
+          )
+        )
+      `;
+      vendorPendingCond += ` AND 1 = 0 `;
     } else if (isPassSection) {
       normalPendingCond += `
     AND (
@@ -6216,65 +6541,20 @@ const getAgentPassRequestsDetails = {
       OR EXISTS (
         SELECT 1
         FROM pass_vehicles pv
-            LEFT JOIN vehicle_types vt
-              ON vt.id = pv."vehicleTypeId"
-            WHERE pv."passRequestId" = pr.id
-              AND pv.status = 'pending'
-              AND (
-                CASE
-
-                  /* =========================================================
-                    NEW FLOW:
-                    Annual Trailer / Trailer Lorry
-                    → Pass Section first
-                    → Marine Fire Safety after Pass Section
-                    ========================================================= */
-                  WHEN
-                  pv."passType"::TEXT IN ('YEARLY', 'ANNUAL')
-                  AND UPPER(TRIM(vt.name)) IN ('TRAILORS', 'TRAILER LORRY')
-                THEN
-                  pr."workflowState" IN (
-                    'PENDING_PASS_SECTION',
-                    'PENDING_PASS_SECTION_ESSENTIAL'
-                  )
-
-                  /* =========================================================
-                    EXISTING MONTHLY / YEARLY FLOW
-                    DO NOT CHANGE
-                    ========================================================= */
-                  WHEN pv."passType"::TEXT IN ('MONTHLY', 'YEARLY', 'ANNUAL') THEN
-                    pv."twistLockCertified" = true
-                    AND (
-                      (
-                        pv."accessAreaId"::TEXT NOT IN ('1')
-                        AND pv."accessAreaId"::TEXT NOT ILIKE '%oil%jetty%'
-                      )
-                      OR
-                      (
-                        pv."sparkArresterCertified" = true
-                        AND pv."srDtmApproved" = true
-                      )
-                    )
-
-                  /* =========================================================
-                    EXISTING DAILY FLOW
-                    DO NOT CHANGE
-                    ========================================================= */
-                  ELSE
-                    (
-                      pv."accessAreaId"::TEXT NOT IN ('1')
-                      AND pv."accessAreaId"::TEXT NOT ILIKE '%oil%jetty%'
-                    )
-                    OR
-                    (
-                      pv."sparkArresterCertified" = true
-                      AND pv."srDtmApproved" = true
-                    )
-
-                END
-              )
+        LEFT JOIN vehicle_types vt ON vt.id = pv."vehicleTypeId"
+        WHERE pv."passRequestId" = pr.id
+          AND pv.status = 'pending'
+          AND (
+            (pv."accessAreaId"::TEXT NOT IN ('1') AND pv."accessAreaId"::TEXT NOT ILIKE '%oil%jetty%')
+            OR (pv."essentialWorkflowState" = 'PENDING_PASS_SECTION_ESSENTIAL')
+            OR (pv."sparkArresterCertified" = true AND pv."srDtmApproved" = true)
+            OR (
+              pv."passType"::TEXT IN ('YEARLY', 'ANNUAL')
+              AND UPPER(TRIM(vt.name)) IN ('TRAILORS', 'TRAILER LORRY')
+            )
           )
-        )
+      )
+    )
       `;
       vendorPendingCond += `
         AND (
@@ -6289,21 +6569,87 @@ const getAgentPassRequestsDetails = {
           )
           OR EXISTS (
             SELECT 1 FROM vendor_pass_vehicles vpv
+            LEFT JOIN vehicle_types vt ON vt.id = vpv."vehicleTypeId"
             WHERE vpv."vendorPassRequestId" = v.id
               AND vpv.status = 'pending'
               AND (
                 CASE
                   WHEN vpv."passType"::TEXT IN ('MONTHLY', 'YEARLY', 'ANNUAL') THEN
-                    vpv."twistLockCertified" = true
-                    AND (
-                      (vpv."accessAreaId"::TEXT NOT IN ('1') AND vpv."accessAreaId"::TEXT NOT ILIKE '%oil%jetty%')
-                      OR (vpv."sparkArresterCertified" = true AND vpv."srDtmApproved" = true)
+                    (
+                      vpv."twistLockCertified" = true
+                      AND (
+                        (vpv."accessAreaId"::TEXT NOT IN ('1') AND vpv."accessAreaId"::TEXT NOT ILIKE '%oil%jetty%')
+                        OR (vpv."sparkArresterCertified" = true AND vpv."srDtmApproved" = true)
+                      )
+                    )
+                    OR (
+                      vpv."passType"::TEXT IN ('YEARLY', 'ANNUAL')
+                      AND UPPER(TRIM(vt.name)) IN ('TRAILORS', 'TRAILER LORRY')
                     )
                   ELSE
                     (vpv."accessAreaId"::TEXT NOT IN ('1') AND vpv."accessAreaId"::TEXT NOT ILIKE '%oil%jetty%')
                     OR (vpv."sparkArresterCertified" = true AND vpv."srDtmApproved" = true)
                 END
               )
+          )
+        )
+      `;
+    }
+
+    if (isCivil) {
+      normalProcessedCond += `
+        AND (
+          EXISTS (
+            SELECT 1 FROM pass_persons pp
+            INNER JOIN pass_person_workflow_history ph ON ph."passPersonId" = pp.id
+            WHERE pp."passRequestId" = pr.id
+              AND (ph.stage = 'PENDING_CIVIL_PERSON_ESSENTIAL' OR ph."actorDepartmentId" = 3)
+              AND ph.action IN ('APPROVED', 'REJECTED', 'REVERTED')
+          )
+          OR EXISTS (
+            SELECT 1 FROM pass_vehicles pv
+            INNER JOIN pass_vehicle_workflow_history vh ON vh."passVehicleId" = pv.id
+            WHERE pv."passRequestId" = pr.id
+              AND (vh.stage = 'PENDING_CIVIL_ESSENTIAL' OR vh."actorDepartmentId" = 3)
+              AND vh.action IN ('APPROVED', 'REJECTED', 'REVERTED')
+          )
+        )
+      `;
+    } else if (isMechanical) {
+      normalProcessedCond += `
+        AND (
+          EXISTS (
+            SELECT 1 FROM pass_persons pp
+            INNER JOIN pass_person_workflow_history ph ON ph."passPersonId" = pp.id
+            WHERE pp."passRequestId" = pr.id
+              AND (ph.stage = 'PENDING_MECHANICAL_PERSON_ESSENTIAL' OR ph."actorDepartmentId" = 4)
+              AND ph.action IN ('APPROVED', 'REJECTED', 'REVERTED')
+          )
+          OR EXISTS (
+            SELECT 1 FROM pass_vehicles pv
+            INNER JOIN pass_vehicle_workflow_history vh ON vh."passVehicleId" = pv.id
+            WHERE pv."passRequestId" = pr.id
+              AND (vh.stage = 'PENDING_MECHANICAL_ESSENTIAL' OR vh."actorDepartmentId" = 4)
+              AND vh.action IN ('APPROVED', 'REJECTED', 'REVERTED')
+          )
+        )
+      `;
+    } else if (isCisf) {
+      normalProcessedCond += `
+        AND (
+          EXISTS (
+            SELECT 1 FROM pass_persons pp
+            INNER JOIN pass_person_workflow_history ph ON ph."passPersonId" = pp.id
+            WHERE pp."passRequestId" = pr.id
+              AND (ph.stage = 'PENDING_CISF_PERSON_ESSENTIAL' OR ph.stage LIKE '%CISF%' OR ph."actorDepartmentId" = 1)
+              AND ph.action IN ('APPROVED', 'REJECTED', 'REVERTED')
+          )
+          OR EXISTS (
+            SELECT 1 FROM pass_vehicles pv
+            INNER JOIN pass_vehicle_workflow_history vh ON vh."passVehicleId" = pv.id
+            WHERE pv."passRequestId" = pr.id
+              AND (vh.stage = 'PENDING_CISF_ESSENTIAL' OR vh.stage LIKE '%CISF%' OR vh."actorDepartmentId" = 1)
+              AND vh.action IN ('APPROVED', 'REJECTED', 'REVERTED')
           )
         )
       `;
@@ -6507,7 +6853,35 @@ const getAgentPassRequestsDetails = {
           pr.status,
           pr."submittedAt",
           pr."createdAt",
-          pr."approvedBy",
+          COALESCE(
+            (
+              SELECT u."userName"
+              FROM pass_person_workflow_history ph
+              JOIN users u ON u.id = ph."actorUserId"
+              JOIN pass_persons pp ON pp.id = ph."passPersonId"
+              WHERE pp."passRequestId" = pr.id
+                AND ph.action IN ('APPROVED', 'REJECTED', 'REVERTED')
+                ${isCivil ? "AND (ph.stage = 'PENDING_CIVIL_PERSON_ESSENTIAL' OR ph.\"actorDepartmentId\" = 3)" : ""}
+                ${isMechanical ? "AND (ph.stage = 'PENDING_MECHANICAL_PERSON_ESSENTIAL' OR ph.\"actorDepartmentId\" = 4)" : ""}
+                ${isCisf ? "AND (ph.stage = 'PENDING_CISF_PERSON_ESSENTIAL' OR ph.stage LIKE '%CISF%' OR ph.\"actorDepartmentId\" = 1)" : ""}
+              ORDER BY ph."createdAt" DESC
+              LIMIT 1
+            ),
+            (
+              SELECT u."userName"
+              FROM pass_vehicle_workflow_history vh
+              JOIN users u ON u.id = vh."actorUserId"
+              JOIN pass_vehicles pv ON pv.id = vh."passVehicleId"
+              WHERE pv."passRequestId" = pr.id
+                AND vh.action IN ('APPROVED', 'REJECTED', 'REVERTED')
+                ${isCivil ? "AND (vh.stage = 'PENDING_CIVIL_ESSENTIAL' OR vh.\"actorDepartmentId\" = 3)" : ""}
+                ${isMechanical ? "AND (vh.stage = 'PENDING_MECHANICAL_ESSENTIAL' OR vh.\"actorDepartmentId\" = 4)" : ""}
+                ${isCisf ? "AND (vh.stage = 'PENDING_CISF_ESSENTIAL' OR vh.stage LIKE '%CISF%' OR vh.\"actorDepartmentId\" = 1)" : ""}
+              ORDER BY vh."createdAt" DESC
+              LIMIT 1
+            ),
+            pr."approvedBy"
+          ) AS "approvedBy",
           pr."workflowState",
           pr."isOilDock",
           pr."authLetterFilePath",
@@ -6551,7 +6925,8 @@ const getAgentPassRequestsDetails = {
                     'name', COALESCE(pp.name, mp.name),
                     'email', COALESCE(pp.email, mp.email),
                     'mobile', COALESCE(pp.mobile, mp.mobile),
-                    'aadharNo', COALESCE(pp."aadharNo", mp."aadharNo")
+                    'aadharNo', COALESCE(pp."aadharNo", mp."aadharNo"),
+                    'cardNumber', COALESCE(pp."cardNumber", mp."cardNumber")
                   )
                   ||
                   jsonb_build_object(
@@ -6585,6 +6960,8 @@ const getAgentPassRequestsDetails = {
                     'nationality', COALESCE(pp.nationality::text, mp.nationality::text),
                     'dob', COALESCE(pp."dob"::text, mp."dob"::text),
                     'countryId', COALESCE(pp."countryId", mp."countryId"),
+                    'countryName', c.name,
+                    'designationName', COALESCE(d.name, pp."designationOther", mp."designationOther"),
                     'designationId', COALESCE(d.name, pp."designationOther", mp."designationOther", pp."designationId"::text, mp."designationId"::text),
                     'designationOther', COALESCE(pp."designationOther", mp."designationOther"),
                     'accessAreaId', COALESCE(pp."accessAreaId"::TEXT, mp."accessAreaId"::TEXT),
@@ -6642,8 +7019,11 @@ const getAgentPassRequestsDetails = {
             ||
             jsonb_build_object(
               'registrationNo', COALESCE(pv."registrationNo", mv."registrationNo"),
+              'rfidCardNumber', COALESCE(pv."rfidCardNumber", mv."rfidCardNumber"),
               'vehicleTypeId', COALESCE(pv."vehicleTypeId", mv."vehicleTypeId"),
               'vehicleTypeName', vt.name,
+              'ulip_verified', COALESCE(pv.ulip_verified, mv.ulip_verified, false),
+              'vehicle_status', COALESCE(pv.vehicle_status, mv.vehicle_status),
               'essentialDepartmentId',
                 pv."essentialDepartmentId",
 

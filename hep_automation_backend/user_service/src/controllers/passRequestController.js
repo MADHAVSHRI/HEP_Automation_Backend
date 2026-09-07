@@ -5,6 +5,9 @@ const {
   NATIONALITIES,
   ID_PROOF_TYPES,
   ACCESS_AREAS,
+  DEPARTMENT_IDS,
+  WORKFLOW_ROLES,
+  ESSENTIAL_WORKFLOW_STAGES,
 } = require("../constants/constants");
 const passRequestService = require("../services/passRequestService");
 const {
@@ -962,19 +965,64 @@ const approveVehicle = async (req, res) => {
       role === "Fire Safety Officer" && Number(departmentId) === 7;
 
     if (roleId === 26 || role === "Safety Officer") {
-      const query = `
-        UPDATE pass_vehicles
-        SET "twistLockCertified" = true, "twistLockRemarks" = $2, "updatedAt" = NOW()
-        WHERE id = $1
-        RETURNING *
-      `;
-      const vehicleRes = await pool.query(query, [vehicleId, remarks || null]);
-      const vehicle = vehicleRes.rows[0];
-      if (!vehicle) {
+      const vCheck = await pool.query(
+        `SELECT pv.*, vt.name AS "vehicleTypeName"
+         FROM pass_vehicles pv
+         LEFT JOIN vehicle_types vt ON vt.id = pv."vehicleTypeId"
+         WHERE pv.id = $1`,
+        [vehicleId],
+      );
+      const targetV = vCheck.rows[0];
+      if (!targetV) {
         return res
           .status(404)
           .json({ success: false, message: "Vehicle not found" });
       }
+
+      const passTypeStr = String(targetV?.passType || "").trim().toUpperCase();
+      const vehicleTypeNameStr = String(targetV?.vehicleTypeName || "").trim().toUpperCase();
+      const isAnnualTrailer =
+        ["YEARLY", "ANNUAL"].includes(passTypeStr) &&
+        ["TRAILORS", "TRAILER LORRY"].includes(vehicleTypeNameStr);
+
+      let query;
+      let params;
+
+      if (isAnnualTrailer) {
+        query = `
+          UPDATE pass_vehicles
+          SET
+            "twistLockCertified" = true,
+            "twistLockRemarks" = $2,
+            "marineSafetyApproved" = true,
+            "marineSafetyRemarks" = $2,
+            "marineSafetyApprovedBy" = $3,
+            "marineSafetyApprovedAt" = NOW(),
+            "qrUuid" = CASE
+              WHEN "qrUuid" IS NULL THEN gen_random_uuid()
+              ELSE "qrUuid"
+            END,
+            "qrIssuedAt" = CASE
+              WHEN "qrIssuedAt" IS NULL THEN NOW()
+              ELSE "qrIssuedAt"
+            END,
+            "updatedAt" = NOW()
+          WHERE id = $1
+          RETURNING *
+        `;
+        params = [vehicleId, remarks || null, req.user?.userId || null];
+      } else {
+        query = `
+          UPDATE pass_vehicles
+          SET "twistLockCertified" = true, "twistLockRemarks" = $2, "updatedAt" = NOW()
+          WHERE id = $1
+          RETURNING *
+        `;
+        params = [vehicleId, remarks || null];
+      }
+
+      const vehicleRes = await pool.query(query, params);
+      const vehicle = vehicleRes.rows[0];
 
       const passRequestId = vehicle.passRequestId;
 
@@ -1204,9 +1252,19 @@ const approveVehicle = async (req, res) => {
       );
 
       if (allCertified) {
-        await pool.query(
-          `UPDATE pass_requests SET "workflowState" = 'PENDING_SR_DTM', "updatedAt" = NOW() WHERE id = $1`,
+        const reqRes = await pool.query(
+          `SELECT "departmentId" FROM pass_requests WHERE id = $1`,
           [passRequestId],
+        );
+        const deptId = Number(reqRes.rows[0]?.departmentId);
+        const nextState =
+          deptId === 2 || deptId === 3
+            ? "PENDING_DEPARTMENT"
+            : "PENDING_PASS_SECTION";
+
+        await pool.query(
+          `UPDATE pass_requests SET "workflowState" = $2, "updatedAt" = NOW() WHERE id = $1`,
+          [passRequestId, nextState],
         );
       }
 
@@ -2759,36 +2817,48 @@ const revertMarineSafetyVehicle = async (req, res) => {
 
 const getEssentialOilDockStage = (req) => {
   const role = String(req.user?.role || "").trim();
+  const roleCode = String(req.user?.roleCode || "").trim();
   const departmentId = Number(req.user?.departmentId);
 
   if (
-    departmentId === 7 &&
-    ["Dy. Conservator", "Fire Safety Officer"].includes(role)
+    departmentId === DEPARTMENT_IDS.MARINE &&
+    ["Dy. Conservator", "Fire Safety Officer", WORKFLOW_ROLES.FIRE_SAFETY_OFFICER].includes(role)
   ) {
-    return "PENDING_MARINE_ESSENTIAL";
-  }
-
-  if (role === "Approval" && departmentId === 3) {
-    return "PENDING_CIVIL_ESSENTIAL";
-  }
-
-  if (role === "Approval" && departmentId === 4) {
-    return "PENDING_MECHANICAL_ESSENTIAL";
+    return ESSENTIAL_WORKFLOW_STAGES.PENDING_MARINE;
   }
 
   if (
+    (role === WORKFLOW_ROLES.APPROVAL || roleCode === WORKFLOW_ROLES.APPROVAL) &&
+    departmentId === DEPARTMENT_IDS.ENGINEERING_CIVIL
+  ) {
+    return ESSENTIAL_WORKFLOW_STAGES.PENDING_CIVIL;
+  }
+
+  if (
+    (role === WORKFLOW_ROLES.APPROVAL || roleCode === WORKFLOW_ROLES.APPROVAL) &&
+    departmentId === DEPARTMENT_IDS.ENGINEERING_MECHANICAL
+  ) {
+    return ESSENTIAL_WORKFLOW_STAGES.PENDING_MECHANICAL;
+  }
+
+  if (
+    departmentId === DEPARTMENT_IDS.CISF ||
     [
       "CISF",
       "CISF Asst Commandant",
       "CISF Assistant Commandant",
       "Cisf.Assistant Commandant",
+      WORKFLOW_ROLES.CISF_ASST_COMMANDANT,
     ].includes(role)
   ) {
-    return "PENDING_CISF_ESSENTIAL";
+    return ESSENTIAL_WORKFLOW_STAGES.PENDING_CISF;
   }
 
-  if (role === "Approval" && departmentId === 9) {
-    return "PENDING_PASS_SECTION_ESSENTIAL";
+  if (
+    (role === WORKFLOW_ROLES.APPROVAL || roleCode === WORKFLOW_ROLES.APPROVAL) &&
+    departmentId === DEPARTMENT_IDS.TRAFFIC
+  ) {
+    return ESSENTIAL_WORKFLOW_STAGES.PENDING_PASS_SECTION;
   }
 
   return null;
