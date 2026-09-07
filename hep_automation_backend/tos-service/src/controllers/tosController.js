@@ -27,22 +27,33 @@ exports.pushForm13 = async (req, res) => {
       operatorId: req.operator.id,
     });
 
-    return res.status(result.status === "SUCCESS" || result.status === "PROCESSED_DIRECTLY" ? 201 : 200).json({
+    if (result.status === "ALREADY_EXISTS") {
+      return res.status(409).json({
+        code: 409,
+        success: false,
+        ...result,
+      });
+    }
+
+    return res.status(201).json({
+      code: 201,
       success: true,
       ...result,
     });
   } catch (error) {
-    const statusCode = error.statusCode || 500;
     if (error.name === "SequelizeUniqueConstraintError") {
-      return res.status(200).json({
-        success: true,
+      return res.status(409).json({
+        code: 409,
+        success: false,
         status: "ALREADY_EXISTS",
         message: `Form-13 record '${req.body.form13No}' already exists`,
       });
     }
 
+    const statusCode = error.statusCode || 500;
     console.error("Error saving Form-13 record:", error);
     return res.status(statusCode).json({
+      code: statusCode,
       success: false,
       message: error.message || "Internal server error",
     });
@@ -59,14 +70,18 @@ exports.pushEir = async (req, res) => {
     if (result.totalProcessed === 1) {
       const res0 = result.results[0];
       if (!res0.success && res0.message.startsWith("Missing required fields")) {
-        return res.status(400).json({ success: false, message: res0.message });
+        return res.status(400).json({ code: 400, success: false, message: res0.message });
       }
       if (!res0.success) {
-        return res.status(400).json({ success: false, message: res0.message });
+        return res.status(400).json({ code: 400, success: false, message: res0.message });
       }
 
-      return res.status(201).json({
-        success: true,
+      const isDuplicate = res0.status === "ALREADY_EXISTS";
+      const httpCode = isDuplicate ? 409 : 201;
+
+      return res.status(httpCode).json({
+        code: httpCode,
+        success: !isDuplicate,
         status: res0.status,
         message: res0.message,
         eirNo: res0.eirNo,
@@ -74,17 +89,24 @@ exports.pushEir = async (req, res) => {
     }
 
     const hasFailures = result.results.some((item) => !item.success);
-    return res.status(hasFailures ? 207 : 201).json({
-      success: !hasFailures,
+    const allDuplicates = result.results.every((item) => item.status === "ALREADY_EXISTS");
+    const httpCode = hasFailures ? 207 : (allDuplicates ? 409 : 201);
+
+    return res.status(httpCode).json({
+      code: httpCode,
+      success: !hasFailures && !allDuplicates,
       totalProcessed: result.totalProcessed,
       results: result.results,
     });
   } catch (error) {
     console.error("Error in pushEir controller:", error);
-    return res.status(error.statusCode || 500).json({
+    const statusCode = error.statusCode || 500;
+    return res.status(statusCode).json({
+      code: statusCode,
       success: false,
       message: error.message || "Internal server error",
     });
   }
 };
+
 
