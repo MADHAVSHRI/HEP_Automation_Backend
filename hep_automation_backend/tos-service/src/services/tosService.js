@@ -3,7 +3,7 @@ const { TosOperator, TosForm13, TosForm13Container, TosEirRecord, sequelize } = 
 const { signToken } = require("../utils/jwt");
 const { eirQueue, eirQueueEvents } = require("../queues/eirQueue");
 const { form13Queue, form13QueueEvents } = require("../queues/form13Queue");
-const { normalizeEirItem, validateForm13Payload, validateEirItem } = require("../validators/tosValidator");
+const { normalizeEirItem, normalizeForm13Payload, validateForm13Payload, validateEirItem } = require("../validators/tosValidator");
 
 function getIstFormattedTimestamp(dateInput) {
   const date = dateInput ? new Date(dateInput) : new Date();
@@ -65,7 +65,8 @@ async function loginOperator({ loginId, password }) {
 }
 
 async function pushForm13Record({ payload, operatorId }) {
-  const validationErrors = validateForm13Payload(payload);
+  const normalizedPayload = normalizeForm13Payload(payload);
+  const validationErrors = validateForm13Payload(normalizedPayload);
 
   if (validationErrors.length) {
     const error = new Error(validationErrors.join("; "));
@@ -73,7 +74,7 @@ async function pushForm13Record({ payload, operatorId }) {
     throw error;
   }
 
-  let { form13No, terminal, trailerNumber, containers } = payload;
+  let { form13No, terminal, trailerNumber, containers } = normalizedPayload;
 
   if (!form13No || typeof form13No !== "string" || !form13No.trim()) {
     const termPrefix = (terminal || "TOS").trim().toUpperCase();

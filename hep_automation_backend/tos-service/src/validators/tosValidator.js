@@ -5,6 +5,18 @@ const {
   YES_NO_LIST,
 } = require("../constants/constants");
 
+function normalizeTerminal(terminal) {
+  if (!terminal || typeof terminal !== "string") return terminal;
+  const t = terminal.trim().toUpperCase();
+  if (t === "CCTL" || t === "CCTPL" || t.includes("CHENNAI CONTAINER TERMINAL")) {
+    return "CCTPL";
+  }
+  if (t === "CITPL" || t.includes("CHENNAI INTERNATIONAL")) {
+    return "CITPL";
+  }
+  return terminal.trim().toUpperCase();
+}
+
 function deriveContainerSize(containerISO, containerSize) {
   if (containerSize) return String(containerSize);
   if (!containerISO || typeof containerISO !== "string") return "20";
@@ -22,7 +34,8 @@ function deriveContainerSize(containerISO, containerSize) {
 function normalizeEirItem(item) {
   if (!item || typeof item !== "object") return null;
 
-  const terminal = item.terminal || item.TERMINAL_CODE || item.TERMINAL_NAME || null;
+  const rawTerminal = item.terminal || item.TERMINAL_CODE || item.TERMINAL_NAME || null;
+  const terminal = normalizeTerminal(rawTerminal);
   const inGateRaw = item.inGateDateTime || item.GATEINTIME || item.BOXARRIVALTIME || null;
   const outGateRaw = item.outGateDateTime || item.GATEOUTTIME || item.BOXDEPTTIME || null;
 
@@ -83,9 +96,88 @@ function normalizeEirItem(item) {
   };
 }
 
+function normalizeForm13Payload(payload) {
+  if (!payload || typeof payload !== "object") return payload;
+
+  const normalized = { ...payload };
+
+  if (normalized.terminal) {
+    normalized.terminal = normalizeTerminal(normalized.terminal);
+  }
+
+  let rawContainers = normalized.containers;
+  if (rawContainers === undefined || rawContainers === null) {
+    if (normalized.container !== undefined && normalized.container !== null) {
+      rawContainers = normalized.container;
+    }
+  }
+
+  let containersArray = null;
+
+  if (Array.isArray(rawContainers)) {
+    containersArray = rawContainers;
+  } else if (rawContainers && typeof rawContainers === "object") {
+    containersArray = [rawContainers];
+  } else if (
+    normalized.movementType !== undefined ||
+    normalized.containerNumber !== undefined ||
+    normalized.containerISO !== undefined ||
+    normalized.containerSize !== undefined
+  ) {
+    containersArray = [
+      {
+        movementType: normalized.movementType,
+        containerNumber: normalized.containerNumber,
+        containerISO: normalized.containerISO,
+        containerSize: normalized.containerSize,
+        containerType: normalized.containerType,
+      },
+    ];
+  }
+
+  if (Array.isArray(containersArray)) {
+    normalized.containers = containersArray.map((c) => {
+      if (!c || typeof c !== "object") return c;
+
+      let movementType = c.movementType;
+      if (typeof movementType === "string") {
+        const mtUpper = movementType.trim().toUpperCase();
+        if (mtUpper === "E" || mtUpper === "EXPORT") {
+          movementType = "Export";
+        } else if (mtUpper === "I" || mtUpper === "IMPORT") {
+          movementType = "Import";
+        }
+      }
+
+      const containerISO = c.containerISO || c.ISOcode || null;
+      const containerNumber = c.containerNumber || c.ContainerNumber || c.Container || null;
+      const containerSize = deriveContainerSize(containerISO, c.containerSize);
+      const containerType = c.containerType || null;
+
+      return {
+        ...c,
+        movementType,
+        containerNumber,
+        containerISO,
+        containerSize,
+        containerType,
+      };
+    });
+  } else {
+    normalized.containers = rawContainers;
+  }
+
+  return normalized;
+}
+
 function validateForm13Payload(payload) {
   const errors = [];
-  const { terminal, trailerNumber, containers } = payload;
+  if (!payload || typeof payload !== "object") {
+    return ["Invalid payload format"];
+  }
+
+  const normalized = normalizeForm13Payload(payload);
+  const { terminal, trailerNumber, containers } = normalized;
 
   if (!terminal) errors.push("terminal is required");
   if (!trailerNumber) errors.push("trailerNumber is required");
@@ -95,7 +187,7 @@ function validateForm13Payload(payload) {
   }
 
   if (!Array.isArray(containers) || containers.length === 0) {
-    errors.push("containers is required and must be a non-empty array");
+    errors.push("containers is required");
     return errors;
   }
 
@@ -103,8 +195,8 @@ function validateForm13Payload(payload) {
     errors.push("maximum 4 container objects are allowed");
   }
 
-  const exportContainers = containers.filter((item) => item.movementType === "Export");
-  const importContainers = containers.filter((item) => item.movementType === "Import");
+  const exportContainers = containers.filter((item) => item && item.movementType === "Export");
+  const importContainers = containers.filter((item) => item && item.movementType === "Import");
 
   if (exportContainers.length > 2) {
     errors.push("maximum 2 Export containers are allowed");
@@ -200,7 +292,9 @@ function validateEirItem(item) {
 
 module.exports = {
   deriveContainerSize,
+  normalizeTerminal,
   normalizeEirItem,
+  normalizeForm13Payload,
   validateForm13Payload,
   validateEirItem,
 };
