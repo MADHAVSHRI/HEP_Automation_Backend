@@ -1,0 +1,33 @@
+{
+  "name": "gate-service",
+  "version": "1.0.0",
+  "description": "Real-time gate verification service — receives gate hardware events, normalises them and pushes results to the assigned CISF officers",
+  "main": "src/index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MADHAVSHRI/HEP_Automation.git"
+  },
+  "author": "MS",
+  "license": "ISC",
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^17.3.1",
+    "express": "^5.2.1",
+    "jsonwebtoken": "^9.0.3",
+    "pg": "^8.20.0",
+    "pg-hstore": "^2.3.4",
+    "sequelize": "^6.37.8",
+    "sequelize-cli": "^6.6.5",
+    "socket.io": "^4.8.1",
+    "uuid": "^13.0.0",
+    "winston": "^3.19.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.14"
+  }
+}

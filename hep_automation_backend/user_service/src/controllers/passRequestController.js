@@ -10,6 +10,7 @@ const {
   ESSENTIAL_WORKFLOW_STAGES,
 } = require("../constants/constants");
 const passRequestService = require("../services/passRequestService");
+const { notifyPassCompleted } = require("../services/iportmanPushService");
 const {
   Designation,
   vehicleTypes,
@@ -1210,6 +1211,10 @@ const approveVehicle = async (req, res) => {
       `,
           [approvedVehicle.passRequestId],
         );
+
+        // The other route to COMPLETED: marine safety signing off the last
+        // trailer. Same event, so the same registration is owed.
+        notifyPassCompleted(approvedVehicle.passRequestId);
       }
 
       return res.json({
@@ -1418,6 +1423,12 @@ const completeReview = async (req, res) => {
       role,
       roleId,
     );
+
+    // Traffic has signed the pass off. Register it with iPortman, without
+    // holding this response open for the third party.
+    if (result?.status === "COMPLETED") {
+      notifyPassCompleted(passRequestId);
+    }
 
     return res.json({
       success: true,

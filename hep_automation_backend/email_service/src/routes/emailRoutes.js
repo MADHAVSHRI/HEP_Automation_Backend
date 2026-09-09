@@ -47,5 +47,7 @@ router.post("/sendAdminNotification", emailController.sendAdminNotification);
 router.post("/sendApprovalNotification", emailController.sendApprovalNotification);
 router.post("/sendRejectionNotification", emailController.sendRejectionNotification);
 router.post("/sendChildBatchConfirmation", emailController.sendChildBatchConfirmation);
+// ── Photo Capture Link ────────────────────────────────────────────────────────
+router.post("/sendPhotoCaptureLink", emailController.sendPhotoCaptureLink);
 
 module.exports = router;

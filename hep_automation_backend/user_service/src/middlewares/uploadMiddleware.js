@@ -22,6 +22,7 @@ const ADDRESS_DIR = path.join(baseDir, "address");
 
 const AUTH_DIR = path.join(passRequestBaseDir, "authLetters");
 const PHOTO_DIR = path.join(passRequestBaseDir, "personPhotos");
+const LIVE_PHOTO_DIR = path.join(passRequestBaseDir, "personLivePhotos");
 const AADHAR_DIR = path.join(passRequestBaseDir, "personAadhar");
 const IDPROOF_DIR = path.join(passRequestBaseDir, "personIdProof");
 const REQLETTER_DIR = path.join(passRequestBaseDir, "passRequisitionLetter");
@@ -58,6 +59,7 @@ const folders = ["pan", "gst", "tan", "workOrder", "requisitionLetter", "license
 const passRequestFolders = [
   "authLetters",
   "personPhotos",
+  "personLivePhotos",
   "personAadhar",
   "personIdProof",
   "passRequisitionLetter",
@@ -162,6 +164,10 @@ const storage = multer.diskStorage({
 
       case "personPhoto":
         cb(null, PHOTO_DIR);
+        break;
+
+      case "personLivePhoto":
+        cb(null, LIVE_PHOTO_DIR);
         break;
 
       case "personAadhar":
@@ -308,6 +314,10 @@ const storage = multer.diskStorage({
 
     else if (fieldPrefix === "personPhoto") {
       fileName = `PERSONPHOTO${timestamp}${path.extname(file.originalname)}`;
+    }
+
+    else if (fieldPrefix === "personLivePhoto") {
+      fileName = `PERSONLIVEPHOTO${timestamp}${path.extname(file.originalname)}`;
     }
 
     else if (fieldPrefix === "personAadhar") {

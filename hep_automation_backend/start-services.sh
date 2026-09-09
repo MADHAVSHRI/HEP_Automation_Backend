@@ -34,4 +34,16 @@ cd email_service
 npm run dev &
 cd ..
 
+echo "Starting Face Verify Service..."
+cd face_verify
+npm run dev &
+cd ..
+
+echo "Starting Gate Service..."
+cd gate-service
+npm run dev &
+cd ..
+
 echo "All services started successfully 🚀"
+echo "Note: the capture PWA is a separate project and is NOT started here."
+echo "      Run it from photo-capture-link with: npm run dev --workspace capture"

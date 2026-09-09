@@ -1,0 +1,50 @@
+# The remote photo-capture feature: the applicant's page and the service that
+# issues its links. Both sit behind the existing Apache vhost, on the portal's
+# own domain — the camera only opens in a secure context, and borrowing that
+# certificate means the applicant installs nothing.
+#
+#   docker compose -f docker-compose.face.yml up -d --build
+#
+services:
+  face_verify:
+    build:
+      context: ./face_verify
+    container_name: face_verify
+    restart: unless-stopped
+    env_file:
+      - ./face_verify/.env
+    ports:
+      # Bound to loopback: Apache reaches it, the internet does not.
+      - "127.0.0.1:5011:5011"
+    volumes:
+      # Captured photographs. Without this they vanish on every redeploy,
+      # including ones an applicant has already sent but nobody has submitted.
+      - face_verify_uploads:/app/uploads
+    extra_hosts:
+      # Postgres runs on the VM itself rather than in this compose project.
+      - "host.docker.internal:host-gateway"
+
+  capture:
+    build:
+      context: ../../photo-capture-link
+      args:
+        # BUILD arguments, not runtime settings. They are compiled into the
+        # bundle, so changing them means rebuilding the image — `docker compose
+        # up` alone will keep serving the previous values.
+        NEXT_PUBLIC_BASE_PATH: /face
+        NEXT_PUBLIC_API_BASE_URL: https://apacs.chennaiport.gov.in
+    container_name: capture
+    restart: unless-stopped
+    environment:
+      # Also needed at runtime: `next start` reads next.config.mjs to decide
+      # which path to serve. Omit this and the server comes up on "/" while the
+      # bundle asks for "/face/…", so every request 404s behind the proxy.
+      NEXT_PUBLIC_BASE_PATH: /face
+      NEXT_PUBLIC_API_BASE_URL: https://apacs.chennaiport.gov.in
+    ports:
+      - "127.0.0.1:4200:4200"
+    depends_on:
+      - face_verify
+
+volumes:
+  face_verify_uploads:

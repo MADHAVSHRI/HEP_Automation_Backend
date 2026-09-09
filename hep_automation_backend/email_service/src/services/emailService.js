@@ -1,4 +1,5 @@
 const transporter = require("../config/emailConfig");
+const photoCaptureTemplate = require("../emailTemplates/photoCaptureTemplate");
 const template = require("../emailTemplates/referenceNumberTemplate");
 const approvalTemplate = require("../emailTemplates/agentApprovedTemplate");
 const rejectionTemplate = require("../emailTemplates/agentRejectedTemplate");
@@ -690,4 +691,33 @@ module.exports = {
   sendApprovalNotification,
   sendRejectionNotification,
   sendChildBatchConfirmation
+};
+
+const sendPhotoCaptureLink = async ({ email, personName, agentName, link }) => {
+  const html = photoCaptureTemplate({ personName, agentName, link });
+  const mailOptions = {
+    from: process.env.EMAIL_USER,
+    to: email,
+    subject: `Action Required: Photo Capture for HEP Pass — Chennai Port APACS`,
+    html,
+  };
+  return transporter.sendMail(mailOptions);
+};
+
+module.exports = {
+  sendReferenceEmail, sendApprovalEmail, 
+  sendRejectionEmail, sendDeptUserCreationEmail, sendDeptUserActivatedEmail, 
+  sendDeptUserDisabledEmail, sendUpdatedAfterRevertEmail, sendRevertedAgentRequestEmail,
+  sendVendorPassLinkEmail, sendPassRevertedEmail, sendVendorPassApprovedEmail,
+  sendVendorPassSubmittedEmail, sendOverstayReminderEmail, sendOverstayLeviedEmail,
+  sendForgotPasswordOTPEmail, sendForgotPasswordOtpEmail,
+  sendBulkPassInvitationEmail, sendBulkPassSubmittedEmail, sendBulkPassUnderReviewEmail,
+  sendBulkPassReturnedEmail, sendBulkPassApprovedEmail, sendBulkPassRejectedEmail,
+  sendBulkPassRejectedPersonsEmail,
+  sendProfileUpdateSubmittedEmail, sendProfileUpdateApprovedEmail,
+  sendProfileUpdateRevertedEmail, sendProfileUpdateRejectedEmail,
+  sendTwoWheelerUpdateSubmittedEmail, sendTwoWheelerUpdateApprovedEmail,
+  sendTwoWheelerUpdateRejectedEmail,
+  sendLicenseExpiryWarningEmail,
+  sendPhotoCaptureLink
 };

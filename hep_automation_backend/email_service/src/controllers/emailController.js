@@ -12,8 +12,10 @@ const { sendReferenceEmail, sendApprovalEmail, sendRejectionEmail,
   sendTwoWheelerUpdateSubmittedEmail, sendTwoWheelerUpdateApprovedEmail,
   sendTwoWheelerUpdateRejectedEmail,
   sendLicenseExpiryWarningEmail,
+  sendPhotoCaptureLink } = require("../services/emailService");
+  sendLicenseExpiryWarningEmail,
   // Multiple Pass Submissions Functions
-  sendOTPEmail,
+  { sendOTPEmail,
   sendPublicRequestAcknowledgment,
   sendAdminNotification,
   sendApprovalNotification,
@@ -647,6 +649,20 @@ exports.sendTwoWheelerUpdateRejected = async (req, res) => {
     return res.json({ success: true, message: "Two-wheeler update rejection email sent" });
   } catch (error) {
     console.error("[EMAIL-CTRL] sendTwoWheelerUpdateRejected error:", error);
+    res.status(500).json({ success: false, message: "Email sending failed" });
+  }
+};
+
+exports.sendPhotoCaptureLink = async (req, res) => {
+  try {
+    const { email, personName, agentName, link } = req.body;
+    if (!email || !link) {
+      return res.status(400).json({ success: false, message: "email and link are required" });
+    }
+    await sendPhotoCaptureLink({ email, personName, agentName, link });
+    return res.json({ success: true, message: "Photo capture link email sent successfully" });
+  } catch (error) {
+    console.error("[EMAIL-CTRL] sendPhotoCaptureLink error:", error);
     res.status(500).json({ success: false, message: "Email sending failed" });
   }
 };

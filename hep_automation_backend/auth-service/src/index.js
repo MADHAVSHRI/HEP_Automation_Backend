@@ -19,7 +19,7 @@ app.disable("x-powered-by");
 app.use(
   cors({
     // 1. Allowed your specific frontend ports
-    origin: ["http://localhost:3000", "http://14.139.180.41:3000"],
+    origin: ["http://localhost:3000", "http://10.167.40.13:3000", "http://14.139.180.41:3000"],
 
     // 2. Explicitly allowed the PATCH method (which was previously blocked)
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],

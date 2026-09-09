@@ -373,6 +373,20 @@ const PassRequest = {
         const cdcFile = getFile("cdcDocument", i);
         const entryAuthFile = getFile("entryAuthorization", i);
 
+        /*
+          Live photograph — captured by the person themselves, either in the
+          Capture Photo dialog or through a link opened on their own phone.
+          Kept alongside the uploaded photo rather than replacing it: one is the
+          submitted document, the other is evidence that a live person sat in
+          front of a camera for this application.
+
+          FaceVerified is only ever true when a live photo actually arrived. The
+          flag is not taken on the client's word alone, because the same request
+          could otherwise claim verification while sending no photograph.
+        */
+        const livePhotoFile = getFile("personLivePhoto", i);
+        const faceVerified = Boolean(livePhotoFile);
+
         if (!masterPersonId) {
           let existingPerson = { rows: [] };
           if (person.aadharNo && String(person.aadharNo).trim() !== "") {
@@ -639,6 +653,8 @@ const PassRequest = {
           "dob",
           "status",
           "rejectedReason",
+          "LivePhotoPath",
+          "FaceVerified",
           "createdAt",
           "updatedAt"
         )
@@ -648,6 +664,7 @@ const PassRequest = {
           $11,$12,$13,$14,$15,$16,$17,$18,
           $19,$20,$21,$22,$23,$24,$25,$26,
           $27,$28,$29,$30,$31,$32,$33,$34,
+          $35,$36,$37,$38,$39,$40,$41,$42,$43,$44,$45,$46,$47,$48,$49,$50,$51,$52,$53,$54,$55,
           $35,$36,$37,$38,$39,$40,$41,$42,$43,$44,$45,$46,$47,$48,$49,$50,$51,$52,$53,$54,$55,$56,
           NOW(),NOW()
         )
@@ -723,6 +740,8 @@ const PassRequest = {
             personDob,
             initialPersonStatus,
             initialRejectedReason,
+            livePhotoFile?.path || null,
+            faceVerified,
           ],
         );
       }
