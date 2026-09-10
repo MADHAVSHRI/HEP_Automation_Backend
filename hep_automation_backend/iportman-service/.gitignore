@@ -21,3 +21,7 @@
 # ─── OS / Editor Artifacts ─────────────────────────────────────
 .DS_Store
 Thumbs.db
+
+# ─── Postman ───────────────────────────────────────────────────
+# The environment file carries live API keys; the collection does not.
+docs/*.postman_environment.json

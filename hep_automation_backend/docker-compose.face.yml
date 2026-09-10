@@ -15,7 +15,9 @@ services:
       - ./face_verify/.env
     ports:
       # Bound to loopback: Apache reaches it, the internet does not.
-      - "127.0.0.1:5011:5011"
+      # Published port stays 5011 so the deployed Apache vhost needs no change;
+      # the service itself now listens on 5013 (5011 went to customs-service).
+      - "127.0.0.1:5011:5013"
     volumes:
       # Captured photographs. Without this they vanish on every redeploy,
       # including ones an applicant has already sent but nobody has submitted.

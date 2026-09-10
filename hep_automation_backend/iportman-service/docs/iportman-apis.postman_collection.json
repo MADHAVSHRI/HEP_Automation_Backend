@@ -1,0 +1,426 @@
+{
+  "info": {
+    "_postman_id": "e5efce57-8d3c-45d0-8a9b-73142af5a5a1",
+    "name": "APACS - iPortman Integrations",
+    "description": "The three iPortman integrations: Port Entry Permit, Truck Gate-In and Truck Gate-Out.\n\nFolder 1 hits our own iportman-service. Folder 2 hits the vendor directly.\n\nImport `iportman-local.postman_environment.json` alongside this and select it \u2014 the keys live there, not in this file.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "1. APACS iportman-service (our endpoints)",
+      "description": "Endpoints this deployment exposes. Guarded by `x-service-key`, which must match SERVICE_AUTH_KEY in iportman-service/.env.\n\nThe `/preview` requests build the document and return it **without** sending it to iPortman \u2014 use them to check the field mapping first.",
+      "item": [
+        {
+          "name": "Port Entry Permit - push",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "x-service-key",
+                "value": "{{serviceAuthKey}}",
+                "type": "text"
+              },
+              {
+                "key": "x-service-name",
+                "value": "POSTMAN",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{apacsBaseUrl}}/api/iportman/port-entry-permit",
+              "host": [
+                "{{apacsBaseUrl}}"
+              ],
+              "path": [
+                "api",
+                "iportman",
+                "port-entry-permit"
+              ]
+            },
+            "description": "Builds the permit from the database for this pass request and pushes it. Fired automatically by user_service when a pass reaches COMPLETED; this is the manual equivalent.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"passRequestId\": \"{{passRequestId}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Port Entry Permit - preview",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "x-service-key",
+                "value": "{{serviceAuthKey}}",
+                "type": "text"
+              },
+              {
+                "key": "x-service-name",
+                "value": "POSTMAN",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{apacsBaseUrl}}/api/iportman/port-entry-permit/{{passRequestId}}/preview",
+              "host": [
+                "{{apacsBaseUrl}}"
+              ],
+              "path": [
+                "api",
+                "iportman",
+                "port-entry-permit",
+                "{{passRequestId}}",
+                "preview"
+              ]
+            },
+            "description": "Returns the exact document that would be sent. Nothing leaves the network."
+          },
+          "response": []
+        },
+        {
+          "name": "Truck Gate-In - push",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "x-service-key",
+                "value": "{{serviceAuthKey}}",
+                "type": "text"
+              },
+              {
+                "key": "x-service-name",
+                "value": "POSTMAN",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{apacsBaseUrl}}/api/iportman/truck-gate-in",
+              "host": [
+                "{{apacsBaseUrl}}"
+              ],
+              "path": [
+                "api",
+                "iportman",
+                "truck-gate-in"
+              ]
+            },
+            "description": "Portcode defaults to INMAA1 when omitted. GateInDT defaults to now.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"VehicleRegdNo\": \"WB29C1898\",\n  \"VehiclePassReferenceNo\": \"59VLD3004263701\",\n  \"VehiclePassValidTo\": \"2026-05-06 16:38:53\",\n  \"TruckStatus\": \"Empty\",\n  \"IsContainer\": \"Y\",\n  \"GateNo\": \"Phosphate Gate\",\n  \"GateInDT\": \"2026-05-05 16:42:30\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Truck Gate-In - preview",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "x-service-key",
+                "value": "{{serviceAuthKey}}",
+                "type": "text"
+              },
+              {
+                "key": "x-service-name",
+                "value": "POSTMAN",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{apacsBaseUrl}}/api/iportman/truck-gate-in/preview",
+              "host": [
+                "{{apacsBaseUrl}}"
+              ],
+              "path": [
+                "api",
+                "iportman",
+                "truck-gate-in",
+                "preview"
+              ]
+            },
+            "description": "Shapes the document without sending it.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"VehicleRegdNo\": \"WB29C1898\",\n  \"VehiclePassReferenceNo\": \"59VLD3004263701\",\n  \"VehiclePassValidTo\": \"2026-05-06 16:38:53\",\n  \"TruckStatus\": \"Empty\",\n  \"IsContainer\": \"Y\",\n  \"GateNo\": \"Phosphate Gate\",\n  \"GateInDT\": \"2026-05-05 16:42:30\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Truck Gate-Out - push",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "x-service-key",
+                "value": "{{serviceAuthKey}}",
+                "type": "text"
+              },
+              {
+                "key": "x-service-name",
+                "value": "POSTMAN",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{apacsBaseUrl}}/api/iportman/truck-gate-out",
+              "host": [
+                "{{apacsBaseUrl}}"
+              ],
+              "path": [
+                "api",
+                "iportman",
+                "truck-gate-out"
+              ]
+            },
+            "description": "Same body as gate-in, with GateOutDT in place of GateInDT.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Portcode\": \"{{portCode}}\",\n  \"VehicleRegdNo\": \"WB29C1898\",\n  \"VehiclePassReferenceNo\": \"59VLD3004263701\",\n  \"VehiclePassValidTo\": \"2026-05-06 16:38:53\",\n  \"TruckStatus\": \"Loaded\",\n  \"IsContainer\": \"Y\",\n  \"GateNo\": \"Flyover Gate\",\n  \"GateOutDT\": \"2026-05-02 18:30:00\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Truck Gate-Out - preview",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "x-service-key",
+                "value": "{{serviceAuthKey}}",
+                "type": "text"
+              },
+              {
+                "key": "x-service-name",
+                "value": "POSTMAN",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{apacsBaseUrl}}/api/iportman/truck-gate-out/preview",
+              "host": [
+                "{{apacsBaseUrl}}"
+              ],
+              "path": [
+                "api",
+                "iportman",
+                "truck-gate-out",
+                "preview"
+              ]
+            },
+            "description": "Shapes the document without sending it.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Portcode\": \"{{portCode}}\",\n  \"VehicleRegdNo\": \"WB29C1898\",\n  \"VehiclePassReferenceNo\": \"59VLD3004263701\",\n  \"VehiclePassValidTo\": \"2026-05-06 16:38:53\",\n  \"TruckStatus\": \"Loaded\",\n  \"IsContainer\": \"Y\",\n  \"GateNo\": \"Flyover Gate\",\n  \"GateOutDT\": \"2026-05-02 18:30:00\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "2. iPortman direct (third-party)",
+      "description": "The vendor's own endpoints, for checking their behaviour independently of our service.\n\n**Turn SSL certificate verification OFF** (Settings > General) \u2014 the host is addressed by IP, so its certificate cannot match a hostname.\n\nEach endpoint has its own Gravitee key; they are not interchangeable.",
+      "item": [
+        {
+          "name": "Port Entry Permit",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "X-Gravitee-Api-Key",
+                "value": "{{portEntryPermitApiKey}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{iportmanBaseUrl}}/iportman/portentrypermit",
+              "host": [
+                "{{iportmanBaseUrl}}"
+              ],
+              "path": [
+                "iportman",
+                "portentrypermit"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"PortEntryPermit\": {\n    \"AgentType\": \"TRA\",\n    \"AgentCode\": \"1902650\",\n    \"AgentName\": \"PEOPLES TRANSPORT\",\n    \"Passfor\": \"Both\",\n    \"PurposeofPass\": \"Transportation of goods/empty containers \",\n    \"PassIssueDT\": \"2023-08-19 16:48:05\",\n    \"PassReferenceNo\": \"1908231331\",\n    \"Portcode\": \"{{portCode}}\"\n  },\n  \"PersonDetails\": [\n    {\n      \"PersonPassType\": \"Driver\",\n      \"PersonName\": \"ARUL N\",\n      \"PersonLicenseNo\": \"TN5119950000235\",\n      \"PersonLicenseValidity\": \"1900-01-01 00:00:00\",\n      \"PersonIDType\": \"AADHAR CARD\",\n      \"PersonIDNo\": \"441580634051\",\n      \"PassType\": \"Daily\",\n      \"PersonPassValidFrom\": \"2023-08-19 16:56:00\",\n      \"PersonPassValidTo\": \"2023-08-20 05:59:00\"\n    }\n  ],\n  \"VehicleDetails\": [\n    {\n      \"VehicleRegdNo\": \"TN51B2858\",\n      \"VehicleType\": \"Trailors\",\n      \"VehicleInsuranceValidity\": \"19-12-2023\",\n      \"PassType\": \"Daily\",\n      \"PassValidFrom\": \"2023-08-19 16:56:00\",\n      \"PassValidTo\": \"2023-08-20 05:59:00\",\n      \"ContactNo\": \"9940255169\",\n      \"ContactPerson\": \"\",\n      \"RFIDCardNo\": \"\",\n      \"QRCode\": \"10047079\"\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Truck Gate-In",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "X-Gravitee-Api-Key",
+                "value": "{{truckGateInApiKey}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{iportmanBaseUrl}}/iportman/truckgatein",
+              "host": [
+                "{{iportmanBaseUrl}}"
+              ],
+              "path": [
+                "iportman",
+                "truckgatein"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"TruckGateIn\": {\n    \"Portcode\": \"{{portCode}}\",\n    \"VehicleRegdNo\": \"WB29C1898\",\n    \"VehiclePassReferenceNo\": \"59VLD3004263701\",\n    \"VehiclePassValidTo\": \"2026-05-06 16:38:53\",\n    \"TruckStatus\": \"Empty\",\n    \"IsContainer\": \"Y\",\n    \"GateNo\": \"Phosphate Gate\",\n    \"GateInDT\": \"2026-05-05 16:42:30\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Truck Gate-Out",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "X-Gravitee-Api-Key",
+                "value": "{{truckGateOutApiKey}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{iportmanBaseUrl}}/iportman/truckgateout",
+              "host": [
+                "{{iportmanBaseUrl}}"
+              ],
+              "path": [
+                "iportman",
+                "truckgateout"
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"TruckGateOut\": {\n    \"Portcode\": \"{{portCode}}\",\n    \"VehicleRegdNo\": \"WB29C1898\",\n    \"VehiclePassReferenceNo\": \"59VLD3004263701\",\n    \"VehiclePassValidTo\": \"2026-05-06 16:38:53\",\n    \"TruckStatus\": \"Loaded\",\n    \"IsContainer\": \"Y\",\n    \"GateNo\": \"Flyover Gate\",\n    \"GateOutDT\": \"2026-05-02 18:30:00\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "apacsBaseUrl",
+      "value": "http://localhost:5008",
+      "type": "string"
+    },
+    {
+      "key": "iportmanBaseUrl",
+      "value": "https://115.124.102.26:8001",
+      "type": "string"
+    },
+    {
+      "key": "portCode",
+      "value": "INMAA1",
+      "type": "string"
+    },
+    {
+      "key": "passRequestId",
+      "value": "1",
+      "type": "string"
+    }
+  ]
+}

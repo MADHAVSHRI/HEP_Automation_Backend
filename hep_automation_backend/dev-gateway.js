@@ -21,8 +21,9 @@ const USER = "http://localhost:5001";
 const ADMIN = "http://localhost:5005";
 const QR = "http://localhost:5007";
 const TOS = "http://localhost:5009";
-const FACE = "http://localhost:5011";
+const FACE = "http://localhost:5013";
 const GATE = "http://localhost:5012";
+const CUSTOMS = "http://localhost:5011";
 
 const app = express();
 
@@ -79,6 +80,7 @@ app.use("/api/qr", to(QR));
 app.use("/api/tos", to(TOS));
 app.use("/api/face", to(FACE));
 app.use("/api/gate-verification", to(GATE));
+app.use("/api/customs", to(CUSTOMS));
 
 app.get("/health", (req, res) => res.json({ status: "ok", gateway: true }));
 
@@ -92,7 +94,7 @@ const server = app.listen(PORT, "0.0.0.0", () => {
   console.log("  /api/auth,/api/admin                      -> 5006 auth");
   console.log("  /api/captcha,/api/pass-request,/api/agents-> 5001 user");
   console.log("  /api/user,/api/blacklist                  -> 5005 approval-admin");
-  console.log("  /api/qr 5007  /api/tos 5009  /api/face 5011");
+  console.log("  /api/qr 5007  /api/tos 5009  /api/face 5013  /api/customs 5011");
   console.log("  /api/gate-verification + /socket.io       -> 5012 gate");
 });
 

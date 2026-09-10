@@ -44,6 +44,26 @@ cd gate-service
 npm run dev &
 cd ..
 
+echo "Starting IPORTMAN Service..."
+cd iportman-service || exit 1
+npm run dev &
+cd ..
+
+echo "Starting TOS Service..."
+cd tos-service || exit 1
+npm run dev &
+cd ..
+
+echo "Starting Customs Service..."
+cd customs-service || exit 1
+npm run dev &
+cd ..
+
+echo "Starting Wallet Service..."
+cd wallet-service || exit 1
+npm run dev &
+cd ..
+
 echo "All services started successfully 🚀"
 echo "Note: the capture PWA is a separate project and is NOT started here."
 echo "      Run it from photo-capture-link with: npm run dev --workspace capture"

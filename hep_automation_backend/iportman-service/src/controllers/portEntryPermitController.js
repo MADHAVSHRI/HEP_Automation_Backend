@@ -1,4 +1,4 @@
-const log = require("../logger/logger");
+const { successLogger, errorLogger } = require("../logger/logger");
 const {
   buildPortEntryPermitPayload,
 } = require("../services/portEntryPermitPayload");
@@ -27,7 +27,9 @@ const pushPassRequest = async (req, res) => {
     const payload = await buildPortEntryPermitPayload(passRequestId);
 
     if (!payload) {
-      log.warn(TAG, "Nothing to push", { passRequestId });
+      errorLogger.error(
+        `${TAG} | nothing to push | passRequestId=${passRequestId}`,
+      );
       return res.json({
         success: false,
         pushed: false,
@@ -44,7 +46,9 @@ const pushPassRequest = async (req, res) => {
       message: result.message,
     });
   } catch (error) {
-    log.error(TAG, "Port Entry Permit push errored", error, { passRequestId });
+    errorLogger.error(
+      `${TAG} | push errored | passRequestId=${passRequestId} | ${error.message}`,
+    );
     return res.json({
       success: false,
       pushed: false,
@@ -72,7 +76,7 @@ const previewPassRequest = async (req, res) => {
     }
     return res.json({ success: true, data: payload });
   } catch (error) {
-    log.error(TAG, "Preview failed", error);
+    errorLogger.error(`${TAG} | preview failed | ${error.message}`);
     return res.status(500).json({ success: false, message: error.message });
   }
 };

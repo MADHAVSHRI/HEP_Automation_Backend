@@ -1,7 +1,7 @@
 const https = require("https");
 const axios = require("axios");
 
-const log = require("../logger/logger");
+const { successLogger, errorLogger } = require("../logger/logger");
 
 const TAG = "PORT_ENTRY_PERMIT_CLIENT";
 
@@ -46,14 +46,15 @@ const pushPortEntryPermit = async (payload) => {
   if (!apiKey) {
     const message =
       "IPORTMAN_PUSH_API_KEY is not configured; skipping Port Entry Permit push.";
-    log.error(TAG, message, new Error("Missing env var"));
+    errorLogger.error(`${TAG} | ${message}`);
+    console.error(TAG, message);
     return { success: false, status: null, data: null, message };
   }
 
   const reference = payload?.PortEntryPermit?.PassReferenceNo || "unknown";
 
   try {
-    log.info(TAG, "Pushing Port Entry Permit", { reference, url });
+    successLogger.info(`${TAG} | pushing | ref=${reference} | url=${url}`);
 
     const response = await client.post(url, payload, {
       headers: {
@@ -65,16 +66,14 @@ const pushPortEntryPermit = async (payload) => {
     const ok = response.status >= 200 && response.status < 300;
 
     if (ok) {
-      log.info(TAG, "Port Entry Permit accepted", {
-        reference,
-        status: response.status,
-      });
+      successLogger.info(
+        `${TAG} | accepted | ref=${reference} | status=${response.status}`,
+      );
     } else {
-      log.error(TAG, "Port Entry Permit rejected", new Error("Non-2xx"), {
-        reference,
-        status: response.status,
-        body: response.data,
-      });
+      errorLogger.error(
+        `${TAG} | rejected | ref=${reference} | status=${response.status} | ` +
+          `body=${JSON.stringify(response.data)}`,
+      );
     }
 
     return {
@@ -87,7 +86,9 @@ const pushPortEntryPermit = async (payload) => {
     };
   } catch (error) {
     // Network failure, DNS, TLS handshake or timeout.
-    log.error(TAG, "Port Entry Permit push failed", error, { reference });
+    errorLogger.error(
+      `${TAG} | push failed | ref=${reference} | ${error.message}`,
+    );
     return {
       success: false,
       status: null,

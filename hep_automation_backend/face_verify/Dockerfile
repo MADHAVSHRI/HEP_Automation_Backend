@@ -20,10 +20,10 @@ COPY . .
 RUN mkdir -p uploads/liveCaptures logs
 VOLUME ["/app/uploads"]
 
-EXPOSE 5011
+EXPOSE 5013
 
 # Fails the container rather than sitting there accepting traffic it cannot serve.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-  CMD node -e "require('http').get('http://127.0.0.1:5011/api/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"
+  CMD node -e "require('http').get('http://127.0.0.1:5013/api/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"
 
 CMD ["npm", "start"]

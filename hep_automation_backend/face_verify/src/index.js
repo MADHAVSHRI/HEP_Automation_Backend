@@ -42,7 +42,7 @@ app.use((err, req, res, next) => {
   return next();
 });
 
-const PORT = process.env.PORT || 5011;
+const PORT = process.env.PORT || 5013;
 
 app.listen(PORT, () => {
   console.log(`Face Verify Service running on port ${PORT}`);
