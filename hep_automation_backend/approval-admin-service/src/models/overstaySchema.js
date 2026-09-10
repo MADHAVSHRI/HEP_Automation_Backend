@@ -4,71 +4,109 @@ const { pool } = require("../dbconfig/db");
    DB INIT — create table + indexes if not present
    (idempotent; runs once on service start)
 ────────────────────────────────────────────── */
+let isTableInitialized = false;
+let tableInitPromise = null;
+
 async function initOverstayTable() {
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS overstay_charges (
-      id                    SERIAL PRIMARY KEY,
-      entity_type           VARCHAR(20)  NOT NULL CHECK (entity_type IN ('PERSON','VEHICLE','DRIVER')),
-      entity_id             INTEGER,
-      pass_request_id       INTEGER,
-      agent_id              INTEGER,
-      identifier            VARCHAR(100) NOT NULL,
-      entity_name           VARCHAR(255),
-      pass_no               VARCHAR(100),
-      date_from             DATE,
-      date_to               DATE,
-      overstay_days         INTEGER      NOT NULL DEFAULT 0,
-      daily_rate            DECIMAL(12,2) NOT NULL DEFAULT 0,
-      total_amount          DECIMAL(12,2) NOT NULL DEFAULT 0,
-      status                VARCHAR(30)  NOT NULL DEFAULT 'PENDING',
-      payment_method        VARCHAR(50),
-      transaction_id        VARCHAR(100),
-      exception_reason      TEXT,
-      exception_decided_by  VARCHAR(100),
-      exception_decided_at  TIMESTAMP WITH TIME ZONE,
-      levied_by             VARCHAR(100),
-      levied_at             TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-      email_sent            BOOLEAN      NOT NULL DEFAULT FALSE,
-      last_email_sent_at    TIMESTAMP WITH TIME ZONE,
-      notes                 TEXT,
-      created_at            TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-      updated_at            TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-    );
-    CREATE INDEX IF NOT EXISTS idx_overstay_agent_id  ON overstay_charges (agent_id);
-    CREATE INDEX IF NOT EXISTS idx_overstay_status     ON overstay_charges (status);
-    CREATE INDEX IF NOT EXISTS idx_overstay_entity     ON overstay_charges (entity_type, identifier);
-  `);
-  // Idempotent migration: add per-charge pass_blocked flag, pass_type, initial_overstay_days, initial_total_amount
-  await pool.query(`
-    ALTER TABLE overstay_charges
-    ADD COLUMN IF NOT EXISTS pass_blocked BOOLEAN NOT NULL DEFAULT false,
-    ADD COLUMN IF NOT EXISTS pass_type VARCHAR(50),
-    ADD COLUMN IF NOT EXISTS initial_overstay_days INTEGER DEFAULT 0,
-    ADD COLUMN IF NOT EXISTS initial_total_amount DECIMAL(12,2) DEFAULT 0;
-  `);
+  if (isTableInitialized) return;
+  if (tableInitPromise) return tableInitPromise;
 
-  // Backfill initial levy fields for pre-existing levied charges if unpopulated
-  await pool.query(`
-    UPDATE overstay_charges
-    SET initial_overstay_days = overstay_days,
-        initial_total_amount = total_amount
-    WHERE (initial_overstay_days IS NULL OR initial_overstay_days = 0)
-      AND status != 'NOTIFIED'
-      AND overstay_days > 0;
-  `);
+  tableInitPromise = (async () => {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS overstay_charges (
+        id                    SERIAL PRIMARY KEY,
+        entity_type           VARCHAR(20)  NOT NULL CHECK (entity_type IN ('PERSON','VEHICLE','DRIVER')),
+        entity_id             INTEGER,
+        pass_request_id       INTEGER,
+        agent_id              INTEGER,
+        identifier            VARCHAR(100) NOT NULL,
+        entity_name           VARCHAR(255),
+        pass_no               VARCHAR(100),
+        date_from             DATE,
+        date_to               DATE,
+        overstay_days         INTEGER      NOT NULL DEFAULT 0,
+        daily_rate            DECIMAL(12,2) NOT NULL DEFAULT 0,
+        total_amount          DECIMAL(12,2) NOT NULL DEFAULT 0,
+        status                VARCHAR(30)  NOT NULL DEFAULT 'PENDING',
+        payment_method        VARCHAR(50),
+        transaction_id        VARCHAR(100),
+        exception_reason      TEXT,
+        exception_decided_by  VARCHAR(100),
+        exception_decided_at  TIMESTAMP WITH TIME ZONE,
+        levied_by             VARCHAR(100),
+        levied_at             TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        email_sent            BOOLEAN      NOT NULL DEFAULT FALSE,
+        last_email_sent_at    TIMESTAMP WITH TIME ZONE,
+        notes                 TEXT,
+        created_at            TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        updated_at            TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_overstay_agent_id  ON overstay_charges (agent_id);
+      CREATE INDEX IF NOT EXISTS idx_overstay_status     ON overstay_charges (status);
+      CREATE INDEX IF NOT EXISTS idx_overstay_entity     ON overstay_charges (entity_type, identifier);
+      CREATE INDEX IF NOT EXISTS idx_overstay_entity_lookup ON overstay_charges (entity_type, entity_id, pass_request_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_pass_persons_dateto_status ON pass_persons ("dateTo", status);
+      CREATE INDEX IF NOT EXISTS idx_pass_vehicles_dateto_status ON pass_vehicles ("dateTo", status);
+    `);
+    // Idempotent migration: add per-charge pass_blocked flag, pass_type, initial_overstay_days, initial_total_amount
+    await pool.query(`
+      ALTER TABLE overstay_charges
+      ADD COLUMN IF NOT EXISTS pass_blocked BOOLEAN NOT NULL DEFAULT false,
+      ADD COLUMN IF NOT EXISTS pass_type VARCHAR(50),
+      ADD COLUMN IF NOT EXISTS initial_overstay_days INTEGER DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS initial_total_amount DECIMAL(12,2) DEFAULT 0;
+    `);
 
-  // Idempotent migration: clean up duplicate active overstay charges for the same entity/identifier, keeping the latest one
-  await pool.query(`
-    DELETE FROM overstay_charges a
-    USING overstay_charges b
-    WHERE a.id < b.id
-      AND a.entity_type = b.entity_type
-      AND a.entity_id IS NOT DISTINCT FROM b.entity_id
-      AND a.pass_request_id IS NOT DISTINCT FROM b.pass_request_id
-      AND a.identifier = b.identifier
-      AND a.status IN ('PENDING', 'NOTIFIED', 'EXCEPTION_REQUESTED', 'EXCEPTION_REJECTED')
-      AND b.status IN ('PENDING', 'NOTIFIED', 'EXCEPTION_REQUESTED', 'EXCEPTION_REJECTED');
-  `);
+    // Backfill initial levy fields for pre-existing levied charges if unpopulated
+    await pool.query(`
+      UPDATE overstay_charges
+      SET initial_overstay_days = overstay_days,
+          initial_total_amount = total_amount
+      WHERE (initial_overstay_days IS NULL OR initial_overstay_days = 0)
+        AND status != 'NOTIFIED'
+        AND overstay_days > 0;
+    `);
+
+    // Idempotent migration: clean up duplicate active overstay charges for the same entity/identifier, keeping the latest one
+    await pool.query(`
+      DELETE FROM overstay_charges a
+      USING overstay_charges b
+      WHERE a.id < b.id
+        AND a.entity_type = b.entity_type
+        AND a.entity_id IS NOT DISTINCT FROM b.entity_id
+        AND a.pass_request_id IS NOT DISTINCT FROM b.pass_request_id
+        AND a.identifier = b.identifier
+        AND a.status IN ('PENDING', 'NOTIFIED', 'EXCEPTION_REQUESTED', 'EXCEPTION_REJECTED')
+        AND b.status IN ('PENDING', 'NOTIFIED', 'EXCEPTION_REQUESTED', 'EXCEPTION_REJECTED');
+    `);
+
+    // Idempotent migration: backfill agent_id and pass_request_id from pass tables if missing
+    await pool.query(`
+      UPDATE overstay_charges oc
+      SET agent_id = sub.resolved_agent_id,
+          pass_request_id = COALESCE(oc.pass_request_id, sub.resolved_pass_req_id)
+      FROM (
+        SELECT oc2.id,
+               COALESCE(pr_direct."agentId", pr_pp."agentId", pr_pv."agentId") AS resolved_agent_id,
+               COALESCE(oc2.pass_request_id, pp."passRequestId", pv."passRequestId") AS resolved_pass_req_id
+        FROM overstay_charges oc2
+        LEFT JOIN pass_requests pr_direct ON pr_direct.id = oc2.pass_request_id
+        LEFT JOIN pass_persons pp ON (pp.id = oc2.entity_id OR pp."personPassNo" = oc2.pass_no OR pp."aadharNo" = oc2.identifier)
+        LEFT JOIN pass_requests pr_pp ON pr_pp.id = pp."passRequestId"
+        LEFT JOIN pass_vehicles pv ON (pv.id = oc2.entity_id OR pv."vehiclePassNo" = oc2.pass_no OR pv."registrationNo" = oc2.identifier)
+        LEFT JOIN pass_requests pr_pv ON pr_pv.id = pv."passRequestId"
+        WHERE oc2.agent_id IS NULL
+      ) sub
+      WHERE oc.id = sub.id AND sub.resolved_agent_id IS NOT NULL;
+    `);
+
+    isTableInitialized = true;
+  })().catch((err) => {
+    tableInitPromise = null;
+    throw err;
+  });
+
+  return tableInitPromise;
 }
 
 // Same cargo-equipment classification the frontend uses, kept in sync
@@ -127,27 +165,41 @@ async function loadDailyRates() {
   return rates;
 }
 
+let isSettingsInitialized = false;
+let settingsInitPromise = null;
+
 async function initSettingsTable() {
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS system_settings (
-      key         VARCHAR(100) PRIMARY KEY,
-      value       BOOLEAN NOT NULL DEFAULT true,
-      updated_by  VARCHAR(100),
-      updated_at  TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-    );
-  `);
-  // Seed the default row if it doesn't exist yet — defaults to OFF per the
-  // client's request (manual notify only, no auto emails for first 2 months).
-  await pool.query(`
-    INSERT INTO system_settings (key, value)
-    VALUES ('overstay_auto_email_enabled', false)
-    ON CONFLICT (key) DO NOTHING;
-  `);
-  await pool.query(`
-  INSERT INTO system_settings (key, value)
-  VALUES ('overstay_pass_block_enabled', true)
-  ON CONFLICT (key) DO NOTHING;
-`);
+  if (isSettingsInitialized) return;
+  if (settingsInitPromise) return settingsInitPromise;
+
+  settingsInitPromise = (async () => {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS system_settings (
+        key         VARCHAR(100) PRIMARY KEY,
+        value       BOOLEAN NOT NULL DEFAULT true,
+        updated_by  VARCHAR(100),
+        updated_at  TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+      );
+    `);
+    // Seed the default row if it doesn't exist yet — defaults to OFF per the
+    // client's request (manual notify only, no auto emails for first 2 months).
+    await pool.query(`
+      INSERT INTO system_settings (key, value)
+      VALUES ('overstay_auto_email_enabled', false)
+      ON CONFLICT (key) DO NOTHING;
+    `);
+    await pool.query(`
+      INSERT INTO system_settings (key, value)
+      VALUES ('overstay_pass_block_enabled', true)
+      ON CONFLICT (key) DO NOTHING;
+    `);
+    isSettingsInitialized = true;
+  })().catch((err) => {
+    settingsInitPromise = null;
+    throw err;
+  });
+
+  return settingsInitPromise;
 }
 
 const Overstay = {
@@ -408,16 +460,43 @@ const Overstay = {
 
     if (status) { conditions.push(`oc.status = $${idx++}`); params.push(status); }
     if (entity_type) { conditions.push(`oc.entity_type = $${idx++}`); params.push(entity_type); }
-    if (agent_id) { conditions.push(`oc.agent_id = $${idx++}`); params.push(agent_id); }
+    if (agent_id) { conditions.push(`COALESCE(oc.agent_id, a_dir.agent_id, a_pp.agent_id, a_pv.agent_id) = $${idx++}`); params.push(agent_id); }
 
     const where = conditions.length > 0 ? "WHERE " + conditions.join(" AND ") : "";
     params.push(limit, offset);
 
     const res = await pool.query(
       `SELECT oc.*, ${COALESCE_PASS_TYPE}, ${LIVE_AMOUNT_SELECT},
-              a."entityName" AS company_name, a."loginId" AS login_id
+              COALESCE(oc.agent_id, a_dir.agent_id, a_pp.agent_id, a_pv.agent_id) AS agent_id,
+              COALESCE(a."entityName", a_dir.company_name, a_pp.company_name, a_pv.company_name) AS company_name,
+              COALESCE(a."loginId", a_dir.login_id, a_pp.login_id, a_pv.login_id) AS login_id
       FROM overstay_charges oc
       LEFT JOIN "Agents" a ON a.id = oc.agent_id
+      LEFT JOIN LATERAL (
+        SELECT pr."agentId" AS agent_id, a2."entityName" AS company_name, a2."loginId" AS login_id
+        FROM pass_requests pr
+        LEFT JOIN "Agents" a2 ON a2.id = pr."agentId"
+        WHERE pr.id = oc.pass_request_id
+        LIMIT 1
+      ) a_dir ON true
+      LEFT JOIN LATERAL (
+        SELECT pr."agentId" AS agent_id, a2."entityName" AS company_name, a2."loginId" AS login_id
+        FROM pass_persons pp
+        JOIN pass_requests pr ON pr.id = pp."passRequestId"
+        LEFT JOIN "Agents" a2 ON a2.id = pr."agentId"
+        WHERE (pp.id = oc.entity_id OR pp."personPassNo" = oc.pass_no OR pp."aadharNo" = oc.identifier)
+        ORDER BY (pp.id = oc.entity_id) DESC, pp."createdAt" DESC
+        LIMIT 1
+      ) a_pp ON true
+      LEFT JOIN LATERAL (
+        SELECT pr."agentId" AS agent_id, a2."entityName" AS company_name, a2."loginId" AS login_id
+        FROM pass_vehicles pv
+        JOIN pass_requests pr ON pr.id = pv."passRequestId"
+        LEFT JOIN "Agents" a2 ON a2.id = pr."agentId"
+        WHERE (pv.id = oc.entity_id OR pv."vehiclePassNo" = oc.pass_no OR pv."registrationNo" = oc.identifier)
+        ORDER BY (pv.id = oc.entity_id) DESC, pv."createdAt" DESC
+        LIMIT 1
+      ) a_pv ON true
       ${where}
       ORDER BY oc.created_at DESC
       LIMIT $${idx++} OFFSET $${idx++}`,
@@ -441,9 +520,37 @@ const Overstay = {
   async getById(id) {
     const res = await pool.query(
       `SELECT oc.*, ${COALESCE_PASS_TYPE}, ${LIVE_AMOUNT_SELECT},
-              a."entityName" AS company_name, a."email" AS agent_email, a."loginId" AS login_id
+              COALESCE(oc.agent_id, a_dir.agent_id, a_pp.agent_id, a_pv.agent_id) AS agent_id,
+              COALESCE(a."entityName", a_dir.company_name, a_pp.company_name, a_pv.company_name) AS company_name,
+              COALESCE(a."email", a_dir.agent_email, a_pp.agent_email, a_pv.agent_email) AS agent_email,
+              COALESCE(a."loginId", a_dir.login_id, a_pp.login_id, a_pv.login_id) AS login_id
       FROM overstay_charges oc
       LEFT JOIN "Agents" a ON a.id = oc.agent_id
+      LEFT JOIN LATERAL (
+        SELECT pr."agentId" AS agent_id, a2."entityName" AS company_name, a2."email" AS agent_email, a2."loginId" AS login_id
+        FROM pass_requests pr
+        LEFT JOIN "Agents" a2 ON a2.id = pr."agentId"
+        WHERE pr.id = oc.pass_request_id
+        LIMIT 1
+      ) a_dir ON true
+      LEFT JOIN LATERAL (
+        SELECT pr."agentId" AS agent_id, a2."entityName" AS company_name, a2."email" AS agent_email, a2."loginId" AS login_id
+        FROM pass_persons pp
+        JOIN pass_requests pr ON pr.id = pp."passRequestId"
+        LEFT JOIN "Agents" a2 ON a2.id = pr."agentId"
+        WHERE (pp.id = oc.entity_id OR pp."personPassNo" = oc.pass_no OR pp."aadharNo" = oc.identifier)
+        ORDER BY (pp.id = oc.entity_id) DESC, pp."createdAt" DESC
+        LIMIT 1
+      ) a_pp ON true
+      LEFT JOIN LATERAL (
+        SELECT pr."agentId" AS agent_id, a2."entityName" AS company_name, a2."email" AS agent_email, a2."loginId" AS login_id
+        FROM pass_vehicles pv
+        JOIN pass_requests pr ON pr.id = pv."passRequestId"
+        LEFT JOIN "Agents" a2 ON a2.id = pr."agentId"
+        WHERE (pv.id = oc.entity_id OR pv."vehiclePassNo" = oc.pass_no OR pv."registrationNo" = oc.identifier)
+        ORDER BY (pv.id = oc.entity_id) DESC, pv."createdAt" DESC
+        LIMIT 1
+      ) a_pv ON true
       WHERE oc.id = $1`,
       [id]
     );
@@ -482,9 +589,38 @@ const Overstay = {
   /* ── 8. LIST EXCEPTION REQUESTS (Traffic) ── */
   async listExceptionRequests() {
     const res = await pool.query(
-      `SELECT oc.*, ${COALESCE_PASS_TYPE}, a."entityName" AS company_name, a."email" AS agent_email
+      `SELECT oc.*, ${COALESCE_PASS_TYPE},
+              COALESCE(oc.agent_id, a_dir.agent_id, a_pp.agent_id, a_pv.agent_id) AS agent_id,
+              COALESCE(a."entityName", a_dir.company_name, a_pp.company_name, a_pv.company_name) AS company_name,
+              COALESCE(a."email", a_dir.agent_email, a_pp.agent_email, a_pv.agent_email) AS agent_email,
+              COALESCE(a."loginId", a_dir.login_id, a_pp.login_id, a_pv.login_id) AS login_id
        FROM overstay_charges oc
        LEFT JOIN "Agents" a ON a.id = oc.agent_id
+       LEFT JOIN LATERAL (
+         SELECT pr."agentId" AS agent_id, a2."entityName" AS company_name, a2."email" AS agent_email, a2."loginId" AS login_id
+         FROM pass_requests pr
+         LEFT JOIN "Agents" a2 ON a2.id = pr."agentId"
+         WHERE pr.id = oc.pass_request_id
+         LIMIT 1
+       ) a_dir ON true
+       LEFT JOIN LATERAL (
+         SELECT pr."agentId" AS agent_id, a2."entityName" AS company_name, a2."email" AS agent_email, a2."loginId" AS login_id
+         FROM pass_persons pp
+         JOIN pass_requests pr ON pr.id = pp."passRequestId"
+         LEFT JOIN "Agents" a2 ON a2.id = pr."agentId"
+         WHERE (pp.id = oc.entity_id OR pp."personPassNo" = oc.pass_no OR pp."aadharNo" = oc.identifier)
+         ORDER BY (pp.id = oc.entity_id) DESC, pp."createdAt" DESC
+         LIMIT 1
+       ) a_pp ON true
+       LEFT JOIN LATERAL (
+         SELECT pr."agentId" AS agent_id, a2."entityName" AS company_name, a2."email" AS agent_email, a2."loginId" AS login_id
+         FROM pass_vehicles pv
+         JOIN pass_requests pr ON pr.id = pv."passRequestId"
+         LEFT JOIN "Agents" a2 ON a2.id = pr."agentId"
+         WHERE (pv.id = oc.entity_id OR pv."vehiclePassNo" = oc.pass_no OR pv."registrationNo" = oc.identifier)
+         ORDER BY (pv.id = oc.entity_id) DESC, pv."createdAt" DESC
+         LIMIT 1
+       ) a_pv ON true
        WHERE oc.status = 'EXCEPTION_REQUESTED'
        ORDER BY oc.updated_at DESC`
     );

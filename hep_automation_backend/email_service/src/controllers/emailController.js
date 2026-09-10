@@ -1,26 +1,43 @@
-const { sendReferenceEmail, sendApprovalEmail, sendRejectionEmail, 
-  sendDeptUserCreationEmail, sendDeptUserActivatedEmail, sendDeptUserDisabledEmail,
-  sendRevertedAgentRequestEmail,sendUpdatedAfterRevertEmail,
-  sendVendorPassLinkEmail, sendPassRevertedEmail, sendVendorPassApprovedEmail,
-  sendVendorPassSubmittedEmail, sendOverstayReminderEmail, sendOverstayLeviedEmail,
-  sendForgotPasswordOTPEmail, sendForgotPasswordOtpEmail,
-  sendBulkPassInvitationEmail, sendBulkPassSubmittedEmail, sendBulkPassUnderReviewEmail,
-  sendBulkPassReturnedEmail, sendBulkPassApprovedEmail, sendBulkPassRejectedEmail,
+const {
+  sendReferenceEmail,
+  sendApprovalEmail,
+  sendRejectionEmail,
+  sendDeptUserCreationEmail,
+  sendDeptUserActivatedEmail,
+  sendDeptUserDisabledEmail,
+  sendRevertedAgentRequestEmail,
+  sendUpdatedAfterRevertEmail,
+  sendVendorPassLinkEmail,
+  sendPassRevertedEmail,
+  sendVendorPassApprovedEmail,
+  sendVendorPassSubmittedEmail,
+  sendOverstayReminderEmail,
+  sendOverstayLeviedEmail,
+  sendForgotPasswordOTPEmail,
+  sendForgotPasswordOtpEmail,
+  sendBulkPassInvitationEmail,
+  sendBulkPassSubmittedEmail,
+  sendBulkPassUnderReviewEmail,
+  sendBulkPassReturnedEmail,
+  sendBulkPassApprovedEmail,
+  sendBulkPassRejectedEmail,
   sendBulkPassRejectedPersonsEmail,
-  sendProfileUpdateSubmittedEmail, sendProfileUpdateApprovedEmail,
-  sendProfileUpdateRevertedEmail, sendProfileUpdateRejectedEmail,
-  sendTwoWheelerUpdateSubmittedEmail, sendTwoWheelerUpdateApprovedEmail,
+  sendProfileUpdateSubmittedEmail,
+  sendProfileUpdateApprovedEmail,
+  sendProfileUpdateRevertedEmail,
+  sendProfileUpdateRejectedEmail,
+  sendTwoWheelerUpdateSubmittedEmail,
+  sendTwoWheelerUpdateApprovedEmail,
   sendTwoWheelerUpdateRejectedEmail,
   sendLicenseExpiryWarningEmail,
-  sendPhotoCaptureLink } = require("../services/emailService");
-  sendLicenseExpiryWarningEmail,
-  // Multiple Pass Submissions Functions
-  { sendOTPEmail,
+  sendPhotoCaptureLink,
+  sendOTPEmail,
   sendPublicRequestAcknowledgment,
   sendAdminNotification,
   sendApprovalNotification,
   sendRejectionNotification,
-  sendChildBatchConfirmation } = require("../services/emailService");
+  sendChildBatchConfirmation
+} = require("../services/emailService");
 
 exports.sendOverstayReminder = async (req, res) => {
   try {
@@ -834,5 +851,19 @@ exports.sendChildBatchConfirmation = async (req, res) => {
       success: false,
       message: "Email sending failed"
     });
+  }
+};
+
+exports.sendPhotoCaptureLink = async (req, res) => {
+  try {
+    const { email, personName, agentName, link } = req.body;
+    if (!email || !link) {
+      return res.status(400).json({ success: false, message: "email and link are required" });
+    }
+    await sendPhotoCaptureLink({ email, personName, agentName, link });
+    return res.json({ success: true, message: "Photo capture link email sent successfully" });
+  } catch (error) {
+    console.error("[EMAIL-CTRL] sendPhotoCaptureLink error:", error);
+    res.status(500).json({ success: false, message: "Email sending failed" });
   }
 };
