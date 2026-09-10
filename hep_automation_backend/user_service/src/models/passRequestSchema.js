@@ -661,11 +661,11 @@ const PassRequest = {
         VALUES
         (
           $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,
-          $11,$12,$13,$14,$15,$16,$17,$18,
-          $19,$20,$21,$22,$23,$24,$25,$26,
-          $27,$28,$29,$30,$31,$32,$33,$34,
-          $35,$36,$37,$38,$39,$40,$41,$42,$43,$44,$45,$46,$47,$48,$49,$50,$51,$52,$53,$54,$55,
-          $35,$36,$37,$38,$39,$40,$41,$42,$43,$44,$45,$46,$47,$48,$49,$50,$51,$52,$53,$54,$55,$56,
+          $11,$12,$13,$14,$15,$16,$17,$18,$19,$20,
+          $21,$22,$23,$24,$25,$26,$27,$28,$29,$30,
+          $31,$32,$33,$34,$35,$36,$37,$38,$39,$40,
+          $41,$42,$43,$44,$45,$46,$47,$48,$49,$50,
+          $51,$52,$53,$54,$55,$56,$57,$58,
           NOW(),NOW()
         )
         `,
@@ -5916,6 +5916,39 @@ const getPassRequest = {
       },
     };
   },
+
+  /**
+   * @deprecated The new BioStar 2 integration uses pass_persons.personPassNo
+   * as the BioStar user_id directly. This method is retained for backward
+   * compatibility but is no longer called by the enrollment flow.
+   * Do NOT use for new code. See biostarService.js for the new mapping:
+   *   APACS personPassNo === BioStar User.user_id
+   */
+  async updateBiostarUserId(masterPersonId, biostarUserId, passRequestId = null) {
+    const client = await pool.connect();
+    try {
+      if (masterPersonId) {
+        await client.query(
+          `UPDATE master_persons SET "biostarUserId" = $1 WHERE id = $2`,
+          [biostarUserId, masterPersonId]
+        );
+        await client.query(
+          `UPDATE pass_persons SET "biostarUserId" = $1 WHERE "masterPersonId" = $2`,
+          [biostarUserId, masterPersonId]
+        );
+      }
+      if (passRequestId) {
+        await client.query(
+          `UPDATE pass_persons SET "biostarUserId" = $1 WHERE "passRequestId" = $2 AND "biostarUserId" IS NULL`,
+          [biostarUserId, passRequestId]
+        );
+      }
+    } catch (err) {
+      console.error("[PassRequest] Failed to update biostarUserId:", err.message);
+    } finally {
+      client.release();
+    }
+  },
 };
 
 const Master = {
@@ -5935,10 +5968,12 @@ const Master = {
     SELECT 
     mp.id,
     pp."passRequestId",
+    mp."hepTypeId",
     mp.name,
     mp."aadharNo",
     mp.mobile,
     mp.email,
+    COALESCE(mp.dob, pp.dob) AS dob,
     mp.nationality,
     mp."countryId",
     mp."visaNo",
@@ -5950,6 +5985,7 @@ const Master = {
     mp."vehicleNo",
     mp."idProofType",
     mp."idProofNumber",
+    mp."isActive",
     
     mp."aadharPDFFilePATH",
     mp."aadharPDFFileName",
