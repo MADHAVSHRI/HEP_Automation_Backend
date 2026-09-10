@@ -33,6 +33,7 @@ jest.mock("../models", () => {
   };
 
   const CustomsRapiscan = {
+    findOne: jest.fn(),
     create: jest.fn(),
   };
 
@@ -504,4 +505,23 @@ describe("POST /api/customs/examination", () => {
     expect(res.body.data.billDate).toBeUndefined();
     expect(res.body.data.chapterHeading).toBeUndefined();
   });
+});
+
+afterAll(async () => {
+  try {
+    const { rapiscanQueue, rapiscanQueueEvents, rapiscanWorker } = require("../src/queues/rapiscanQueue");
+    const { examinationQueue, examinationQueueEvents, examinationWorker } = require("../src/queues/examinationQueue");
+    const { oocQueue, oocQueueEvents, oocWorker } = require("../src/queues/oocQueue");
+    await Promise.allSettled([
+      rapiscanQueue?.close(),
+      rapiscanQueueEvents?.close(),
+      rapiscanWorker?.close(),
+      examinationQueue?.close(),
+      examinationQueueEvents?.close(),
+      examinationWorker?.close(),
+      oocQueue?.close(),
+      oocQueueEvents?.close(),
+      oocWorker?.close(),
+    ]);
+  } catch (_) {}
 });

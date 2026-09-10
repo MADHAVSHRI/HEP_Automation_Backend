@@ -6,6 +6,11 @@ const loggerMiddleware = require("./middlewares/loggerMiddleware");
 const { connectDB } = require("./dbconfig/db");
 const routes = require("./routes/index");
 
+// Initialize BullMQ Queue Workers
+require("./queues/rapiscanQueue");
+require("./queues/examinationQueue");
+require("./queues/oocQueue");
+
 const app = express();
 
 app.use(
