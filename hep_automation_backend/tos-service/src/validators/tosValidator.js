@@ -75,7 +75,16 @@ function normalizeEirItem(item) {
     else markedForScanning = rawScan;
   }
 
-  const eirNo = item.eirNo || null;
+  const rawEirNo =
+    item.eirNo ||
+    item.eirno ||
+    item.EirNo ||
+    item.EIRNO ||
+    item.EIR_NO ||
+    item.eir_no ||
+    null;
+
+  const eirNo = rawEirNo !== null && rawEirNo !== undefined ? String(rawEirNo).trim() : null;
 
   return {
     eirNo,
@@ -103,6 +112,25 @@ function normalizeForm13Payload(payload) {
 
   if (normalized.terminal) {
     normalized.terminal = normalizeTerminal(normalized.terminal);
+  }
+
+  const rawForm13No =
+    normalized.form13No ||
+    normalized.form13no ||
+    normalized.Form13No ||
+    normalized.FORM13NO ||
+    normalized.FORM13_NO ||
+    normalized.form13_no ||
+    normalized.eirNo ||
+    normalized.eirno ||
+    normalized.EirNo ||
+    normalized.EIRNO ||
+    normalized.EIR_NO ||
+    normalized.eir_no ||
+    null;
+
+  if (rawForm13No !== null && rawForm13No !== undefined) {
+    normalized.form13No = String(rawForm13No).trim();
   }
 
   let rawContainers = normalized.containers;
