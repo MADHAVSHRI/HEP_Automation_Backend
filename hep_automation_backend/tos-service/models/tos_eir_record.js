@@ -16,7 +16,6 @@ module.exports = (sequelize, DataTypes) => {
       eirNo: {
         type: DataTypes.STRING,
         allowNull: false,
-        unique: true,
       },
       terminal: {
         type: DataTypes.STRING,
@@ -83,6 +82,13 @@ module.exports = (sequelize, DataTypes) => {
       sequelize,
       modelName: "TosEirRecord",
       tableName: "tos_eir_records",
+      indexes: [
+        {
+          unique: true,
+          fields: ["eirNo", "containerNumber"],
+          name: "idx_tos_eir_records_eirno_containerno_unique",
+        },
+      ],
     },
   );
 

@@ -85,9 +85,34 @@ async function pushForm13Record({ payload, operatorId }) {
     form13No = form13No.trim();
   }
 
-  const existing = await TosForm13.findOne({ where: { form13No } });
-  if (existing) {
-    return { status: "ALREADY_EXISTS", form13No, message: `Form-13 record '${form13No}' already exists and was previously processed` };
+  const existingForm13 = await TosForm13.findOne({ where: { form13No } });
+  let form13Id = null;
+  let containersToInsert = containers || [];
+
+  if (existingForm13) {
+    form13Id = existingForm13.id;
+    const existingContainers = await TosForm13Container.findAll({
+      where: { form13Id },
+    });
+
+    const existingKeys = new Set(
+      existingContainers.map((r) =>
+        `${(r.containerNumber || "").trim().toUpperCase()}_${(r.movementType || "").trim().toUpperCase()}`
+      )
+    );
+
+    containersToInsert = (containers || []).filter((item) => {
+      const key = `${(item.containerNumber || "").trim().toUpperCase()}_${(item.movementType || "").trim().toUpperCase()}`;
+      return !existingKeys.has(key);
+    });
+
+    if (containersToInsert.length === 0) {
+      return {
+        status: "ALREADY_EXISTS",
+        form13No,
+        message: `Form-13 record '${form13No}' with these container(s) already exists and was previously processed`,
+      };
+    }
   }
 
   try {
@@ -95,14 +120,19 @@ async function pushForm13Record({ payload, operatorId }) {
       form13No,
       terminal,
       trailerNumber,
-      containers,
+      containers: containersToInsert,
       createdBy: operatorId,
+      form13Id,
     });
 
     const result = await job.waitUntilFinished(form13QueueEvents, 5000);
 
     if (result?.skipped) {
-      return { status: "ALREADY_EXISTS", form13No, message: `Form-13 record '${form13No}' already exists` };
+      return {
+        status: "ALREADY_EXISTS",
+        form13No,
+        message: `Form-13 record '${form13No}' with these container(s) already exists`,
+      };
     }
 
     return { status: "SUCCESS", form13No, message: "Form-13 record saved successfully" };
@@ -110,18 +140,21 @@ async function pushForm13Record({ payload, operatorId }) {
     const transaction = await sequelize.transaction();
 
     try {
-      const form13 = await TosForm13.create(
-        {
-          form13No,
-          terminal,
-          trailerNumber,
-          createdBy: operatorId,
-        },
-        { transaction },
-      );
+      let targetForm13 = existingForm13;
+      if (!targetForm13) {
+        targetForm13 = await TosForm13.create(
+          {
+            form13No,
+            terminal,
+            trailerNumber,
+            createdBy: operatorId,
+          },
+          { transaction },
+        );
+      }
 
-      const rows = containers.map((item) => ({
-        form13Id: form13.id,
+      const rows = containersToInsert.map((item) => ({
+        form13Id: targetForm13.id,
         containerNumber: item.containerNumber || null,
         containerSize: item.containerSize || null,
         containerISO: item.containerISO || null,
@@ -129,7 +162,10 @@ async function pushForm13Record({ payload, operatorId }) {
         movementType: item.movementType,
       }));
 
-      await TosForm13Container.bulkCreate(rows, { transaction });
+      if (rows.length > 0) {
+        await TosForm13Container.bulkCreate(rows, { transaction });
+      }
+
       await transaction.commit();
 
       return { status: "PROCESSED_DIRECTLY", form13No, message: "Form-13 record saved successfully" };
@@ -163,14 +199,22 @@ async function processSingleEirItem(raw, index, operatorId, totalCount) {
     item.eirNo = item.eirNo.trim();
   }
 
-  const existing = await TosEirRecord.findOne({ where: { eirNo: item.eirNo } });
+  // Deduplicate: check (eirNo, containerNumber)
+  const existing = await TosEirRecord.findOne({
+    where: {
+      eirNo: item.eirNo,
+      containerNumber: item.containerNumber,
+    },
+  });
+
   if (existing) {
     return {
       index,
       success: true,
       status: "ALREADY_EXISTS",
-      message: `EIR record with key '${item.eirNo}' already exists and was previously processed`,
+      message: `EIR record with key '${item.eirNo}' and container '${item.containerNumber}' already exists and was previously processed`,
       eirNo: item.eirNo,
+      containerNumber: item.containerNumber,
     };
   }
 
@@ -183,8 +227,9 @@ async function processSingleEirItem(raw, index, operatorId, totalCount) {
         index,
         success: true,
         status: "ALREADY_EXISTS",
-        message: `EIR record with key '${item.eirNo}' already exists`,
+        message: `EIR record with key '${item.eirNo}' and container '${item.containerNumber}' already exists`,
         eirNo: item.eirNo,
+        containerNumber: item.containerNumber,
       };
     }
 
@@ -194,6 +239,7 @@ async function processSingleEirItem(raw, index, operatorId, totalCount) {
       status: "SUCCESS",
       message: "EIR record saved successfully",
       eirNo: item.eirNo,
+      containerNumber: item.containerNumber,
     };
   } catch (queueErr) {
     try {
@@ -204,6 +250,7 @@ async function processSingleEirItem(raw, index, operatorId, totalCount) {
         status: "PROCESSED_DIRECTLY",
         message: "EIR record saved successfully",
         eirNo: item.eirNo,
+        containerNumber: item.containerNumber,
       };
     } catch (dbErr) {
       if (dbErr.name === "SequelizeUniqueConstraintError") {
@@ -211,8 +258,9 @@ async function processSingleEirItem(raw, index, operatorId, totalCount) {
           index,
           success: true,
           status: "ALREADY_EXISTS",
-          message: `EIR record with key '${item.eirNo}' already exists`,
+          message: `EIR record with key '${item.eirNo}' and container '${item.containerNumber}' already exists`,
           eirNo: item.eirNo,
+          containerNumber: item.containerNumber,
         };
       }
       return {
@@ -220,6 +268,7 @@ async function processSingleEirItem(raw, index, operatorId, totalCount) {
         success: false,
         message: dbErr.message || "Failed to save EIR record",
         eirNo: item.eirNo,
+        containerNumber: item.containerNumber,
       };
     }
   }

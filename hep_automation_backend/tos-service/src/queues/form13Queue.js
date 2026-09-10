@@ -29,41 +29,68 @@ const form13Queue = new Queue(QUEUE_NAME, {
 const form13Worker = new Worker(
   QUEUE_NAME,
   async (job) => {
-    const { form13No, terminal, trailerNumber, containers, createdBy } = job.data;
+    const { form13No, terminal, trailerNumber, containers, createdBy, form13Id } = job.data;
 
-    const existing = await TosForm13.findOne({ where: { form13No } });
-    if (existing) {
-      console.log(`[Form13 Queue Worker] Record with form13No '${form13No}' already exists. Skipping.`);
-      return { skipped: true, reason: "Duplicate form13No", form13No };
+    let form13 = null;
+    if (form13Id) {
+      form13 = await TosForm13.findByPk(form13Id);
+    }
+    if (!form13) {
+      form13 = await TosForm13.findOne({ where: { form13No } });
     }
 
     const transaction = await sequelize.transaction();
 
     try {
-      const form13 = await TosForm13.create(
-        {
-          form13No,
-          terminal,
-          trailerNumber,
-          createdBy,
-        },
-        { transaction },
+      if (!form13) {
+        form13 = await TosForm13.create(
+          {
+            form13No,
+            terminal,
+            trailerNumber,
+            createdBy,
+          },
+          { transaction },
+        );
+      }
+
+      // Check existing containers for this form13 to avoid duplicate container rows
+      const existingRows = await TosForm13Container.findAll({
+        where: { form13Id: form13.id },
+        transaction,
+      });
+
+      const existingKeys = new Set(
+        existingRows.map((r) =>
+          `${(r.containerNumber || "").trim().toUpperCase()}_${(r.movementType || "").trim().toUpperCase()}`
+        )
       );
 
-      const rows = containers.map((item) => ({
+      const newContainers = (containers || []).filter((item) => {
+        const key = `${(item.containerNumber || "").trim().toUpperCase()}_${(item.movementType || "").trim().toUpperCase()}`;
+        return !existingKeys.has(key);
+      });
+
+      if (newContainers.length === 0) {
+        await transaction.rollback();
+        console.log(`[Form13 Queue Worker] All container(s) for form13No '${form13No}' already exist. Skipping duplicate insert.`);
+        return { skipped: true, reason: "Duplicate container in form13", form13No };
+      }
+
+      const rows = newContainers.map((item) => ({
         form13Id: form13.id,
         containerNumber: item.containerNumber || null,
         containerSize: item.containerSize || null,
         containerISO: item.containerISO || null,
-        containerType: (item.containerType && !item.containerType.includes("/")) ? item.containerType : null,
+        containerType: item.containerType && !item.containerType.includes("/") ? item.containerType : null,
         movementType: item.movementType,
       }));
 
       await TosForm13Container.bulkCreate(rows, { transaction });
       await transaction.commit();
 
-      console.log(`[Form13 Queue Worker] Successfully saved Form13 id=${form13.id}, form13No='${form13No}'`);
-      return { success: true, id: form13.id, form13No };
+      console.log(`[Form13 Queue Worker] Successfully saved Form13 id=${form13.id}, form13No='${form13No}', newContainers=${rows.length}`);
+      return { success: true, id: form13.id, form13No, addedContainers: rows.length };
     } catch (error) {
       await transaction.rollback();
       if (error.name === "SequelizeUniqueConstraintError") {

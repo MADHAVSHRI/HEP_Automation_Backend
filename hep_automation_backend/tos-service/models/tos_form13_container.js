@@ -42,6 +42,13 @@ module.exports = (sequelize, DataTypes) => {
       sequelize,
       modelName: "TosForm13Container",
       tableName: "tos_form13_containers",
+      indexes: [
+        {
+          unique: true,
+          fields: ["form13Id", "containerNumber", "movementType"],
+          name: "idx_tos_form13_containers_unique",
+        },
+      ],
     },
   );
 

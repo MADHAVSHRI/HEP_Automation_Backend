@@ -48,11 +48,17 @@ const eirWorker = new Worker(
       createdBy,
     } = job.data;
 
-    // Deduplicate: check if record with eirNo already exists
-    const existing = await TosEirRecord.findOne({ where: { eirNo } });
+    // Deduplicate: check if record with same eirNo AND containerNumber already exists
+    const existing = await TosEirRecord.findOne({
+      where: {
+        eirNo,
+        containerNumber,
+      },
+    });
+
     if (existing) {
-      console.log(`[EIR Queue Worker] Record with eirNo '${eirNo}' already exists. Skipping duplicate insert.`);
-      return { skipped: true, reason: "Duplicate eirNo", eirNo };
+      console.log(`[EIR Queue Worker] Record with eirNo '${eirNo}' and container '${containerNumber}' already exists. Skipping duplicate insert.`);
+      return { skipped: true, reason: "Duplicate eirNo and containerNumber", eirNo, containerNumber };
     }
 
     try {
@@ -75,12 +81,12 @@ const eirWorker = new Worker(
         createdBy,
       });
 
-      console.log(`[EIR Queue Worker] Successfully created EIR record id=${record.id}, eirNo='${eirNo}'`);
-      return { success: true, id: record.id, eirNo };
+      console.log(`[EIR Queue Worker] Successfully created EIR record id=${record.id}, eirNo='${eirNo}', container='${containerNumber}'`);
+      return { success: true, id: record.id, eirNo, containerNumber };
     } catch (error) {
       if (error.name === "SequelizeUniqueConstraintError") {
-        console.log(`[EIR Queue Worker] Duplicate constraint caught for eirNo '${eirNo}'. Skipping.`);
-        return { skipped: true, reason: "SequelizeUniqueConstraintError", eirNo };
+        console.log(`[EIR Queue Worker] Duplicate constraint caught for eirNo '${eirNo}' and container '${containerNumber}'. Skipping.`);
+        return { skipped: true, reason: "SequelizeUniqueConstraintError", eirNo, containerNumber };
       }
       throw error;
     }
