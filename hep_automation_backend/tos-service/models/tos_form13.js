@@ -25,7 +25,7 @@ module.exports = (sequelize, DataTypes) => {
       },
       trailerNumber: {
         type: DataTypes.STRING,
-        allowNull: false,
+        allowNull: true,
       },
       terminal: {
         type: DataTypes.STRING,

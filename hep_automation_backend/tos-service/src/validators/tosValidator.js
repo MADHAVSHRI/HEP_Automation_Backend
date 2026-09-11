@@ -208,7 +208,6 @@ function validateForm13Payload(payload) {
   const { terminal, trailerNumber, containers } = normalized;
 
   if (!terminal) errors.push("terminal is required");
-  if (!trailerNumber) errors.push("trailerNumber is required");
 
   if (terminal && !TERMINAL_LIST.includes(terminal)) {
     errors.push(`Invalid terminal '${terminal}'. Allowed values: ${TERMINAL_LIST.join(", ")}`);
@@ -219,12 +218,16 @@ function validateForm13Payload(payload) {
     return errors;
   }
 
+  const exportContainers = containers.filter((item) => item && item.movementType === "Export");
+  const importContainers = containers.filter((item) => item && item.movementType === "Import");
+
+  if (exportContainers.length > 0 && (!trailerNumber || trailerNumber.toString().trim() === "")) {
+    errors.push("trailerNumber is required for Export");
+  }
+
   if (containers.length > 4) {
     errors.push("maximum 4 container objects are allowed");
   }
-
-  const exportContainers = containers.filter((item) => item && item.movementType === "Export");
-  const importContainers = containers.filter((item) => item && item.movementType === "Import");
 
   if (exportContainers.length > 2) {
     errors.push("maximum 2 Export containers are allowed");
