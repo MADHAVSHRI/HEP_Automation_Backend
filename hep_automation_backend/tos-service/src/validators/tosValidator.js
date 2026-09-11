@@ -17,6 +17,33 @@ function normalizeTerminal(terminal) {
   return terminal.trim().toUpperCase();
 }
 
+function parseDateToIst(dateInput) {
+  if (!dateInput) return null;
+  if (dateInput instanceof Date) return isNaN(dateInput.getTime()) ? null : dateInput;
+
+  let str = String(dateInput).trim();
+  if (!str) return null;
+
+  // Replace '/' with '-' e.g. "2026/09/11 10:49:32" -> "2026-09-11 10:49:32"
+  str = str.replace(/\//g, "-");
+
+  // If already has ISO timezone indicator (Z or +05:30 or -04:00), parse directly
+  if (str.endsWith("Z") || /[+-]\d{2}:?\d{2}$/.test(str)) {
+    const d = new Date(str);
+    return isNaN(d.getTime()) ? null : d;
+  }
+
+  // Format YYYY-MM-DD HH:mm:ss or YYYY-MM-DDTHH:mm:ss without timezone -> attach Indian Standard Time (IST / +05:30)
+  if (/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/.test(str)) {
+    const isoStr = str.replace(" ", "T") + "+05:30";
+    const d = new Date(isoStr);
+    return isNaN(d.getTime()) ? null : d;
+  }
+
+  const d = new Date(str);
+  return isNaN(d.getTime()) ? null : d;
+}
+
 function deriveContainerSize(containerISO, containerSize) {
   if (containerSize) return String(containerSize);
   if (!containerISO || typeof containerISO !== "string") return "20";
@@ -89,8 +116,8 @@ function normalizeEirItem(item) {
   return {
     eirNo,
     terminal,
-    inGateDateTime: inGateRaw ? new Date(inGateRaw) : null,
-    outGateDateTime: outGateRaw ? new Date(outGateRaw) : null,
+    inGateDateTime: parseDateToIst(inGateRaw),
+    outGateDateTime: parseDateToIst(outGateRaw),
     containerNumber,
     containerISO,
     containerSize,
@@ -323,6 +350,7 @@ function validateEirItem(item) {
 
 module.exports = {
   deriveContainerSize,
+  parseDateToIst,
   normalizeTerminal,
   normalizeEirItem,
   normalizeForm13Payload,
