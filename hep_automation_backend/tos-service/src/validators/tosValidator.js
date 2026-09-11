@@ -27,14 +27,22 @@ function parseDateToIst(dateInput) {
   // Replace '/' with '-' e.g. "2026/09/11 10:49:32" -> "2026-09-11 10:49:32"
   str = str.replace(/\//g, "-");
 
-  // If already has ISO timezone indicator (Z or +05:30 or -04:00), parse directly
-  if (str.endsWith("Z") || /[+-]\d{2}:?\d{2}$/.test(str)) {
+  // If already has explicit non-Z offset like +05:30 or +0530, parse directly
+  if (/[+-]\d{2}:?\d{2}$/.test(str)) {
     const d = new Date(str);
     return isNaN(d.getTime()) ? null : d;
   }
 
-  // Format YYYY-MM-DD HH:mm:ss or YYYY-MM-DDTHH:mm:ss without timezone -> attach Indian Standard Time (IST / +05:30)
-  if (/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/.test(str)) {
+  // Strip trailing 'Z' or '.000Z' because TOS gate timestamps are local IST clock times
+  if (str.endsWith("Z")) {
+    str = str.slice(0, -1);
+  }
+
+  // Strip milliseconds if any (e.g. .000 or .123)
+  str = str.replace(/\.\d+$/, "");
+
+  // Format YYYY-MM-DD HH:mm:ss or YYYY-MM-DDTHH:mm:ss -> attach Indian Standard Time (+05:30)
+  if (/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(:\d{2})?$/.test(str)) {
     const isoStr = str.replace(" ", "T") + "+05:30";
     const d = new Date(isoStr);
     return isNaN(d.getTime()) ? null : d;
