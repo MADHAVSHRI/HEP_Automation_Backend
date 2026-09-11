@@ -58,7 +58,6 @@ const pushPortEntryPermit = async (payload) => {
 
     const response = await client.post(url, payload, {
       headers: {
-        "Content-Type": "application/json",
         "X-Gravitee-Api-Key": apiKey,
       },
     });

@@ -77,6 +77,38 @@ const cancelSession = async (req, res) => {
   }
 };
 
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/** POST /api/face/sessions/:id/email — the portal emails the link to the applicant. */
+const emailSession = async (req, res) => {
+  try {
+    const { email, link, agentName } = req.body || {};
+    const address = String(email || "").trim();
+
+    if (!EMAIL_PATTERN.test(address) || address.length > 254) {
+      return res.status(400).json({
+        code: "VALIDATION_ERROR",
+        message: "Please enter a valid email address.",
+      });
+    }
+    if (!link) {
+      return res.status(400).json({ code: "VALIDATION_ERROR", message: "link is required" });
+    }
+
+    await sessionService.emailCaptureLink({
+      sessionId: req.params.id,
+      agentId: req.user?.id || req.user?.agentId || null,
+      email: address,
+      link,
+      agentName: agentName ? String(agentName).trim().slice(0, 150) : null,
+    });
+
+    return res.json({ success: true, message: `Email sent to ${address}` });
+  } catch (error) {
+    return fail(res, error, "Could not send the email.");
+  }
+};
+
 /** GET /api/face/capture/:token — the applicant opens the link. */
 const openCapture = async (req, res) => {
   try {
@@ -130,6 +162,7 @@ module.exports = {
   getSession,
   streamSession,
   cancelSession,
+  emailSession,
   openCapture,
   submitPhoto,
   getPhoto,

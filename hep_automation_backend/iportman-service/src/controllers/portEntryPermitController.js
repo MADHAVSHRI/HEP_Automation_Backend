@@ -24,17 +24,15 @@ const pushPassRequest = async (req, res) => {
   }
 
   try {
-    const payload = await buildPortEntryPermitPayload(passRequestId);
+    // Only a COMPLETED pass may be registered; a manual call must not push
+    // one that is still under review.
+    const { payload, reason } = await buildPortEntryPermitPayload(passRequestId);
 
     if (!payload) {
       errorLogger.error(
-        `${TAG} | nothing to push | passRequestId=${passRequestId}`,
+        `${TAG} | nothing to push | passRequestId=${passRequestId} | ${reason}`,
       );
-      return res.json({
-        success: false,
-        pushed: false,
-        message: "No approved person or vehicle on this pass request.",
-      });
+      return res.json({ success: false, pushed: false, message: reason });
     }
 
     const result = await pushPortEntryPermit(payload);
@@ -65,14 +63,14 @@ const pushPassRequest = async (req, res) => {
  */
 const previewPassRequest = async (req, res) => {
   try {
-    const payload = await buildPortEntryPermitPayload(
+    // Preview sends nothing, so it will shape a pass at any status — that is
+    // the point of being able to look before the pass is finalised.
+    const { payload, reason } = await buildPortEntryPermitPayload(
       req.params.passRequestId,
+      { requireCompleted: false },
     );
     if (!payload) {
-      return res.status(404).json({
-        success: false,
-        message: "No approved person or vehicle on this pass request.",
-      });
+      return res.status(404).json({ success: false, message: reason });
     }
     return res.json({ success: true, data: payload });
   } catch (error) {

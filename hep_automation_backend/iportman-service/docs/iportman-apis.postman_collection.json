@@ -32,7 +32,7 @@
               }
             ],
             "url": {
-              "raw": "{{apacsBaseUrl}}/api/iportman/port-entry-permit",
+              "raw": "{{apacsBaseUrl}}/api/cargo/port-entry-permit",
               "host": [
                 "{{apacsBaseUrl}}"
               ],
@@ -77,7 +77,7 @@
               }
             ],
             "url": {
-              "raw": "{{apacsBaseUrl}}/api/iportman/port-entry-permit/{{passRequestId}}/preview",
+              "raw": "{{apacsBaseUrl}}/api/cargo/port-entry-permit/{{passRequestId}}/preview",
               "host": [
                 "{{apacsBaseUrl}}"
               ],
@@ -115,7 +115,7 @@
               }
             ],
             "url": {
-              "raw": "{{apacsBaseUrl}}/api/iportman/truck-gate-in",
+              "raw": "{{apacsBaseUrl}}/api/cargo/truck-gate-in",
               "host": [
                 "{{apacsBaseUrl}}"
               ],
@@ -160,7 +160,7 @@
               }
             ],
             "url": {
-              "raw": "{{apacsBaseUrl}}/api/iportman/truck-gate-in/preview",
+              "raw": "{{apacsBaseUrl}}/api/cargo/truck-gate-in/preview",
               "host": [
                 "{{apacsBaseUrl}}"
               ],
@@ -206,7 +206,7 @@
               }
             ],
             "url": {
-              "raw": "{{apacsBaseUrl}}/api/iportman/truck-gate-out",
+              "raw": "{{apacsBaseUrl}}/api/cargo/truck-gate-out",
               "host": [
                 "{{apacsBaseUrl}}"
               ],
@@ -251,7 +251,7 @@
               }
             ],
             "url": {
-              "raw": "{{apacsBaseUrl}}/api/iportman/truck-gate-out/preview",
+              "raw": "{{apacsBaseUrl}}/api/cargo/truck-gate-out/preview",
               "host": [
                 "{{apacsBaseUrl}}"
               ],

@@ -669,29 +669,7 @@ const sendChildBatchConfirmation = async (payload) => {
   }
 };
 
-module.exports = {
-  sendReferenceEmail, sendApprovalEmail, 
-  sendRejectionEmail, sendDeptUserCreationEmail, sendDeptUserActivatedEmail, 
-  sendDeptUserDisabledEmail, sendUpdatedAfterRevertEmail, sendRevertedAgentRequestEmail,
-  sendVendorPassLinkEmail, sendPassRevertedEmail, sendVendorPassApprovedEmail,
-  sendVendorPassSubmittedEmail, sendOverstayReminderEmail, sendOverstayLeviedEmail,
-  sendForgotPasswordOTPEmail, sendForgotPasswordOtpEmail,
-  sendBulkPassInvitationEmail, sendBulkPassSubmittedEmail, sendBulkPassUnderReviewEmail,
-  sendBulkPassReturnedEmail, sendBulkPassApprovedEmail, sendBulkPassRejectedEmail,
-  sendBulkPassRejectedPersonsEmail,
-  sendProfileUpdateSubmittedEmail, sendProfileUpdateApprovedEmail,
-  sendProfileUpdateRevertedEmail, sendProfileUpdateRejectedEmail,
-  sendTwoWheelerUpdateSubmittedEmail, sendTwoWheelerUpdateApprovedEmail,
-  sendTwoWheelerUpdateRejectedEmail,
-  sendLicenseExpiryWarningEmail,
-  // Multiple Pass Submissions Functions
-  sendOTPEmail,
-  sendPublicRequestAcknowledgment,
-  sendAdminNotification,
-  sendApprovalNotification,
-  sendRejectionNotification,
-  sendChildBatchConfirmation
-};
+
 
 const sendPhotoCaptureLink = async ({ email, personName, agentName, link }) => {
   const html = photoCaptureTemplate({ personName, agentName, link });
@@ -719,5 +697,12 @@ module.exports = {
   sendTwoWheelerUpdateSubmittedEmail, sendTwoWheelerUpdateApprovedEmail,
   sendTwoWheelerUpdateRejectedEmail,
   sendLicenseExpiryWarningEmail,
-  sendPhotoCaptureLink
+  sendPhotoCaptureLink,
+  // Multiple Pass Submissions Functions
+  sendOTPEmail,
+  sendPublicRequestAcknowledgment,
+  sendAdminNotification,
+  sendApprovalNotification,
+  sendRejectionNotification,
+  sendChildBatchConfirmation
 };

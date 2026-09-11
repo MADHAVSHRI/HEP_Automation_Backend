@@ -10,7 +10,10 @@ const {
   ESSENTIAL_WORKFLOW_STAGES,
 } = require("../constants/constants");
 const passRequestService = require("../services/passRequestService");
-const { notifyPassCompleted } = require("../services/iportmanPushService");
+const {
+  notifyPassCompleted,
+  sharePassPermit: sharePassPermitWithIportman,
+} = require("../services/iportmanPushService");
 const {
   Designation,
   vehicleTypes,
@@ -1424,15 +1427,19 @@ const completeReview = async (req, res) => {
       roleId,
     );
 
-    // Traffic has signed the pass off. Register it with iPortman, without
-    // holding this response open for the third party.
+    // Traffic has signed the pass off: register it with iPortman and report
+    // the outcome, so the approver sees whether the permit was shared and can
+    // share it again if it was not. The review is already committed; a push
+    // failure never turns this into an error response.
+    let permitShare = null;
     if (result?.status === "COMPLETED") {
-      notifyPassCompleted(passRequestId);
+      permitShare = await sharePassPermitWithIportman(passRequestId);
     }
 
     return res.json({
       success: true,
       data: result,
+      permitShare,
     });
   } catch (error) {
     console.error(error);
@@ -1442,6 +1449,35 @@ const completeReview = async (req, res) => {
       message: error.message,
     });
   }
+};
+
+/**
+ * POST /pass-request/share-pass-permit
+ * Body: { passRequestId }
+ *
+ * Shares a completed pass's Port Entry Permit with iPortman again — the
+ * "Share again" action shown after Complete when the automatic share failed.
+ * iportman-service refuses any pass that is not COMPLETED.
+ */
+const sharePassPermit = async (req, res) => {
+  // Agents apply for passes; only port staff may register a permit.
+  if (req.user?.source === "agent") {
+    return res.status(403).json({
+      success: false,
+      pushed: false,
+      message: "You are not allowed to share pass permits.",
+    });
+  }
+
+  const { passRequestId } = req.body || {};
+  if (!passRequestId) {
+    return res
+      .status(400)
+      .json({ success: false, pushed: false, message: "passRequestId is required" });
+  }
+
+  const result = await sharePassPermitWithIportman(passRequestId);
+  return res.json({ success: result.pushed, ...result });
 };
 
 // const getQrData = async (req, res) => {
@@ -3154,6 +3190,7 @@ module.exports = {
   rejectVehicle,
   revertVehicle,
   completeReview,
+  sharePassPermit,
   getQrData,
   getVendorQrData,
   getPassDetails,

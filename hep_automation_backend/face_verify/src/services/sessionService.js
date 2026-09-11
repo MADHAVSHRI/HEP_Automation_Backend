@@ -50,6 +50,22 @@ const findByCaptureToken = async (token) => {
   return rows[0] || null;
 };
 
+/** The applicant's link for a capture token. */
+const captureUrlFor = (token) => {
+  const base = (process.env.CAPTURE_BASE_URL || "http://localhost:4200").replace(/\/+$/, "");
+  return `${base}/c/${token}`;
+};
+
+/** The token inside a capture link, or null if it is not one. */
+const captureTokenFromLink = (link) => {
+  try {
+    const match = new URL(String(link)).pathname.match(/\/c\/([A-Za-z0-9_-]+)\/?$/);
+    return match ? match[1] : null;
+  } catch {
+    return null;
+  }
+};
+
 const findById = async (sessionId) => {
   const { rows } = await pool.query(
     `SELECT * FROM face_capture_sessions WHERE id = $1`,
@@ -100,12 +116,10 @@ const createSession = async ({ referenceId, applicantName, agentId, ttlMinutes }
     ]
   );
 
-  const base = (process.env.CAPTURE_BASE_URL || "http://localhost:4200").replace(/\/+$/, "");
-
   // Both tokens are returned exactly once. Only their digests were stored.
   return {
     ...toState(rows[0]),
-    captureUrl: `${base}/c/${captureToken}`,
+    captureUrl: captureUrlFor(captureToken),
     subscriberToken,
   };
 };
@@ -244,8 +258,66 @@ const cancelSession = async (sessionId, agentId) => {
   return toState(rows[0]);
 };
 
+/**
+ * Emails a capture link to the applicant from the port's mail address.
+ *
+ * Only the link's own token is trusted: it must hash to this session's capture
+ * token, so the caller has to already hold the link they are sending, and the
+ * address in the email is rebuilt here rather than taken from the request. The
+ * endpoint therefore cannot be used to mail an arbitrary URL under the port's
+ * name.
+ */
+const emailCaptureLink = async ({ sessionId, agentId, email, link, agentName }) => {
+  const found = await findById(sessionId);
+  if (!found || (found.agentId && agentId && found.agentId !== agentId)) {
+    throw new SessionError(404, "NOT_FOUND", "Not found.");
+  }
+
+  const token = captureTokenFromLink(link);
+  if (!token || hashToken(token) !== found.captureTokenHash) {
+    throw new SessionError(400, "LINK_MISMATCH", "This link does not belong to this capture request.");
+  }
+
+  const row = await expireIfLapsed(found);
+  if (row.status === "COMPLETED") {
+    throw new SessionError(409, "LINK_ALREADY_USED", "A photo was already sent on this link.");
+  }
+  if (row.status === "CANCELLED") {
+    throw new SessionError(409, "LINK_CANCELLED", "This link was cancelled.");
+  }
+  if (row.status === "EXPIRED") {
+    throw new SessionError(410, "LINK_EXPIRED", "This link has expired. Create a new one.");
+  }
+
+  const emailServiceUrl = (process.env.EMAIL_SERVICE_URL || "").replace(/\/+$/, "");
+  if (!emailServiceUrl) {
+    throw new Error("EMAIL_SERVICE_URL is not configured");
+  }
+
+  let response;
+  try {
+    response = await fetch(`${emailServiceUrl}/api/email/sendPhotoCaptureLink`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email,
+        personName: row.applicantName,
+        agentName,
+        link: captureUrlFor(token),
+      }),
+      signal: AbortSignal.timeout(30000),
+    });
+  } catch (error) {
+    throw new SessionError(502, "EMAIL_FAILED", "The email could not be sent. Please try again.");
+  }
+  if (!response.ok) {
+    throw new SessionError(502, "EMAIL_FAILED", "The email could not be sent. Please try again.");
+  }
+};
+
 module.exports = {
   createSession,
+  emailCaptureLink,
   openCaptureSession,
   submitPhoto,
   getStateForSubscriber,

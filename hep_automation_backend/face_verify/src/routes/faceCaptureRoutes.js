@@ -20,6 +20,7 @@ const { uploadLimiter } = require("../middlewares/rateLimiter");
 // --- the portal ---
 router.post("/sessions", verifyToken, controller.createSession);
 router.post("/sessions/:id/cancel", verifyToken, controller.cancelSession);
+router.post("/sessions/:id/email", verifyToken, controller.emailSession);
 
 // --- the watching screen (authorised by the subscriber token itself) ---
 router.get("/sessions/:id", controller.getSession);

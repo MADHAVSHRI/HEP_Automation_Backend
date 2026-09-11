@@ -1,4 +1,17 @@
+// The names are typed by an agent, so they are escaped before they reach the
+// HTML; the link is escaped too, since it sits inside an attribute.
+const escapeHtml = (value) =>
+  String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+
 const photoCaptureTemplate = ({ personName, agentName, link }) => {
+  personName = escapeHtml(personName || "Applicant");
+  agentName = escapeHtml(agentName || "An agent");
+  link = escapeHtml(link);
   return `
   <div style="font-family: Arial, sans-serif; color:#1f2937; max-width:600px; margin:0 auto;">
     <div style="background: linear-gradient(90deg,#0a1e4d,#1a3a7c); color:#fff; padding:20px 24px; border-radius:8px 8px 0 0;">

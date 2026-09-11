@@ -46,7 +46,6 @@ const post = async ({ url, apiKey, apiKeyName, payload, reference, label }) => {
 
     const response = await client.post(url, payload, {
       headers: {
-        "Content-Type": "application/json",
         "X-Gravitee-Api-Key": apiKey,
       },
     });

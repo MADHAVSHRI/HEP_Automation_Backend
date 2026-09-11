@@ -49,18 +49,35 @@ const titleCase = (value) => {
   return v.charAt(0).toUpperCase() + v.slice(1).toLowerCase();
 };
 
+/* The only pass_requests state that means "finally approved". */
+const FINAL_STATUS = "COMPLETED";
+
 /**
  * Builds the iPortman Port Entry Permit document for one pass request.
  *
- * Returns null when the request has no approved person or vehicle — there is
- * nothing to register, and iPortman rejects empty permits.
+ * @param {number|string} passRequestId
+ * @param {{requireCompleted?: boolean}} [options]
+ *        `requireCompleted` refuses anything that is not yet COMPLETED, so a
+ *        manual call cannot register a permit for a pass still under review.
+ *        Preview passes false, since it sends nothing.
+ * @returns {Promise<{payload: object|null, reason: string|null}>}
  */
-const buildPortEntryPermitPayload = async (passRequestId) => {
+const buildPortEntryPermitPayload = async (
+  passRequestId,
+  { requireCompleted = true } = {},
+) => {
+  // A caller may hold either the numeric id or the reference number printed on
+  // the pass (PASS2906260001). Passing the latter into an integer column threw
+  // "invalid input syntax for type integer", so pick the column to match.
+  const identifier = String(passRequestId ?? "").trim();
+  const isNumericId = /^\d+$/.test(identifier);
+
   const { rows: requestRows } = await pool.query(
     `
     SELECT
       pr.id,
       pr."referenceNo",
+      pr.status,
       pr."updatedAt",
       a."entityName",
       a."userTypeName",
@@ -68,15 +85,29 @@ const buildPortEntryPermitPayload = async (passRequestId) => {
       a."mobileNo"        AS "agentMobileNo",
       vp.name             AS "purposeOfVisit"
     FROM pass_requests pr
-    LEFT JOIN agents a         ON a.id = pr."agentId"
+    -- Sequelize created this one, so it is capitalised and must be quoted;
+    -- an unquoted "agents" folds to lowercase and does not resolve.
+    LEFT JOIN "Agents" a       ON a.id = pr."agentId"
     LEFT JOIN visit_purposes vp ON vp.id = pr."purposeOfVisitId"
-    WHERE pr.id = $1
+    WHERE ${isNumericId ? 'pr.id = $1' : 'pr."referenceNo" = $1'}
     `,
-    [passRequestId],
+    [isNumericId ? Number(identifier) : identifier],
   );
 
   const request = requestRows[0];
-  if (!request) return null;
+  if (!request) {
+    return {
+      payload: null,
+      reason: `Pass request not found for "${identifier}".`,
+    };
+  }
+
+  if (requireCompleted && request.status !== FINAL_STATUS) {
+    return {
+      payload: null,
+      reason: `Pass request is ${request.status}, not ${FINAL_STATUS}.`,
+    };
+  }
 
   const { rows: persons } = await pool.query(
     `
@@ -94,7 +125,7 @@ const buildPortEntryPermitPayload = async (passRequestId) => {
     WHERE pp."passRequestId" = $1 AND pp.status = 'approved'
     ORDER BY pp.id ASC
     `,
-    [passRequestId],
+    [request.id],
   );
 
   const { rows: vehicles } = await pool.query(
@@ -114,10 +145,15 @@ const buildPortEntryPermitPayload = async (passRequestId) => {
     WHERE pv."passRequestId" = $1 AND pv.status = 'approved'
     ORDER BY pv.id ASC
     `,
-    [passRequestId],
+    [request.id],
   );
 
-  if (persons.length === 0 && vehicles.length === 0) return null;
+  if (persons.length === 0 && vehicles.length === 0) {
+    return {
+      payload: null,
+      reason: "No approved person or vehicle on this pass request.",
+    };
+  }
 
   const passFor =
     persons.length > 0 && vehicles.length > 0
@@ -127,6 +163,8 @@ const buildPortEntryPermitPayload = async (passRequestId) => {
         : "Vehicle";
 
   return {
+    reason: null,
+    payload: {
     PortEntryPermit: {
       AgentType: agentTypeCode(request.userTypeName),
       AgentCode: String(request.agentReferenceNumber || ""),
@@ -164,12 +202,14 @@ const buildPortEntryPermitPayload = async (passRequestId) => {
       RFIDCardNo: v.rfidCardNumber || "",
       QRCode: String(v.qrUuid || v.vehiclePassNo || ""),
     })),
+    },
   };
 };
 
 module.exports = {
   buildPortEntryPermitPayload,
   PORT_CODE,
+  FINAL_STATUS,
   // exported for tests
   agentTypeCode,
   toDateTime,

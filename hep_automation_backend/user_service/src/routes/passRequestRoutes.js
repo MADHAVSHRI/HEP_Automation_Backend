@@ -78,6 +78,12 @@ router.put(
   passRequestController.completeReview,
 );
 
+router.post(
+  "/share-pass-permit",
+  verifyToken,
+  passRequestController.sharePassPermit,
+);
+
 router.get(
   "/getPassDetails/:passRequestId",
   verifyToken,
