@@ -6354,7 +6354,10 @@ const getAgentPassRequestsDetails = {
     const VENDOR_PROCESSED = ["APPROVED", "REJECTED", "REVERTED", "COMPLETED"];
     const ALL_VENDOR_STATUSES = [...VENDOR_PENDING, ...VENDOR_PROCESSED];
 
-    let includeVendor = role === "Approval" && departmentId !== 7;
+    const isTrafficManager =
+      role === "Traffic Manager" || role === "TM" || role === "traffic_manager";
+
+    let includeVendor = (role === "Approval" && departmentId !== 7) || isTrafficManager;
 
     const isSafety = roleId === 26 || role === "Safety Officer";
     const isFireSafety =
@@ -6714,7 +6717,8 @@ const getAgentPassRequestsDetails = {
       (role === "Approval" && departmentId !== 7) ||
       isSafety ||
       isFireSafety ||
-      isSrDtm;
+      isSrDtm ||
+      isTrafficManager; // TM sees all pass types (normal + vendor) for full revenue visibility
 
     // ─── Department filter SQL for normal passes ───
     let deptFilter = "";
@@ -6943,6 +6947,11 @@ const getAgentPassRequestsDetails = {
           pr."authLetterFileName",
           pr."requisitionLetterFilePath",
           pr."requisitionLetterFileName",
+          pr."paymentMode",
+          pr."baseTotal",
+          pr."grossTotal",
+          pr."gstAmount",
+          pr."netAmount",
 
           a."entityName",
           a."email",

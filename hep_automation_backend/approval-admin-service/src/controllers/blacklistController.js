@@ -15,6 +15,19 @@ exports.createBlacklistEntry = async (req, res) => {
   try {
     const { entity_type, identifier, reason, reason_code } = req.body;
 
+    // ─── Role guard ───────────────────────────────────────────────────────────
+    // Shipping Control officers (SS / SM / ASM) and ATM can raise a
+    // PENDING_BLACKLIST request.  Admin goes straight to BLACKLISTED.
+    // Anyone else is rejected with 403.
+    const BLACKLIST_CREATOR_ROLES = ['SS', 'SM', 'ASM', 'ATM', 'Admin', 'Administrator'];
+    if (!BLACKLIST_CREATOR_ROLES.includes(req.user.role)) {
+      return res.status(403).json({
+        success: false,
+        message: "Unauthorized: Only Shipping Control officers (SS / SM / ASM) or ATM can create blacklist entries",
+      });
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+
     if (!entity_type || !identifier || !reason) {
       return res.status(400).json({
         success: false,
@@ -154,10 +167,11 @@ exports.createBlacklistEntry = async (req, res) => {
       }
     }
 
-    // Determine status based on role. Both Traffic ('Approval') and ATM ('ATM') logins create PENDING_BLACKLIST.
-    // Only Admin can directly blacklist immediately without approval.
+    // Determine status based on role.
+    // SS / SM / ASM / ATM → PENDING_BLACKLIST (requires ATM approval).
+    // Admin / Administrator → BLACKLISTED immediately (no approval step).
     let status = 'PENDING_BLACKLIST';
-    if (req.user.role === 'Admin') {
+    if (req.user.role === 'Admin' || req.user.role === 'Administrator') {
       status = 'BLACKLISTED';
     }
 

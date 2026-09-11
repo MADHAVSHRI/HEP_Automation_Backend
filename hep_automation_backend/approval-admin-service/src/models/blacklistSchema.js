@@ -397,11 +397,24 @@ const Blacklist = {
         COUNT(*) FILTER (WHERE penalty_status = 'PENDING')          AS pending_penalties,
         COALESCE(SUM(penalty_amount) FILTER (WHERE penalty_status = 'PENDING'), 0) AS pending_penalties_sum,
         COUNT(*) FILTER (WHERE status = 'UNBLACKLISTED')            AS total_unblacklisted,
+        COUNT(*) FILTER (WHERE status = 'BLACKLISTED' AND entity_type = 'COMPANY') AS company_count,
+        COUNT(*) FILTER (WHERE status = 'BLACKLISTED' AND entity_type = 'PERSON')  AS person_count,
+        COUNT(*) FILTER (WHERE status = 'BLACKLISTED' AND entity_type = 'DRIVER')  AS driver_count,
+        COUNT(*) FILTER (WHERE status = 'BLACKLISTED' AND entity_type = 'VEHICLE') AS vehicle_count,
         COUNT(*)                                                     AS total
       FROM blacklist_entries
     `);
 
-    return result.rows[0];
+    const row = result.rows[0] || {};
+    return {
+      ...row,
+      by_type: {
+        COMPANY: parseInt(row.company_count || 0, 10),
+        PERSON:  parseInt(row.person_count || 0, 10),
+        DRIVER:  parseInt(row.driver_count || 0, 10),
+        VEHICLE: parseInt(row.vehicle_count || 0, 10),
+      },
+    };
   },
 
   /**

@@ -115,6 +115,7 @@ module.exports = {
     };
     const safeBy = await safeUserId(parseInt(updatedBy, 10) || null);
 
+    // ── 1. Update hep_rate_config (ATM portal source of truth) ──
     const result = await pool.query(
       `INSERT INTO hep_rate_config
          (category, label, description, daily_rate, monthly_rate, yearly_rate, updated_by, "updatedAt")
@@ -136,6 +137,24 @@ module.exports = {
         safeBy,
       ]
     );
+
+    // ── 2. Sync pass_fee_master (agent portal source of truth) ──
+    // pass_fee_master uses CARGO_HANDLING_EQUIPMENT instead of CARGO
+    const feeMasterCategory =
+      category === "CARGO" ? "CARGO_HANDLING_EQUIPMENT" : category;
+
+    await pool.query(
+      `UPDATE pass_fee_master
+         SET daily_fee   = $1,
+             monthly_fee = $2,
+             yearly_fee  = $3,
+             "updatedAt" = NOW()
+       WHERE category = $4`,
+      [dailyRate, monthlyRate, yearlyRate, feeMasterCategory]
+    ).catch((err) => {
+      // Non-fatal: log but don't break the ATM save
+      console.warn("pass_fee_master sync warning:", err.message);
+    });
 
     return result.rows[0];
   },

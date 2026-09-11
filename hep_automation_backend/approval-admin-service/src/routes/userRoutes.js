@@ -13,15 +13,15 @@ router.post("/login",verifyService, adminController.getAdminUser);
 
 router.get("/roles", verifyToken, authorizeToken("Admin"), adminController.getRoles);
 
-router.get("/departments", adminController.getDepartments);
+router.get("/departments", verifyToken, adminController.getDepartments);
 
-router.get("/dept-admin-users", adminController.getDeptAdminUsers);
+router.get("/dept-admin-users", verifyToken, authorizeToken("Admin", "Administrator"), adminController.getDeptAdminUsers);
 
-router.get("/admin-users", adminController.getAdminUsers);
+router.get("/admin-users", verifyToken, authorizeToken("Admin", "Administrator"), adminController.getAdminUsers);
 
 router.get("/agent-users", verifyToken, adminController.getAgentRequests);
 
-router.put("/agent-request", adminController.agentRequestAction);
+router.put("/agent-request", verifyToken, authorizeToken("Admin", "Administrator", "Approval", "ATM"), adminController.agentRequestAction);
 
 router.get("/agent-profile-update-requests", verifyToken, adminController.getAgentProfileUpdateRequests);
 router.get("/profile-update-requests", verifyToken, adminController.getAgentProfileUpdateRequests);
