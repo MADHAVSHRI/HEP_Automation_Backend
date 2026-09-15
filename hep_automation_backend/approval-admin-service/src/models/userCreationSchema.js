@@ -7,18 +7,20 @@ const User = {
     const query = `
       INSERT INTO "users"(
         "userName",
+        "employeeId",
         "email",
         "phoneNumber",
         "roleId",
         "departmentId",
         "password"
       )
-      VALUES ($1,$2,$3,$4,$5,$6)
+      VALUES ($1,$2,$3,$4,$5,$6,$7)
       RETURNING *
     `;
 
     const values = [
       userData.userName,
+      userData.employeeId,
       userData.email,
       userData.phoneNumber,
       userData.roleId,
@@ -59,7 +61,7 @@ const User = {
 
     if (search) {
       conditions.push(
-        `(u."userName" ILIKE $${paramIndex} OR u.email ILIKE $${paramIndex} OR d."departmentName" ILIKE $${paramIndex} OR r."roleName" ILIKE $${paramIndex})`
+        `(u."userName" ILIKE $${paramIndex} OR u."employeeId" ILIKE $${paramIndex} OR u.email ILIKE $${paramIndex} OR d."departmentName" ILIKE $${paramIndex} OR r."roleName" ILIKE $${paramIndex})`
       );
       params.push(`%${search}%`);
       paramIndex++;
@@ -82,6 +84,7 @@ const User = {
       SELECT 
         u.id,
         u."userName",
+        u."employeeId",
         u.email,
         u."phoneNumber",
         u.status,
@@ -136,6 +139,7 @@ const User = {
       SELECT 
         u.id,
         u."userName",
+        u."employeeId",
         u.email,
         u."phoneNumber",
         r."roleName",
@@ -158,6 +162,10 @@ const User = {
     const query = `
       SELECT
         u.id,
+        u."userName",
+        u."employeeId",
+        u.email,
+        u."phoneNumber",
         u.password,
         u."isApprovedByAdmin",
         u."status",

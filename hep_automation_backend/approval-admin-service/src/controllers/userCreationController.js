@@ -11,6 +11,7 @@ exports.createUser = async (req, res) => {
 
     const {
       userName,
+      employeeId,
       email,
       phoneNumber,
       roleId,
@@ -21,10 +22,18 @@ exports.createUser = async (req, res) => {
     // REQUIRED FIELD VALIDATION
     // ===============================
 
-    if (!userName || !email || !phoneNumber || !roleId || !departmentId) {
+    if (!userName || !employeeId || !email || !phoneNumber || !roleId || !departmentId) {
       return res.status(400).json({
         success: false,
         message: "All fields are required"
+      });
+    }
+
+    const normalizedEmployeeId = String(employeeId).trim();
+    if (!/^[A-Za-z0-9][A-Za-z0-9._/-]{1,49}$/.test(normalizedEmployeeId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Employee ID must be 2-50 characters and contain only letters, numbers, dot, underscore, slash, or hyphen"
       });
     }
 
@@ -68,6 +77,7 @@ exports.createUser = async (req, res) => {
 
     const newUser = await User.createUser({
       userName,
+      employeeId: normalizedEmployeeId,
       email,
       phoneNumber,
       roleId,
@@ -99,6 +109,14 @@ exports.createUser = async (req, res) => {
   } catch (error) {
 
     console.error("User creation error:", error);
+
+    if (error.code === "23505") {
+      const field = error.constraint === "users_employee_id_unique" ? "Employee ID" : "Email or phone number";
+      return res.status(409).json({
+        success: false,
+        message: `${field} already exists`
+      });
+    }
 
     return res.status(500).json({
       success: false,

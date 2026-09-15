@@ -5,6 +5,7 @@ exports.createDeptUser = async (req, res) => {
 
     const {
       userName,
+      employeeId,
       email,
       phoneNumber,
       roleId,
@@ -12,7 +13,7 @@ exports.createDeptUser = async (req, res) => {
       password
     } = req.body;
 
-    if (!userName || !email || !phoneNumber || !roleId || !departmentId) {
+    if (!userName || !employeeId || !email || !phoneNumber || !roleId || !departmentId) {
       return res.status(400).json({
         success: false,
         message: "Required fields missing"
@@ -23,6 +24,7 @@ exports.createDeptUser = async (req, res) => {
       `${process.env.ADMIN_SERVICE_URL}/api/user/create-user`,
       {
         userName,
+        employeeId,
         email,
         phoneNumber,
         roleId,
