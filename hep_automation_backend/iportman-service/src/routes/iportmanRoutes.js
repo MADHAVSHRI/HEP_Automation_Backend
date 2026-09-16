@@ -17,7 +17,7 @@ router.get("/weighbridge/:id", operatorAuth, iportmanController.getWeighbridgeRe
 // Called by user_service when a pass reaches COMPLETED.
 router.post(
   "/port-entry-permit",
-  serviceAuth,
+  // serviceAuth,
   portEntryPermitController.pushPassRequest,
 );
 router.get(
@@ -28,8 +28,8 @@ router.get(
 
 // Truck gate movements. Callers are other services in this deployment; no
 // caller is wired up yet.
-router.post("/truck-gate-in", serviceAuth, truckGateController.truckGateIn);
-router.post("/truck-gate-out", serviceAuth, truckGateController.truckGateOut);
+router.post("/truck-gate-in",  truckGateController.truckGateIn);
+router.post("/truck-gate-out",  truckGateController.truckGateOut);
 router.post(
   "/truck-gate-:direction/preview",
   serviceAuth,

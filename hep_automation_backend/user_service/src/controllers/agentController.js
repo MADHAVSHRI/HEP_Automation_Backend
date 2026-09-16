@@ -199,11 +199,15 @@ exports.registerAgent = async (req, res) => {
     //   referenceNumber: savedAgent.referenceNumber,
     // });
 
-    await sendEmailEvent({
+    // Not awaited: publishing is a retrying Kafka call, and with no broker it
+    // takes over a minute to give up — long enough for the client to time out
+    // on a registration that has already been saved. The SMS event below is
+    // sent the same way.
+    sendEmailEvent({
       email: savedAgent.email,
       name: savedAgent.firstName,
       referenceNumber: savedAgent.referenceNumber,
-    });
+    }).catch((err) => console.error("Email Event Error:", err.message));
 
     sendSmsEvent({
       type: "agent-registration-sms",
