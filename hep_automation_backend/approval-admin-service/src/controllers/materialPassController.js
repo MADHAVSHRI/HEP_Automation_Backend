@@ -9,7 +9,8 @@ exports.getMaterialPassRequests = async (req, res) => {
     const departmentId = req.user.departmentId;
     const userId = req.user.id;
 
-    if (role !== "Approval") {
+    const allowedRoles = ["Approval", "Admin", "Administrator"];
+    if (!allowedRoles.includes(role)) {
       return res.status(403).json({
         success: false,
         message: "Unauthorized",

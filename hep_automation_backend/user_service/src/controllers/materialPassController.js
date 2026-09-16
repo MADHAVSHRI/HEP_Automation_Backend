@@ -146,9 +146,14 @@ exports.getMaterialPassRequests = async (req, res) => {
 
 exports.getMaterialPassRequestsToApproverAdmin = async (req, res) => {
   try {
-    const departmentId = Number(req.params.departmentId);
+    // Allow null/"null" departmentId for Admin users — they see all departments
+    const rawId = req.params.departmentId;
+    const departmentId = (rawId && rawId !== "null" && rawId !== "undefined")
+      ? Number(rawId)
+      : null;
 
-    if (!departmentId) {
+    // Only reject if an id was provided but is not a valid number
+    if (rawId && rawId !== "null" && rawId !== "undefined" && !departmentId) {
       return res.status(400).json({
         success: false,
         message: "Invalid department id",

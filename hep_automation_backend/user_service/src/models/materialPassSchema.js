@@ -907,10 +907,18 @@ const getMaterialPass = {
         const PENDING_STATUSES = ["Draft", "Submitted",];
         const PROCESSED_STATUSES = ["Completed",];
 
+        // ─── Department filter (determine before building param indexes) ───
+        // When departmentId is null (Admin users), skip the filter → see all depts
+        const hasDeptFilter = departmentId !== null && departmentId !== undefined;
+        const deptFilterSQL = hasDeptFilter
+          ? `WHERE mpr."concernedDepartmentId" = $1 AND mpr."isActive"`
+          : `WHERE mpr."isActive"`;
+
         // ─── Search filter SQL builder ───
         let searchFilter = "";
         const searchParams = [];
-        let paramIdx = 2; // $1 is always departmentId
+        // $1 is departmentId when hasDeptFilter, otherwise search starts at $1
+        let paramIdx = hasDeptFilter ? 2 : 1;
 
         if (search) {
             const searchParam = `%${search}%`;
@@ -950,17 +958,19 @@ const getMaterialPass = {
         /* =============================================
             QUERY 1 — Global Counts (lightweight)
         ============================================= */
-        const countParams = [departmentId];
+        const countParams = hasDeptFilter ? [departmentId] : [];
+        // Use a separate param index for the count query (independent of searchFilter)
+        const countApproverParam = hasDeptFilter ? 2 : 1;
         let countSQL = `
             SELECT
             COUNT(*) AS total,
-            COUNT(CASE WHEN mpr.status::TEXT IN ('${PENDING_STATUSES.join("','")}') THEN 1 END) AS pending,
+            COUNT(CASE WHEN mpr.status::TEXT IN ('${PENDING_STATUSES.join("','")}')
+            THEN 1 END) AS pending,
             COUNT(CASE WHEN mpr.status::TEXT IN ('${PROCESSED_STATUSES.join("','")}')
-                ${processedByMe && approvedByUserName ? `AND mpr."approvedBy" = $2` : ""}
+                ${processedByMe && approvedByUserName ? `AND mpr."approvedBy" = $${countApproverParam}` : ""}
             THEN 1 END) AS processed
             FROM material_pass_request mpr
-            WHERE mpr."concernedDepartmentId" = $1
-            AND mpr."isActive"
+            ${deptFilterSQL}
         `;
         if (processedByMe && approvedByUserName) {
             countParams.push(approvedByUserName);
@@ -979,13 +989,14 @@ const getMaterialPass = {
         ============================================= */
         const limitParam  = paramIdx;
         const offsetParam = paramIdx + 1;
-        const paginationParams = [departmentId, ...searchParams, limit, offset];
+        const paginationParams = hasDeptFilter
+          ? [departmentId, ...searchParams, limit, offset]
+          : [...searchParams, limit, offset];
 
         const idQuery = `
             SELECT mpr.id, mpr."createdAt"
             FROM material_pass_request mpr
-            WHERE mpr."concernedDepartmentId" = $1
-            AND mpr."isActive"
+            ${deptFilterSQL}
             ${searchFilter}
             ${statusFilter}
             ORDER BY mpr."createdAt" ${sortOrder}
