@@ -57,49 +57,6 @@ async function initOverstayTable() {
       ADD COLUMN IF NOT EXISTS initial_total_amount DECIMAL(12,2) DEFAULT 0;
     `);
 
-    // Backfill initial levy fields for pre-existing levied charges if unpopulated
-    await pool.query(`
-      UPDATE overstay_charges
-      SET initial_overstay_days = overstay_days,
-          initial_total_amount = total_amount
-      WHERE (initial_overstay_days IS NULL OR initial_overstay_days = 0)
-        AND status != 'NOTIFIED'
-        AND overstay_days > 0;
-    `);
-
-    // Idempotent migration: clean up duplicate active overstay charges for the same entity/identifier, keeping the latest one
-    await pool.query(`
-      DELETE FROM overstay_charges a
-      USING overstay_charges b
-      WHERE a.id < b.id
-        AND a.entity_type = b.entity_type
-        AND a.entity_id IS NOT DISTINCT FROM b.entity_id
-        AND a.pass_request_id IS NOT DISTINCT FROM b.pass_request_id
-        AND a.identifier = b.identifier
-        AND a.status IN ('PENDING', 'NOTIFIED', 'EXCEPTION_REQUESTED', 'EXCEPTION_REJECTED')
-        AND b.status IN ('PENDING', 'NOTIFIED', 'EXCEPTION_REQUESTED', 'EXCEPTION_REJECTED');
-    `);
-
-    // Idempotent migration: backfill agent_id and pass_request_id from pass tables if missing
-    await pool.query(`
-      UPDATE overstay_charges oc
-      SET agent_id = sub.resolved_agent_id,
-          pass_request_id = COALESCE(oc.pass_request_id, sub.resolved_pass_req_id)
-      FROM (
-        SELECT oc2.id,
-               COALESCE(pr_direct."agentId", pr_pp."agentId", pr_pv."agentId") AS resolved_agent_id,
-               COALESCE(oc2.pass_request_id, pp."passRequestId", pv."passRequestId") AS resolved_pass_req_id
-        FROM overstay_charges oc2
-        LEFT JOIN pass_requests pr_direct ON pr_direct.id = oc2.pass_request_id
-        LEFT JOIN pass_persons pp ON (pp.id = oc2.entity_id OR pp."personPassNo" = oc2.pass_no OR pp."aadharNo" = oc2.identifier)
-        LEFT JOIN pass_requests pr_pp ON pr_pp.id = pp."passRequestId"
-        LEFT JOIN pass_vehicles pv ON (pv.id = oc2.entity_id OR pv."vehiclePassNo" = oc2.pass_no OR pv."registrationNo" = oc2.identifier)
-        LEFT JOIN pass_requests pr_pv ON pr_pv.id = pv."passRequestId"
-        WHERE oc2.agent_id IS NULL
-      ) sub
-      WHERE oc.id = sub.id AND sub.resolved_agent_id IS NOT NULL;
-    `);
-
     isTableInitialized = true;
   })().catch((err) => {
     tableInitPromise = null;
@@ -223,6 +180,17 @@ const Overstay = {
     }
 
     const personsQuery = `
+      WITH latest_charges AS (
+        SELECT DISTINCT ON (entity_type, entity_id, pass_request_id)
+          id AS charge_id,
+          status AS charge_status,
+          entity_type,
+          entity_id,
+          pass_request_id
+        FROM overstay_charges
+        WHERE entity_type IN ('PERSON', 'DRIVER')
+        ORDER BY entity_type, entity_id, pass_request_id, created_at DESC
+      )
       SELECT
         pp.id                AS entity_id,
         CASE WHEN LOWER(ht.name) LIKE '%driver%' THEN 'DRIVER' ELSE 'PERSON' END AS entity_type,
@@ -237,27 +205,33 @@ const Overstay = {
         pp."dateFrom"        AS date_from,
         pp."dateTo"          AS date_to,
         CURRENT_DATE - pp."dateTo"::date AS overstay_days,
-        oc.id                AS charge_id,
-        oc.status            AS charge_status
+        lc.charge_id         AS charge_id,
+        lc.charge_status     AS charge_status
       FROM pass_persons pp
       JOIN pass_requests pr ON pr.id = pp."passRequestId"
       LEFT JOIN hep_types ht ON ht.id = pp."hepTypeId"
       LEFT JOIN "Agents" a ON a.id = pr."agentId"
-      LEFT JOIN LATERAL (
-        SELECT oc2.id, oc2.status
-        FROM overstay_charges oc2
-        WHERE oc2.entity_type IN ('PERSON','DRIVER')
-          AND oc2.entity_id = pp.id
-          AND oc2.pass_request_id = pp."passRequestId"
-        ORDER BY oc2.created_at DESC
-        LIMIT 1
-      ) oc ON true
+      LEFT JOIN latest_charges lc ON (
+        (lc.entity_type = 'PERSON' OR lc.entity_type = 'DRIVER')
+        AND lc.entity_id = pp.id
+        AND lc.pass_request_id = pp."passRequestId"
+      )
       WHERE (LOWER(pp.status::text) = 'approved' OR pp.status IS NULL)
         AND pp."dateTo"::date < CURRENT_DATE
       ORDER BY overstay_days DESC
     `;
 
     const vehiclesQuery = `
+      WITH latest_charges AS (
+        SELECT DISTINCT ON (entity_id, pass_request_id)
+          id AS charge_id,
+          status AS charge_status,
+          entity_id,
+          pass_request_id
+        FROM overstay_charges
+        WHERE entity_type = 'VEHICLE'
+        ORDER BY entity_id, pass_request_id, created_at DESC
+      )
       SELECT
         pv.id                AS entity_id,
         'VEHICLE'            AS entity_type,
@@ -273,21 +247,16 @@ const Overstay = {
         pv."dateFrom"        AS date_from,
         pv."dateTo"          AS date_to,
         CURRENT_DATE - pv."dateTo"::date AS overstay_days,
-        oc.id                AS charge_id,
-        oc.status            AS charge_status
+        lc.charge_id         AS charge_id,
+        lc.charge_status     AS charge_status
       FROM pass_vehicles pv
       JOIN pass_requests pr ON pr.id = pv."passRequestId"
       LEFT JOIN vehicle_types vt ON vt.id = pv."vehicleTypeId"
       LEFT JOIN "Agents" a ON a.id = pr."agentId"
-      LEFT JOIN LATERAL (
-        SELECT oc2.id, oc2.status
-        FROM overstay_charges oc2
-        WHERE oc2.entity_type = 'VEHICLE'
-          AND oc2.entity_id = pv.id
-          AND oc2.pass_request_id = pv."passRequestId"
-        ORDER BY oc2.created_at DESC
-        LIMIT 1
-      ) oc ON true
+      LEFT JOIN latest_charges lc ON (
+        lc.entity_id = pv.id
+        AND lc.pass_request_id = pv."passRequestId"
+      )
       WHERE (LOWER(pv.status::text) = 'approved' OR pv.status IS NULL)
         AND pv."dateTo"::date < CURRENT_DATE
       ORDER BY overstay_days DESC
@@ -453,53 +422,52 @@ const Overstay = {
   },
 
   /* ── 3. LIST ALL CHARGES (ATM/Traffic) with optional filters ── */
-  async listCharges({ status, entity_type, agent_id, limit = 200, offset = 0 } = {}) {
+  async listCharges({ status, entity_type, agent_id, limit = null, offset = 0 } = {}) {
     const conditions = [];
     const params = [];
     let idx = 1;
 
     if (status) { conditions.push(`oc.status = $${idx++}`); params.push(status); }
     if (entity_type) { conditions.push(`oc.entity_type = $${idx++}`); params.push(entity_type); }
-    if (agent_id) { conditions.push(`COALESCE(oc.agent_id, a_dir.agent_id, a_pp.agent_id, a_pv.agent_id) = $${idx++}`); params.push(agent_id); }
+    if (agent_id) { conditions.push(`COALESCE(oc.agent_id, pr."agentId", a_pp.agent_id, a_pv.agent_id) = $${idx++}`); params.push(agent_id); }
 
     const where = conditions.length > 0 ? "WHERE " + conditions.join(" AND ") : "";
-    params.push(limit, offset);
+    let pagination = "";
+    if (limit !== null && limit !== undefined && Number.isFinite(parseInt(limit, 10))) {
+      pagination = `LIMIT $${idx++} OFFSET $${idx++}`;
+      params.push(parseInt(limit, 10), parseInt(offset || "0", 10));
+    }
 
     const res = await pool.query(
       `SELECT oc.*, ${COALESCE_PASS_TYPE}, ${LIVE_AMOUNT_SELECT},
-              COALESCE(oc.agent_id, a_dir.agent_id, a_pp.agent_id, a_pv.agent_id) AS agent_id,
-              COALESCE(a."entityName", a_dir.company_name, a_pp.company_name, a_pv.company_name) AS company_name,
-              COALESCE(a."loginId", a_dir.login_id, a_pp.login_id, a_pv.login_id) AS login_id
+              COALESCE(oc.agent_id, pr."agentId", a_pp.agent_id, a_pv.agent_id) AS agent_id,
+              COALESCE(a."entityName", a_pr."entityName", a_pp.company_name, a_pv.company_name) AS company_name,
+              COALESCE(a."loginId", a_pr."loginId", a_pp.login_id, a_pv.login_id) AS login_id
       FROM overstay_charges oc
       LEFT JOIN "Agents" a ON a.id = oc.agent_id
+      LEFT JOIN pass_requests pr ON pr.id = oc.pass_request_id
+      LEFT JOIN "Agents" a_pr ON a_pr.id = pr."agentId"
       LEFT JOIN LATERAL (
-        SELECT pr."agentId" AS agent_id, a2."entityName" AS company_name, a2."loginId" AS login_id
-        FROM pass_requests pr
-        LEFT JOIN "Agents" a2 ON a2.id = pr."agentId"
-        WHERE pr.id = oc.pass_request_id
-        LIMIT 1
-      ) a_dir ON true
-      LEFT JOIN LATERAL (
-        SELECT pr."agentId" AS agent_id, a2."entityName" AS company_name, a2."loginId" AS login_id
+        SELECT pr2."agentId" AS agent_id, a2."entityName" AS company_name, a2."loginId" AS login_id
         FROM pass_persons pp
-        JOIN pass_requests pr ON pr.id = pp."passRequestId"
-        LEFT JOIN "Agents" a2 ON a2.id = pr."agentId"
-        WHERE (pp.id = oc.entity_id OR pp."personPassNo" = oc.pass_no OR pp."aadharNo" = oc.identifier)
+        JOIN pass_requests pr2 ON pr2.id = pp."passRequestId"
+        LEFT JOIN "Agents" a2 ON a2.id = pr2."agentId"
+        WHERE oc.agent_id IS NULL AND oc.pass_request_id IS NULL AND (pp.id = oc.entity_id OR pp."personPassNo" = oc.pass_no OR pp."aadharNo" = oc.identifier)
         ORDER BY (pp.id = oc.entity_id) DESC, pp."createdAt" DESC
         LIMIT 1
       ) a_pp ON true
       LEFT JOIN LATERAL (
-        SELECT pr."agentId" AS agent_id, a2."entityName" AS company_name, a2."loginId" AS login_id
+        SELECT pr3."agentId" AS agent_id, a2."entityName" AS company_name, a2."loginId" AS login_id
         FROM pass_vehicles pv
-        JOIN pass_requests pr ON pr.id = pv."passRequestId"
-        LEFT JOIN "Agents" a2 ON a2.id = pr."agentId"
-        WHERE (pv.id = oc.entity_id OR pv."vehiclePassNo" = oc.pass_no OR pv."registrationNo" = oc.identifier)
+        JOIN pass_requests pr3 ON pr3.id = pv."passRequestId"
+        LEFT JOIN "Agents" a2 ON a2.id = pr3."agentId"
+        WHERE oc.agent_id IS NULL AND oc.pass_request_id IS NULL AND (pv.id = oc.entity_id OR pv."vehiclePassNo" = oc.pass_no OR pv."registrationNo" = oc.identifier)
         ORDER BY (pv.id = oc.entity_id) DESC, pv."createdAt" DESC
         LIMIT 1
       ) a_pv ON true
       ${where}
       ORDER BY oc.created_at DESC
-      LIMIT $${idx++} OFFSET $${idx++}`,
+      ${pagination}`,
       params
     );
     return res.rows;
@@ -530,7 +498,7 @@ const Overstay = {
         SELECT pr."agentId" AS agent_id, a2."entityName" AS company_name, a2."email" AS agent_email, a2."loginId" AS login_id
         FROM pass_requests pr
         LEFT JOIN "Agents" a2 ON a2.id = pr."agentId"
-        WHERE pr.id = oc.pass_request_id
+        WHERE oc.agent_id IS NULL AND pr.id = oc.pass_request_id
         LIMIT 1
       ) a_dir ON true
       LEFT JOIN LATERAL (
@@ -538,7 +506,7 @@ const Overstay = {
         FROM pass_persons pp
         JOIN pass_requests pr ON pr.id = pp."passRequestId"
         LEFT JOIN "Agents" a2 ON a2.id = pr."agentId"
-        WHERE (pp.id = oc.entity_id OR pp."personPassNo" = oc.pass_no OR pp."aadharNo" = oc.identifier)
+        WHERE oc.agent_id IS NULL AND (pp.id = oc.entity_id OR pp."personPassNo" = oc.pass_no OR pp."aadharNo" = oc.identifier)
         ORDER BY (pp.id = oc.entity_id) DESC, pp."createdAt" DESC
         LIMIT 1
       ) a_pp ON true
@@ -547,7 +515,7 @@ const Overstay = {
         FROM pass_vehicles pv
         JOIN pass_requests pr ON pr.id = pv."passRequestId"
         LEFT JOIN "Agents" a2 ON a2.id = pr."agentId"
-        WHERE (pv.id = oc.entity_id OR pv."vehiclePassNo" = oc.pass_no OR pv."registrationNo" = oc.identifier)
+        WHERE oc.agent_id IS NULL AND (pv.id = oc.entity_id OR pv."vehiclePassNo" = oc.pass_no OR pv."registrationNo" = oc.identifier)
         ORDER BY (pv.id = oc.entity_id) DESC, pv."createdAt" DESC
         LIMIT 1
       ) a_pv ON true
@@ -581,7 +549,7 @@ const Overstay = {
        SET status = 'EXCEPTION_REQUESTED', exception_reason = $2, updated_at = NOW()
        WHERE id = $1 AND status = 'PENDING'
        RETURNING *`,
-      [id, exception_reason]
+       [id, exception_reason]
     );
     return res.rows[0] || null;
   },
@@ -600,7 +568,7 @@ const Overstay = {
          SELECT pr."agentId" AS agent_id, a2."entityName" AS company_name, a2."email" AS agent_email, a2."loginId" AS login_id
          FROM pass_requests pr
          LEFT JOIN "Agents" a2 ON a2.id = pr."agentId"
-         WHERE pr.id = oc.pass_request_id
+         WHERE oc.agent_id IS NULL AND pr.id = oc.pass_request_id
          LIMIT 1
        ) a_dir ON true
        LEFT JOIN LATERAL (
@@ -608,7 +576,7 @@ const Overstay = {
          FROM pass_persons pp
          JOIN pass_requests pr ON pr.id = pp."passRequestId"
          LEFT JOIN "Agents" a2 ON a2.id = pr."agentId"
-         WHERE (pp.id = oc.entity_id OR pp."personPassNo" = oc.pass_no OR pp."aadharNo" = oc.identifier)
+         WHERE oc.agent_id IS NULL AND (pp.id = oc.entity_id OR pp."personPassNo" = oc.pass_no OR pp."aadharNo" = oc.identifier)
          ORDER BY (pp.id = oc.entity_id) DESC, pp."createdAt" DESC
          LIMIT 1
        ) a_pp ON true
@@ -617,7 +585,7 @@ const Overstay = {
          FROM pass_vehicles pv
          JOIN pass_requests pr ON pr.id = pv."passRequestId"
          LEFT JOIN "Agents" a2 ON a2.id = pr."agentId"
-         WHERE (pv.id = oc.entity_id OR pv."vehiclePassNo" = oc.pass_no OR pv."registrationNo" = oc.identifier)
+         WHERE oc.agent_id IS NULL AND (pv.id = oc.entity_id OR pv."vehiclePassNo" = oc.pass_no OR pv."registrationNo" = oc.identifier)
          ORDER BY (pv.id = oc.entity_id) DESC, pv."createdAt" DESC
          LIMIT 1
        ) a_pv ON true

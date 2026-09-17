@@ -191,12 +191,14 @@ exports.detectOverstays = async (req, res) => {
 exports.listCharges = async (req, res) => {
   try {
     const { status, entity_type, agent_id, limit, offset } = req.query;
+    const parsedLimit = limit !== undefined && limit !== null && limit !== "" ? parseInt(limit, 10) : null;
+    const parsedOffset = offset ? parseInt(offset, 10) : 0;
     const charges = await Overstay.listCharges({
       status: status || null,
       entity_type: entity_type || null,
       agent_id: agent_id ? parseInt(agent_id, 10) : null,
-      limit: Math.min(parseInt(limit || "200", 10), 500),
-      offset: parseInt(offset || "0", 10),
+      limit: Number.isFinite(parsedLimit) && parsedLimit > 0 ? parsedLimit : null,
+      offset: Number.isFinite(parsedOffset) && parsedOffset > 0 ? parsedOffset : 0,
     });
     res.status(200).json({ success: true, count: charges.length, data: charges });
   } catch (err) {
