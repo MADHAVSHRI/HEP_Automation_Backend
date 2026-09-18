@@ -180,8 +180,39 @@ const resolveFeeCategory = (entity_type, category) => {
 
 exports.detectOverstays = async (req, res) => {
   try {
-    const records = await Overstay.detectOverstays();
-    res.status(200).json({ success: true, count: records.length, data: records });
+    const { search, entity_type, pass_type, action_status, agent_id, date_from, date_to, sortBy, sortDir, page, limit, offset } = req.query;
+    const parsedLimit = limit !== undefined && limit !== null && limit !== "" ? parseInt(limit, 10) : null;
+    const parsedPage = page ? parseInt(page, 10) : 1;
+    const calcOffset = offset !== undefined && offset !== null && offset !== "" ? parseInt(offset, 10) : (Number.isFinite(parsedLimit) ? (parsedPage - 1) * parsedLimit : 0);
+
+    const result = await Overstay.detectOverstays({
+      search: search || null,
+      entity_type: entity_type || null,
+      pass_type: pass_type || null,
+      action_status: action_status || null,
+      agent_id: agent_id ? parseInt(agent_id, 10) : null,
+      date_from: date_from || null,
+      date_to: date_to || null,
+      sort_by: sortBy || "overstay_days",
+      sort_dir: sortDir || "DESC",
+      limit: Number.isFinite(parsedLimit) && parsedLimit > 0 ? parsedLimit : null,
+      offset: Number.isFinite(calcOffset) && calcOffset >= 0 ? calcOffset : 0,
+    });
+
+    const rows = Array.isArray(result) ? result : (result.rows || []);
+    const totalCount = Array.isArray(result) ? (result.totalCount || rows.length) : (result.totalCount || rows.length);
+    const limitNum = Number.isFinite(parsedLimit) && parsedLimit > 0 ? parsedLimit : rows.length;
+    const totalPages = limitNum > 0 ? Math.ceil(totalCount / limitNum) : 1;
+
+    res.status(200).json({
+      success: true,
+      data: rows,
+      count: rows.length,
+      totalCount,
+      page: parsedPage,
+      limit: limitNum,
+      totalPages,
+    });
   } catch (err) {
     console.error("detectOverstays error:", err);
     res.status(500).json({ success: false, message: err.message || "Internal server error" });
@@ -190,17 +221,39 @@ exports.detectOverstays = async (req, res) => {
 
 exports.listCharges = async (req, res) => {
   try {
-    const { status, entity_type, agent_id, limit, offset } = req.query;
+    const { status, entity_type, pass_type, agent_id, search, date_from, date_to, sortBy, sortDir, page, limit, offset } = req.query;
     const parsedLimit = limit !== undefined && limit !== null && limit !== "" ? parseInt(limit, 10) : null;
-    const parsedOffset = offset ? parseInt(offset, 10) : 0;
-    const charges = await Overstay.listCharges({
+    const parsedPage = page ? parseInt(page, 10) : 1;
+    const calcOffset = offset !== undefined && offset !== null && offset !== "" ? parseInt(offset, 10) : (Number.isFinite(parsedLimit) ? (parsedPage - 1) * parsedLimit : 0);
+
+    const result = await Overstay.listCharges({
       status: status || null,
       entity_type: entity_type || null,
+      pass_type: pass_type || null,
       agent_id: agent_id ? parseInt(agent_id, 10) : null,
+      search: search || null,
+      date_from: date_from || null,
+      date_to: date_to || null,
+      sort_by: sortBy || "created_at",
+      sort_dir: sortDir || "DESC",
       limit: Number.isFinite(parsedLimit) && parsedLimit > 0 ? parsedLimit : null,
-      offset: Number.isFinite(parsedOffset) && parsedOffset > 0 ? parsedOffset : 0,
+      offset: Number.isFinite(calcOffset) && calcOffset >= 0 ? calcOffset : 0,
     });
-    res.status(200).json({ success: true, count: charges.length, data: charges });
+
+    const rows = Array.isArray(result) ? result : (result.rows || []);
+    const totalCount = Array.isArray(result) ? (result.totalCount || rows.length) : (result.totalCount || rows.length);
+    const limitNum = Number.isFinite(parsedLimit) && parsedLimit > 0 ? parsedLimit : rows.length;
+    const totalPages = limitNum > 0 ? Math.ceil(totalCount / limitNum) : 1;
+
+    res.status(200).json({
+      success: true,
+      data: rows,
+      count: rows.length,
+      totalCount,
+      page: parsedPage,
+      limit: limitNum,
+      totalPages,
+    });
   } catch (err) {
     console.error("listCharges error:", err);
     res.status(500).json({ success: false, message: "Internal server error" });
@@ -626,6 +679,16 @@ exports.waiveCharge = async (req, res) => {
     res.status(200).json({ success: true, message: "Charge waived successfully", data: updated });
   } catch (err) {
     console.error("waiveCharge error:", err);
+    res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
+exports.getStats = async (req, res) => {
+  try {
+    const stats = await Overstay.getOverstayStats();
+    res.status(200).json({ success: true, data: stats });
+  } catch (err) {
+    console.error("getStats error:", err);
     res.status(500).json({ success: false, message: "Internal server error" });
   }
 };

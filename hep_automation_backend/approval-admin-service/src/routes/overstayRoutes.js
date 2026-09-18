@@ -7,6 +7,7 @@ const verifyToken = require("../middlewares/verifyToken");
 router.use(verifyToken);
 
 // ATM — detection & levy
+router.get("/stats", overstayController.getStats);
 router.get("/detect", overstayController.detectOverstays);
 router.get("/charges", overstayController.listCharges);
 router.post("/levy", overstayController.levyCharge);

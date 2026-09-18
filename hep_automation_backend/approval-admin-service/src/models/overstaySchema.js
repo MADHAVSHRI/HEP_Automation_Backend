@@ -163,7 +163,19 @@ const Overstay = {
   initTable: initOverstayTable,
 
   /* ── 1. DETECT: pass entities whose dateTo < TODAY not yet levied ── */
-  async detectOverstays() {
+  async detectOverstays({
+    search,
+    entity_type,
+    pass_type,
+    action_status,
+    agent_id,
+    date_from,
+    date_to,
+    sort_by = "overstay_days",
+    sort_dir = "DESC",
+    limit = null,
+    offset = 0,
+  } = {}) {
     await initOverstayTable();
 
     const rates = await loadDailyRates();
@@ -178,6 +190,47 @@ const Overstay = {
         `Overstay detection cannot compute penalties without these.`
       );
     }
+
+    // Build conditions for persons
+    const personConditions = [];
+    const personParams = [];
+    let pIdx = 1;
+
+    if (agent_id) {
+      personConditions.push(`pr."agentId" = $${pIdx++}`);
+      personParams.push(parseInt(agent_id, 10));
+    }
+    if (date_from) {
+      personConditions.push(`pp."dateTo"::date >= $${pIdx++}::date`);
+      personParams.push(date_from);
+    }
+    if (date_to) {
+      personConditions.push(`pp."dateTo"::date <= $${pIdx++}::date`);
+      personParams.push(date_to);
+    }
+    if (pass_type && pass_type !== "ALL") {
+      const pt = String(pass_type).trim().toUpperCase();
+      if (pt === "ANNUAL" || pt === "YEARLY") {
+        personConditions.push(`(pp."passType"::text ILIKE '%YEARLY%' OR pp."passType"::text ILIKE '%ANNUAL%')`);
+      } else {
+        personConditions.push(`pp."passType"::text ILIKE $${pIdx++}`);
+        personParams.push(`%${pt}%`);
+      }
+    }
+    if (search && search.trim()) {
+      const q = `%${search.trim()}%`;
+      personConditions.push(`(
+        pp."aadharNo" ILIKE $${pIdx} OR
+        pp.name ILIKE $${pIdx} OR
+        pp."personPassNo" ILIKE $${pIdx} OR
+        a."entityName" ILIKE $${pIdx} OR
+        a."loginId" ILIKE $${pIdx}
+      )`);
+      personParams.push(q);
+      pIdx++;
+    }
+
+    const personExtraWhere = personConditions.length > 0 ? " AND " + personConditions.join(" AND ") : "";
 
     const personsQuery = `
       WITH latest_charges AS (
@@ -218,8 +271,50 @@ const Overstay = {
       )
       WHERE (LOWER(pp.status::text) = 'approved' OR pp.status IS NULL)
         AND pp."dateTo"::date < CURRENT_DATE
+        ${personExtraWhere}
       ORDER BY overstay_days DESC
     `;
+
+    // Build conditions for vehicles
+    const vehicleConditions = [];
+    const vehicleParams = [];
+    let vIdx = 1;
+
+    if (agent_id) {
+      vehicleConditions.push(`pr."agentId" = $${vIdx++}`);
+      vehicleParams.push(parseInt(agent_id, 10));
+    }
+    if (date_from) {
+      vehicleConditions.push(`pv."dateTo"::date >= $${vIdx++}::date`);
+      vehicleParams.push(date_from);
+    }
+    if (date_to) {
+      vehicleConditions.push(`pv."dateTo"::date <= $${vIdx++}::date`);
+      vehicleParams.push(date_to);
+    }
+    if (pass_type && pass_type !== "ALL") {
+      const pt = String(pass_type).trim().toUpperCase();
+      if (pt === "ANNUAL" || pt === "YEARLY") {
+        vehicleConditions.push(`(pv."passType"::text ILIKE '%YEARLY%' OR pv."passType"::text ILIKE '%ANNUAL%')`);
+      } else {
+        vehicleConditions.push(`pv."passType"::text ILIKE $${vIdx++}`);
+        vehicleParams.push(`%${pt}%`);
+      }
+    }
+    if (search && search.trim()) {
+      const q = `%${search.trim()}%`;
+      vehicleConditions.push(`(
+        pv."registrationNo" ILIKE $${vIdx} OR
+        pv."vehiclePassNo" ILIKE $${vIdx} OR
+        COALESCE(vt.name, pv."registrationNo") ILIKE $${vIdx} OR
+        a."entityName" ILIKE $${vIdx} OR
+        a."loginId" ILIKE $${vIdx}
+      )`);
+      vehicleParams.push(q);
+      vIdx++;
+    }
+
+    const vehicleExtraWhere = vehicleConditions.length > 0 ? " AND " + vehicleConditions.join(" AND ") : "";
 
     const vehiclesQuery = `
       WITH latest_charges AS (
@@ -259,37 +354,92 @@ const Overstay = {
       )
       WHERE (LOWER(pv.status::text) = 'approved' OR pv.status IS NULL)
         AND pv."dateTo"::date < CURRENT_DATE
+        ${vehicleExtraWhere}
       ORDER BY overstay_days DESC
     `;
 
+    // Only run person query if entity_type is not VEHICLE
+    const shouldFetchPersons = !entity_type || entity_type === "PERSON" || entity_type === "DRIVER";
+    // Only run vehicle query if entity_type is not PERSON / DRIVER
+    const shouldFetchVehicles = !entity_type || entity_type === "VEHICLE";
+
     const [persons, vehicles] = await Promise.all([
-      pool.query(personsQuery),
-      pool.query(vehiclesQuery),
+      shouldFetchPersons ? pool.query(personsQuery, personParams) : { rows: [] },
+      shouldFetchVehicles ? pool.query(vehiclesQuery, vehicleParams) : { rows: [] },
     ]);
 
     // Persons/Drivers: always INDIVIDUAL rate
-    const personRows = persons.rows.map((r) => {
+    const personRows = (persons.rows || []).map((r) => {
       const dailyRate = rates.INDIVIDUAL;
+      const days = parseInt(r.overstay_days, 10) || 0;
       return {
         ...r,
         daily_rate: dailyRate,
-        total_amount: parseFloat((dailyRate * parseInt(r.overstay_days, 10)).toFixed(2)),
+        total_amount: parseFloat((dailyRate * days).toFixed(2)),
       };
     });
 
     // Vehicles: rate depends on whether it's cargo handling equipment
-    const vehicleRows = vehicles.rows.map((r) => {
+    const vehicleRows = (vehicles.rows || []).map((r) => {
       const typeName = String(r.vehicle_type_name || "").toUpperCase().trim();
       const isCargoEquipment = CARGO_EQUIPMENT_TYPES.includes(typeName);
       const dailyRate = isCargoEquipment ? rates.CARGO : rates.VEHICLE;
+      const days = parseInt(r.overstay_days, 10) || 0;
       return {
         ...r,
         daily_rate: dailyRate,
-        total_amount: parseFloat((dailyRate * parseInt(r.overstay_days, 10)).toFixed(2)),
+        total_amount: parseFloat((dailyRate * days).toFixed(2)),
       };
     });
 
-    return [...personRows, ...vehicleRows];
+    let combined = [...personRows, ...vehicleRows];
+
+    // Filter by entity_type if specific ('PERSON' vs 'DRIVER')
+    if (entity_type && (entity_type === "PERSON" || entity_type === "DRIVER")) {
+      combined = combined.filter((r) => r.entity_type === entity_type);
+    }
+
+    // Filter by action status if provided
+    if (action_status && action_status !== "ALL") {
+      const act = String(action_status).trim().toUpperCase();
+      combined = combined.filter((r) => {
+        const st = String(r.charge_status || "").toUpperCase();
+        if (act === "NEW") return !st || st === "NULL" || st === "";
+        if (act === "NOTIFIED") return st === "NOTIFIED";
+        if (act === "PENDING") return st === "PENDING" || st === "EXCEPTION_REJECTED";
+        if (act === "PAID") return st === "PAID";
+        if (act === "WAIVED") return st === "WAIVED" || st === "EXCEPTION_APPROVED";
+        if (act === "EXCEPTION_REQUESTED") return st === "EXCEPTION_REQUESTED";
+        return true;
+      });
+    }
+
+    // Sort combined records
+    if (sort_by) {
+      const dir = String(sort_dir).toUpperCase() === "ASC" ? 1 : -1;
+      combined.sort((a, b) => {
+        const valA = a[sort_by] ?? "";
+        const valB = b[sort_by] ?? "";
+        if (typeof valA === "number" && typeof valB === "number") {
+          return (valA - valB) * dir;
+        }
+        return String(valA).localeCompare(String(valB)) * dir;
+      });
+    }
+
+    const totalCount = combined.length;
+
+    // Apply pagination if limit is provided
+    let paginated = combined;
+    if (limit !== null && limit !== undefined && Number.isFinite(parseInt(limit, 10))) {
+      const start = parseInt(offset || "0", 10);
+      const end = start + parseInt(limit, 10);
+      paginated = combined.slice(start, end);
+      return { rows: paginated, totalCount };
+    }
+
+    paginated.totalCount = totalCount;
+    return paginated;
   },
 
   async createNotification(data) {
@@ -422,16 +572,85 @@ const Overstay = {
   },
 
   /* ── 3. LIST ALL CHARGES (ATM/Traffic) with optional filters ── */
-  async listCharges({ status, entity_type, agent_id, limit = null, offset = 0 } = {}) {
+  async listCharges({
+    status,
+    entity_type,
+    pass_type,
+    agent_id,
+    search,
+    date_from,
+    date_to,
+    sort_by = "created_at",
+    sort_dir = "DESC",
+    limit = null,
+    offset = 0,
+  } = {}) {
     const conditions = [];
     const params = [];
     let idx = 1;
 
-    if (status) { conditions.push(`oc.status = $${idx++}`); params.push(status); }
+    if (status) {
+      const st = String(status).trim().toUpperCase();
+      if (st === "PENDING") {
+        conditions.push(`oc.status IN ('PENDING', 'EXCEPTION_REJECTED')`);
+      } else if (st === "WAIVED") {
+        conditions.push(`oc.status IN ('WAIVED', 'EXCEPTION_APPROVED')`);
+      } else if (st === "EXCLUDE_APPEALS") {
+        conditions.push(`oc.status != 'EXCEPTION_REQUESTED'`);
+      } else {
+        conditions.push(`oc.status = $${idx++}`);
+        params.push(status);
+      }
+    }
     if (entity_type) { conditions.push(`oc.entity_type = $${idx++}`); params.push(entity_type); }
+    if (pass_type && pass_type !== "ALL") {
+      const pt = String(pass_type).trim().toUpperCase();
+      if (pt === "ANNUAL" || pt === "YEARLY") {
+        conditions.push(`(COALESCE(oc.pass_type, '') ILIKE '%YEARLY%' OR COALESCE(oc.pass_type, '') ILIKE '%ANNUAL%')`);
+      } else {
+        conditions.push(`COALESCE(oc.pass_type, '') ILIKE $${idx++}`);
+        params.push(`%${pt}%`);
+      }
+    }
     if (agent_id) { conditions.push(`COALESCE(oc.agent_id, pr."agentId", a_pp.agent_id, a_pv.agent_id) = $${idx++}`); params.push(agent_id); }
+    if (date_from) { conditions.push(`oc.date_to >= $${idx++}`); params.push(date_from); }
+    if (date_to) { conditions.push(`oc.date_to <= $${idx++}`); params.push(date_to); }
+    if (search && search.trim()) {
+      const q = `%${search.trim()}%`;
+      conditions.push(`(
+        oc.identifier ILIKE $${idx} OR
+        oc.entity_name ILIKE $${idx} OR
+        oc.pass_no ILIKE $${idx} OR
+        a."entityName" ILIKE $${idx} OR
+        a_pr."entityName" ILIKE $${idx} OR
+        a."loginId" ILIKE $${idx} OR
+        a_pr."loginId" ILIKE $${idx}
+      )`);
+      params.push(q);
+      idx++;
+    }
 
     const where = conditions.length > 0 ? "WHERE " + conditions.join(" AND ") : "";
+
+    const allowedSortCols = {
+      id: "oc.id",
+      created_at: "oc.created_at",
+      updated_at: "oc.updated_at",
+      overstay_days: "oc.overstay_days",
+      total_amount: "oc.total_amount",
+      daily_rate: "oc.daily_rate",
+      date_from: "oc.date_from",
+      date_to: "oc.date_to",
+      identifier: "oc.identifier",
+      entity_name: "oc.entity_name",
+      status: "oc.status",
+      entity_type: "oc.entity_type",
+      pass_no: "oc.pass_no",
+      company_name: `COALESCE(a."entityName", a_pr."entityName", a_pp.company_name, a_pv.company_name)`,
+    };
+    const sortCol = allowedSortCols[sort_by] || "oc.created_at";
+    const sortOrder = String(sort_dir).toUpperCase() === "ASC" ? "ASC" : "DESC";
+
     let pagination = "";
     if (limit !== null && limit !== undefined && Number.isFinite(parseInt(limit, 10))) {
       pagination = `LIMIT $${idx++} OFFSET $${idx++}`;
@@ -442,7 +661,8 @@ const Overstay = {
       `SELECT oc.*, ${COALESCE_PASS_TYPE}, ${LIVE_AMOUNT_SELECT},
               COALESCE(oc.agent_id, pr."agentId", a_pp.agent_id, a_pv.agent_id) AS agent_id,
               COALESCE(a."entityName", a_pr."entityName", a_pp.company_name, a_pv.company_name) AS company_name,
-              COALESCE(a."loginId", a_pr."loginId", a_pp.login_id, a_pv.login_id) AS login_id
+              COALESCE(a."loginId", a_pr."loginId", a_pp.login_id, a_pv.login_id) AS login_id,
+              COUNT(*) OVER() AS full_count
       FROM overstay_charges oc
       LEFT JOIN "Agents" a ON a.id = oc.agent_id
       LEFT JOIN pass_requests pr ON pr.id = oc.pass_request_id
@@ -466,11 +686,22 @@ const Overstay = {
         LIMIT 1
       ) a_pv ON true
       ${where}
-      ORDER BY oc.created_at DESC
+      ORDER BY ${sortCol} ${sortOrder}
       ${pagination}`,
       params
     );
-    return res.rows;
+
+    const totalCount = res.rows.length > 0 ? parseInt(res.rows[0].full_count || "0", 10) : 0;
+    const rows = res.rows.map((row) => {
+      const { full_count, ...rest } = row;
+      return rest;
+    });
+
+    if (limit !== null && limit !== undefined) {
+      return { rows, totalCount };
+    }
+    rows.totalCount = totalCount;
+    return rows;
   },
 
   /* ── 4. MY CHARGES (Agent) ── */
@@ -729,6 +960,86 @@ async setChargePassBlock(chargeId, blocked) {
   );
   if (!res.rows[0]) throw new Error("Charge not found");
   return res.rows[0];
+},
+
+async getOverstayStats() {
+  await initOverstayTable();
+  const rates = await loadDailyRates();
+
+  const chargesQuery = `
+    SELECT
+      COUNT(*) AS total_charges,
+      COUNT(*) FILTER (WHERE status = 'PENDING' OR status = 'EXCEPTION_REJECTED') AS pending_count,
+      COUNT(*) FILTER (WHERE status = 'PAID') AS paid_count,
+      COUNT(*) FILTER (WHERE status = 'EXCEPTION_REQUESTED') AS appeal_count,
+      COUNT(*) FILTER (WHERE status = 'NOTIFIED') AS notified_count,
+      COUNT(*) FILTER (WHERE status = 'WAIVED' OR status = 'EXCEPTION_APPROVED') AS waived_count,
+      COALESCE(SUM(CASE WHEN status IN ('PENDING', 'EXCEPTION_REQUESTED', 'EXCEPTION_REJECTED') THEN total_amount ELSE 0 END), 0) AS total_pending_amount,
+      COALESCE(SUM(CASE WHEN status = 'PAID' THEN total_amount ELSE 0 END), 0) AS total_paid_amount,
+      COALESCE(SUM(CASE WHEN status = 'EXCEPTION_REQUESTED' THEN total_amount ELSE 0 END), 0) AS total_appealed_amount,
+      COUNT(*) FILTER (WHERE status = 'EXCEPTION_REQUESTED' AND entity_type IN ('PERSON', 'DRIVER')) AS appeal_persons,
+      COUNT(*) FILTER (WHERE status = 'EXCEPTION_REQUESTED' AND entity_type = 'VEHICLE') AS appeal_vehicles,
+      COALESCE(MAX(CASE WHEN status = 'EXCEPTION_REQUESTED' THEN overstay_days ELSE 0 END), 0) AS appeal_max_days
+    FROM overstay_charges;
+  `;
+
+  const detectQuery = `
+    SELECT
+      COUNT(*) AS total_detected,
+      COUNT(*) FILTER (WHERE entity_type IN ('PERSON', 'DRIVER')) AS person_detected,
+      COUNT(*) FILTER (WHERE entity_type = 'VEHICLE') AS vehicle_detected,
+      COALESCE(MAX(overstay_days), 0) AS max_days,
+      COALESCE(SUM(overstay_days * rate), 0) AS total_fine
+    FROM (
+      SELECT 
+        'PERSON' AS entity_type, 
+        (CURRENT_DATE - pp."dateTo"::date) AS overstay_days,
+        $1::numeric AS rate
+      FROM pass_persons pp
+      WHERE ("dateTo"::date < CURRENT_DATE) AND (LOWER(pp.status::text) = 'approved' OR pp.status IS NULL)
+      UNION ALL
+      SELECT 
+        'VEHICLE' AS entity_type, 
+        (CURRENT_DATE - pv."dateTo"::date) AS overstay_days,
+        $2::numeric AS rate
+      FROM pass_vehicles pv
+      WHERE ("dateTo"::date < CURRENT_DATE) AND (LOWER(pv.status::text) = 'approved' OR pv.status IS NULL)
+    ) sub;
+  `;
+
+  const [chargesRes, detectRes] = await Promise.all([
+    pool.query(chargesQuery),
+    pool.query(detectQuery, [rates.INDIVIDUAL || 100, rates.VEHICLE || 200]),
+  ]);
+
+  const cRow = chargesRes.rows[0] || {};
+  const dRow = detectRes.rows[0] || {};
+
+  return {
+    detect: {
+      total: parseInt(dRow.total_detected || 0, 10),
+      persons: parseInt(dRow.person_detected || 0, 10),
+      vehicles: parseInt(dRow.vehicle_detected || 0, 10),
+      maxDays: parseInt(dRow.max_days || 0, 10),
+      totalFine: parseFloat(dRow.total_fine || 0),
+    },
+    charges: {
+      total: Math.max(0, parseInt(cRow.total_charges || 0, 10) - parseInt(cRow.appeal_count || 0, 10)),
+      pending: parseInt(cRow.pending_count || 0, 10),
+      paid: parseInt(cRow.paid_count || 0, 10),
+      notified: parseInt(cRow.notified_count || 0, 10),
+      waived: parseInt(cRow.waived_count || 0, 10),
+      totalPending: parseFloat(cRow.total_pending_amount || 0),
+      totalCollected: parseFloat(cRow.total_paid_amount || 0),
+    },
+    appeals: {
+      total: parseInt(cRow.appeal_count || 0, 10),
+      persons: parseInt(cRow.appeal_persons || 0, 10),
+      vehicles: parseInt(cRow.appeal_vehicles || 0, 10),
+      oldestDays: parseInt(cRow.appeal_max_days || 0, 10),
+      totalContested: parseFloat(cRow.total_appealed_amount || 0),
+    },
+  };
 },
 };
 
