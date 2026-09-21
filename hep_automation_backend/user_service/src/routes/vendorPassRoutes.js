@@ -195,4 +195,10 @@ router.put(
   vendorPassController.completeVendorReview
 );
 
+router.put(
+  "/:id/workflow-action",
+  verifyToken,
+  vendorPassController.vendorOilJettyWorkflowAction
+);
+
 module.exports = router;

@@ -12,6 +12,14 @@ const isOilDockArea = (val) => {
   return str === "1" || str.includes("OIL JETTY") || str.includes("OIL_JETTY");
 };
 
+const isVendorEssentialWorkflow = (request) => {
+  return (
+    request &&
+    request.isOilDock === true &&
+    String(request.workflowState || "").startsWith("PENDING_VENDOR_ESSENTIAL_")
+  );
+};
+
 const buildReferenceNo = async (client) => {
   return await ReferenceNumber.generateVendorPassReference(client);
 };
@@ -24,8 +32,7 @@ const buildToken = () =>
     .replace(/\//g, "_")
     .replace(/=+$/, "");
 
-const FRONTEND_BASE =
-  process.env.FRONTEND_BASE_URL;
+const FRONTEND_BASE = process.env.FRONTEND_BASE_URL;
 
 const { encryptToken, decryptToken } = require("../utils/cryptoUtils");
 
@@ -47,7 +54,7 @@ const getResolvedId = async (idOrToken) => {
   }
   const result = await pool.query(
     `SELECT id FROM "vendor_pass_requests" WHERE "token" = $1`,
-    [resolved]
+    [resolved],
   );
   return result.rows[0]?.id || null;
 };
@@ -77,7 +84,7 @@ const sendVendorLinkEmail = async (intake) => {
   } catch (err) {
     console.error(
       "[vendorPass] Email send failed:",
-      err.response?.data || err.message
+      err.response?.data || err.message,
     );
     return false;
   }
@@ -120,12 +127,12 @@ exports.createIntake = async (req, res) => {
     // Check if the company is blacklisted
     const companyBlacklist = await pool.query(
       "SELECT id, reason FROM blacklist_entries WHERE entity_type = 'COMPANY' AND (UPPER(identifier) = UPPER($1) OR UPPER(entity_name) = UPPER($1)) AND status IN ('BLACKLISTED', 'UNBLACKLIST_REQUESTED')",
-      [companyName]
+      [companyName],
     );
     if (companyBlacklist.rows.length > 0) {
       return res.status(403).json({
         success: false,
-        message: `Cannot initiate pass request. Company (${companyName}) is blacklisted. Reason: ${companyBlacklist.rows[0].reason}`
+        message: `Cannot initiate pass request. Company (${companyName}) is blacklisted. Reason: ${companyBlacklist.rows[0].reason}`,
       });
     }
 
@@ -157,14 +164,11 @@ exports.createIntake = async (req, res) => {
     }
 
     const hasWorkOrderBool =
-      hasWorkOrder === true ||
-      hasWorkOrder === "true" ||
-      hasWorkOrder === "1";
+      hasWorkOrder === true || hasWorkOrder === "true" || hasWorkOrder === "1";
     if (hasWorkOrderBool && !refDocNo) {
       return res.status(400).json({
         success: false,
-        message:
-          "refDocNo is required when work order is selected",
+        message: "refDocNo is required when work order is selected",
       });
     }
 
@@ -199,9 +203,12 @@ exports.createIntake = async (req, res) => {
         equipmentMaterialDetails: equipmentMaterialDetails || null,
         remarks: remarks || null,
         noOfPersonsAllowed: noOfPersonsAllowed ? Number(noOfPersonsAllowed) : 0,
-        noOfVehiclesAllowed: noOfVehiclesAllowed ? Number(noOfVehiclesAllowed) : 0,
+        noOfVehiclesAllowed: noOfVehiclesAllowed
+          ? Number(noOfVehiclesAllowed)
+          : 0,
         paymentMode: paymentMode || "CASH",
-        allowAuctionPassOnly: allowAuctionPassOnly === "true" || allowAuctionPassOnly === true,
+        allowAuctionPassOnly:
+          allowAuctionPassOnly === "true" || allowAuctionPassOnly === true,
         validUpto,
         status: "LINK_SENT",
       });
@@ -249,7 +256,10 @@ exports.listIntakes = async (req, res) => {
   try {
     const { fromDate, toDate, companyName, scope } = req.query;
 
-    const { getPagination, buildPaginatedResponse } = require("../utils/pagination");
+    const {
+      getPagination,
+      buildPaginatedResponse,
+    } = require("../utils/pagination");
     const pag = getPagination(req.query);
 
     const filters = {
@@ -297,15 +307,17 @@ exports.listIntakes = async (req, res) => {
       };
     });
 
-    return res.status(200).json(
-      buildPaginatedResponse(
-        data,
-        result.counts,
-        result.counts.total,
-        pag.page,
-        pag.limit
-      )
-    );
+    return res
+      .status(200)
+      .json(
+        buildPaginatedResponse(
+          data,
+          result.counts,
+          result.counts.total,
+          pag.page,
+          pag.limit,
+        ),
+      );
   } catch (error) {
     console.error("listIntakes error:", error);
     return res
@@ -333,9 +345,7 @@ exports.resendLink = async (req, res) => {
       });
     }
     if (String(intake.departmentId) !== String(req.user.departmentId)) {
-      return res
-        .status(403)
-        .json({ success: false, message: "Forbidden" });
+      return res.status(403).json({ success: false, message: "Forbidden" });
     }
 
     const ok = await sendVendorLinkEmail(intake);
@@ -372,9 +382,7 @@ exports.revokeIntake = async (req, res) => {
       });
     }
     if (String(intake.departmentId) !== String(req.user.departmentId)) {
-      return res
-        .status(403)
-        .json({ success: false, message: "Forbidden" });
+      return res.status(403).json({ success: false, message: "Forbidden" });
     }
 
     const updated = await VendorPassRequest.updateStatus(intake.id, "REVOKED");
@@ -403,7 +411,12 @@ exports.getPublicByToken = async (req, res) => {
         .json({ success: false, message: "Invalid or expired link" });
     }
 
-    const allowedStatuses = ["LINK_SENT", "REVERTED", "VENDOR_SUBMITTED", "PARTIALLY_APPROVED"];
+    const allowedStatuses = [
+      "LINK_SENT",
+      "REVERTED",
+      "VENDOR_SUBMITTED",
+      "PARTIALLY_APPROVED",
+    ];
     if (!allowedStatuses.includes(intake.status)) {
       return res.status(410).json({
         success: false,
@@ -466,7 +479,7 @@ exports.getPublicByToken = async (req, res) => {
        FROM "vendor_pass_persons"
        WHERE "vendorPassRequestId" = $1
        ORDER BY id ASC`,
-      [intake.id]
+      [intake.id],
     );
     const vehiclesRes = await pool.query(
       `SELECT
@@ -498,7 +511,7 @@ exports.getPublicByToken = async (req, res) => {
        FROM "vendor_pass_vehicles"
        WHERE "vendorPassRequestId" = $1
        ORDER BY id ASC`,
-      [intake.id]
+      [intake.id],
     );
 
     return res.status(200).json({
@@ -555,7 +568,9 @@ exports.getWorkOrderFile = async (req, res) => {
     const resolvedId = await getResolvedId(req.params.id);
     const intake = await VendorPassRequest.getById(resolvedId);
     if (!intake || !intake.workOrderFilePath) {
-      return res.status(404).json({ success: false, message: "Work order file not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "Work order file not found" });
     }
     let absolutePath = path.isAbsolute(intake.workOrderFilePath)
       ? intake.workOrderFilePath
@@ -567,14 +582,21 @@ exports.getWorkOrderFile = async (req, res) => {
       if (fs.existsSync(altPath)) {
         absolutePath = altPath;
       } else {
-        return res.status(404).json({ success: false, message: "File not found on server" });
+        return res
+          .status(404)
+          .json({ success: false, message: "File not found on server" });
       }
     }
-    res.setHeader("Content-Disposition", `inline; filename="${intake.workOrderFileName || "workorder.pdf"}"`);
+    res.setHeader(
+      "Content-Disposition",
+      `inline; filename="${intake.workOrderFileName || "workorder.pdf"}"`,
+    );
     res.sendFile(absolutePath);
   } catch (error) {
     console.error("getWorkOrderFile error:", error);
-    return res.status(500).json({ success: false, message: "Internal server error" });
+    return res
+      .status(500)
+      .json({ success: false, message: "Internal server error" });
   }
 };
 
@@ -603,12 +625,12 @@ exports.submitPublicVendorForm = async (req, res) => {
     // Check if the company is blacklisted
     const companyBlacklist = await pool.query(
       "SELECT id, reason FROM blacklist_entries WHERE entity_type = 'COMPANY' AND (UPPER(identifier) = UPPER($1) OR UPPER(entity_name) = UPPER($1)) AND status IN ('BLACKLISTED', 'UNBLACKLIST_REQUESTED')",
-      [intake.companyName]
+      [intake.companyName],
     );
     if (companyBlacklist.rows.length > 0) {
       return res.status(403).json({
         success: false,
-        message: `Pass application blocked. Company (${intake.companyName}) is blacklisted. Reason: ${companyBlacklist.rows[0].reason}`
+        message: `Pass application blocked. Company (${intake.companyName}) is blacklisted. Reason: ${companyBlacklist.rows[0].reason}`,
       });
     }
 
@@ -649,14 +671,14 @@ exports.submitPublicVendorForm = async (req, res) => {
     if (persons && Array.isArray(persons)) {
       persons = persons.map((p) => ({
         ...p,
-        passType: normalizePassType(p.passType)
+        passType: normalizePassType(p.passType),
       }));
     }
 
     if (vehicles && Array.isArray(vehicles)) {
       vehicles = vehicles.map((v) => ({
         ...v,
-        passType: normalizePassType(v.passType)
+        passType: normalizePassType(v.passType),
       }));
     }
     /* ===== CHANGE END ===== */
@@ -698,30 +720,108 @@ exports.submitPublicVendorForm = async (req, res) => {
     persons = persons.map((p, i) => {
       const out = { ...p };
       attachFile(out, "personPhoto", i, "photoFilePath", "photoFileName");
-      attachFile(out, "personAadhar", i, "aadharPDFFilePATH", "aadharPDFFileName");
+      attachFile(
+        out,
+        "personAadhar",
+        i,
+        "aadharPDFFilePATH",
+        "aadharPDFFileName",
+      );
       attachFile(out, "personIdProof", i, "idProofFilePath", "idProofFileName");
-      attachFile(out, "requisitionLetter", i, "requisitionLetterPath", "requisitionLetterName");
-      attachFile(out, "driverLicense", i, "driverLicensePath", "driverLicenseName");
-      attachFile(out, "policeVerification", i, "policeVerificationPath", "policeVerificationName");
-      attachFile(out, "employmentProof", i, "employmentProofPath", "employmentProofName");
+      attachFile(
+        out,
+        "requisitionLetter",
+        i,
+        "requisitionLetterPath",
+        "requisitionLetterName",
+      );
+      attachFile(
+        out,
+        "driverLicense",
+        i,
+        "driverLicensePath",
+        "driverLicenseName",
+      );
+      attachFile(
+        out,
+        "policeVerification",
+        i,
+        "policeVerificationPath",
+        "policeVerificationName",
+      );
+      attachFile(
+        out,
+        "employmentProof",
+        i,
+        "employmentProofPath",
+        "employmentProofName",
+      );
       attachFile(out, "chaLicenseCopy", i, "chaLicensePath", "chaLicenseName");
       attachFile(out, "passportDoc", i, "passportPath", "passportName");
       attachFile(out, "visaDoc", i, "visaDocPath", "visaDocName");
-      attachFile(out, "immigrationDoc", i, "immigrationDocPath", "immigrationDocName");
-      attachFile(out, "entryAuthorization", i, "entryAuthorizationFilePath", "entryAuthorizationFileName");
+      attachFile(
+        out,
+        "immigrationDoc",
+        i,
+        "immigrationDocPath",
+        "immigrationDocName",
+      );
+      attachFile(
+        out,
+        "entryAuthorization",
+        i,
+        "entryAuthorizationFilePath",
+        "entryAuthorizationFileName",
+      );
       return out;
     });
 
     vehicles = vehicles.map((v, i) => {
       const out = { ...v };
-      attachFile(out, "vehicleRC", i, "scannedCopyFilePath", "scannedCopyFileName");
-      attachFile(out, "vehicleInsurance", i, "insuranceFilePath", "insuranceFileName");
+      attachFile(
+        out,
+        "vehicleRC",
+        i,
+        "scannedCopyFilePath",
+        "scannedCopyFileName",
+      );
+      attachFile(
+        out,
+        "vehicleInsurance",
+        i,
+        "insuranceFilePath",
+        "insuranceFileName",
+      );
       attachFile(out, "vehiclePermit", i, "permitFilePath", "permitFileName");
-      attachFile(out, "vehicleFitness", i, "fitnessFilePath", "fitnessFileName");
-      attachFile(out, "vehicleRequestLetter", i, "requestLetterPath", "requestLetterName");
+      attachFile(
+        out,
+        "vehicleFitness",
+        i,
+        "fitnessFilePath",
+        "fitnessFileName",
+      );
+      attachFile(
+        out,
+        "vehicleRequestLetter",
+        i,
+        "requestLetterPath",
+        "requestLetterName",
+      );
       attachFile(out, "vehicleTax", i, "taxFilePath", "taxFileName");
-      attachFile(out, "vehicleEmission", i, "emissionFilePath", "emissionFileName");
-      attachFile(out, "sparkArrester", i, "sparkArresterFilePath", "sparkArresterFileName");
+      attachFile(
+        out,
+        "vehicleEmission",
+        i,
+        "emissionFilePath",
+        "emissionFileName",
+      );
+      attachFile(
+        out,
+        "sparkArrester",
+        i,
+        "sparkArresterFilePath",
+        "sparkArresterFileName",
+      );
       attachFile(out, "twistLock", i, "twistLockFilePath", "twistLockFileName");
       return out;
     });
@@ -730,27 +830,39 @@ exports.submitPublicVendorForm = async (req, res) => {
     const updated = await VendorPassRequest.submitVendorForm(
       token,
       persons,
-      vehicles
+      vehicles,
     );
 
     // Send acknowledgement email to vendor (fire-and-forget)
     const emailUrl = process.env.EMAIL_SERVICE_URL;
     if (emailUrl && updated.vendorEmail) {
-      axios.post(`${emailUrl}/api/email/sendVendorPassSubmitted`, {
-        email: updated.vendorEmail,
-        companyName: updated.companyName,
-        referenceNo: updated.referenceNo,
-        personsCount: persons.length,
-        vehiclesCount: vehicles.length,
-        departmentName: updated.departmentName,
-      }, {
-        headers: { "x-service-name": "USER-SERVICE" },
-        timeout: 8000,
-      }).then(() => {
-        console.log(`[VENDOR-PASS] Submission acknowledgement email sent to ${updated.vendorEmail}`);
-      }).catch((emailErr) => {
-        console.warn(`[VENDOR-PASS] Submission acknowledgement email failed (non-critical):`, emailErr.message);
-      });
+      axios
+        .post(
+          `${emailUrl}/api/email/sendVendorPassSubmitted`,
+          {
+            email: updated.vendorEmail,
+            companyName: updated.companyName,
+            referenceNo: updated.referenceNo,
+            personsCount: persons.length,
+            vehiclesCount: vehicles.length,
+            departmentName: updated.departmentName,
+          },
+          {
+            headers: { "x-service-name": "USER-SERVICE" },
+            timeout: 8000,
+          },
+        )
+        .then(() => {
+          console.log(
+            `[VENDOR-PASS] Submission acknowledgement email sent to ${updated.vendorEmail}`,
+          );
+        })
+        .catch((emailErr) => {
+          console.warn(
+            `[VENDOR-PASS] Submission acknowledgement email failed (non-critical):`,
+            emailErr.message,
+          );
+        });
     }
 
     return res.status(200).json({
@@ -769,11 +881,12 @@ exports.submitPublicVendorForm = async (req, res) => {
       message: error.message,
       code: error.code,
       detail: error.detail,
-      hint: error.hint
+      hint: error.hint,
     });
-    return res
-      .status(500)
-      .json({ success: false, message: error.message || "Internal server error" });
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Internal server error",
+    });
   }
 };
 
@@ -788,21 +901,23 @@ exports.approveVendorPerson = async (req, res) => {
     const role = req.user?.role;
     const roleId = req.user?.roleId;
 
-    if (roleId === 28 || role === 'Senior Deputy Traffic Manager') {
+    if (roleId === 28 || role === "Senior Deputy Traffic Manager") {
       const personRes = await pool.query(
         `SELECT id FROM "vendor_pass_persons" WHERE "vendorPassRequestId" = $1 ORDER BY id ASC`,
-        [Number(id)]
+        [Number(id)],
       );
       const personEntry = personRes.rows[Number(personIndex)];
       if (!personEntry) {
-        return res.status(404).json({ success: false, message: "Person not found" });
+        return res
+          .status(404)
+          .json({ success: false, message: "Person not found" });
       }
 
       await pool.query(
         `UPDATE "vendor_pass_persons"
          SET "srDtmApproved" = true, "srDtmRemarks" = $2, "updatedAt" = NOW()
          WHERE id = $1`,
-        [personEntry.id, remarks || null]
+        [personEntry.id, remarks || null],
       );
 
       const allPersonsQuery = `
@@ -811,22 +926,24 @@ exports.approveVendorPerson = async (req, res) => {
         WHERE "vendorPassRequestId" = $1
       `;
       const allPersonsRes = await pool.query(allPersonsQuery, [Number(id)]);
-      const oilDockPersons = allPersonsRes.rows.filter(p => isOilDockArea(p.accessAreaId));
-      const allApproved = oilDockPersons.every(p => p.srDtmApproved);
+      const oilDockPersons = allPersonsRes.rows.filter((p) =>
+        isOilDockArea(p.accessAreaId),
+      );
+      const allApproved = oilDockPersons.every((p) => p.srDtmApproved);
 
       if (allApproved) {
         // Reset entity statuses to 'pending' for Pass Section fresh review
         await pool.query(
           `UPDATE "vendor_pass_persons" SET status = 'pending', "updatedAt" = NOW() WHERE "vendorPassRequestId" = $1 AND status = 'approved'`,
-          [Number(id)]
+          [Number(id)],
         );
         await pool.query(
           `UPDATE "vendor_pass_vehicles" SET status = 'pending', "updatedAt" = NOW() WHERE "vendorPassRequestId" = $1 AND status = 'approved'`,
-          [Number(id)]
+          [Number(id)],
         );
         await pool.query(
           `UPDATE "vendor_pass_requests" SET "workflowState" = 'PENDING_PASS_SECTION', "updatedAt" = NOW() WHERE id = $1`,
-          [Number(id)]
+          [Number(id)],
         );
       }
 
@@ -835,16 +952,21 @@ exports.approveVendorPerson = async (req, res) => {
     } else {
       const result = await VendorPassRequest.approveVendorPerson(
         Number(id),
-        Number(personIndex)
+        Number(personIndex),
       );
       if (!result) {
-        return res.status(404).json({ success: false, message: "Vendor pass not found" });
+        return res
+          .status(404)
+          .json({ success: false, message: "Vendor pass not found" });
       }
       return res.json({ success: true, data: result });
     }
   } catch (error) {
     console.error("approveVendorPerson error:", error);
-    return res.status(500).json({ success: false, message: error.message || "Internal server error" });
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Internal server error",
+    });
   }
 };
 
@@ -855,15 +977,20 @@ exports.rejectVendorPerson = async (req, res) => {
     const result = await VendorPassRequest.rejectVendorPerson(
       Number(id),
       Number(personIndex),
-      rejectedReason
+      rejectedReason,
     );
     if (!result) {
-      return res.status(404).json({ success: false, message: "Vendor pass not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "Vendor pass not found" });
     }
     return res.json({ success: true, data: result });
   } catch (error) {
     console.error("rejectVendorPerson error:", error);
-    return res.status(500).json({ success: false, message: error.message || "Internal server error" });
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Internal server error",
+    });
   }
 };
 
@@ -874,7 +1001,9 @@ exports.updateVendorPerson = async (req, res) => {
 
     const resolvedId = await getResolvedId(id);
     if (!resolvedId) {
-      return res.status(404).json({ success: false, message: "Vendor pass not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "Vendor pass not found" });
     }
 
     // Attach files if any
@@ -890,27 +1019,60 @@ exports.updateVendorPerson = async (req, res) => {
     attachFile(data, "personPhoto", "photoFilePath", "photoFileName");
     attachFile(data, "personAadhar", "aadharPDFFilePATH", "aadharPDFFileName");
     attachFile(data, "personIdProof", "idProofFilePath", "idProofFileName");
-    attachFile(data, "requisitionLetter", "requisitionLetterPath", "requisitionLetterName");
+    attachFile(
+      data,
+      "requisitionLetter",
+      "requisitionLetterPath",
+      "requisitionLetterName",
+    );
     attachFile(data, "driverLicense", "driverLicensePath", "driverLicenseName");
-    attachFile(data, "policeVerification", "policeVerificationPath", "policeVerificationName");
-    attachFile(data, "employmentProof", "employmentProofPath", "employmentProofName");
+    attachFile(
+      data,
+      "policeVerification",
+      "policeVerificationPath",
+      "policeVerificationName",
+    );
+    attachFile(
+      data,
+      "employmentProof",
+      "employmentProofPath",
+      "employmentProofName",
+    );
     attachFile(data, "chaLicenseCopy", "chaLicensePath", "chaLicenseName");
     attachFile(data, "passportDoc", "passportPath", "passportName");
     attachFile(data, "visaDoc", "visaDocPath", "visaDocName");
-    attachFile(data, "immigrationDoc", "immigrationDocPath", "immigrationDocName");
+    attachFile(
+      data,
+      "immigrationDoc",
+      "immigrationDocPath",
+      "immigrationDocName",
+    );
     attachFile(data, "cdcDocument", "cdcDocumentPath", "cdcDocumentName");
-    attachFile(data, "declarationForm", "declarationFormPath", "declarationFormName");
-    attachFile(data, "entryAuthorization", "entryAuthorizationFilePath", "entryAuthorizationFileName");
+    attachFile(
+      data,
+      "declarationForm",
+      "declarationFormPath",
+      "declarationFormName",
+    );
+    attachFile(
+      data,
+      "entryAuthorization",
+      "entryAuthorizationFilePath",
+      "entryAuthorizationFileName",
+    );
 
     const result = await VendorPassRequest.updateVendorPerson(
       resolvedId,
       Number(personIndex),
-      data
+      data,
     );
     return res.json({ success: true, data: result });
   } catch (error) {
     console.error("updateVendorPerson error:", error);
-    return res.status(500).json({ success: false, message: error.message || "Internal server error" });
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Internal server error",
+    });
   }
 };
 
@@ -921,7 +1083,9 @@ exports.updateVendorVehicle = async (req, res) => {
 
     const resolvedId = await getResolvedId(id);
     if (!resolvedId) {
-      return res.status(404).json({ success: false, message: "Vendor pass not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "Vendor pass not found" });
     }
 
     const files = req.files || {};
@@ -934,24 +1098,42 @@ exports.updateVendorVehicle = async (req, res) => {
     };
 
     attachFile(data, "vehicleRC", "scannedCopyFilePath", "scannedCopyFileName");
-    attachFile(data, "vehicleInsurance", "insuranceFilePath", "insuranceFileName");
+    attachFile(
+      data,
+      "vehicleInsurance",
+      "insuranceFilePath",
+      "insuranceFileName",
+    );
     attachFile(data, "vehiclePermit", "permitFilePath", "permitFileName");
     attachFile(data, "vehicleFitness", "fitnessFilePath", "fitnessFileName");
-    attachFile(data, "vehicleRequestLetter", "requestLetterPath", "requestLetterName");
+    attachFile(
+      data,
+      "vehicleRequestLetter",
+      "requestLetterPath",
+      "requestLetterName",
+    );
     attachFile(data, "vehicleTax", "taxFilePath", "taxFileName");
     attachFile(data, "vehicleEmission", "emissionFilePath", "emissionFileName");
-    attachFile(data, "sparkArrester", "sparkArresterFilePath", "sparkArresterFileName");
+    attachFile(
+      data,
+      "sparkArrester",
+      "sparkArresterFilePath",
+      "sparkArresterFileName",
+    );
     attachFile(data, "twistLock", "twistLockFilePath", "twistLockFileName");
 
     const result = await VendorPassRequest.updateVendorVehicle(
       resolvedId,
       Number(vehicleIndex),
-      data
+      data,
     );
     return res.json({ success: true, data: result });
   } catch (error) {
     console.error("updateVendorVehicle error:", error);
-    return res.status(500).json({ success: false, message: error.message || "Internal server error" });
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Internal server error",
+    });
   }
 };
 
@@ -960,13 +1142,19 @@ exports.resubmitVendorPass = async (req, res) => {
     const { id } = req.params;
     const resolvedId = await getResolvedId(id);
     if (!resolvedId) {
-      return res.status(404).json({ success: false, message: "Vendor pass not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "Vendor pass not found" });
     }
-    const result = await VendorPassRequest.resubmitRevertedVendorPass(resolvedId);
+    const result =
+      await VendorPassRequest.resubmitRevertedVendorPass(resolvedId);
     return res.json({ success: true, data: result });
   } catch (error) {
     console.error("resubmitVendorPass error:", error);
-    return res.status(500).json({ success: false, message: error.message || "Internal server error" });
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Internal server error",
+    });
   }
 };
 
@@ -975,20 +1163,27 @@ exports.revertVendorPerson = async (req, res) => {
     const { id, personIndex } = req.params;
     const { revertReason } = req.body;
     if (!revertReason) {
-      return res.status(400).json({ success: false, message: "revertReason is required" });
+      return res
+        .status(400)
+        .json({ success: false, message: "revertReason is required" });
     }
     const result = await VendorPassRequest.revertVendorPerson(
       Number(id),
       Number(personIndex),
-      revertReason
+      revertReason,
     );
     if (!result) {
-      return res.status(404).json({ success: false, message: "Vendor pass not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "Vendor pass not found" });
     }
     return res.json({ success: true, data: result });
   } catch (error) {
     console.error("revertVendorPerson error:", error);
-    return res.status(500).json({ success: false, message: error.message || "Internal server error" });
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Internal server error",
+    });
   }
 };
 
@@ -999,74 +1194,201 @@ exports.approveVendorVehicle = async (req, res) => {
     const role = req.user?.role;
     const roleId = req.user?.roleId;
 
-    if (roleId === 26 || role === 'Safety Officer') {
+    if (roleId === 26 || role === "Safety Officer") {
+      const departmentId = Number(req.user?.departmentId);
+
+      if (role === "Safety Officer" && departmentId !== 9) {
+        return res.status(403).json({
+          success: false,
+          message:
+            "Safety Officer for this workflow must belong to Traffic department.",
+        });
+      }
       const vehicleRes = await pool.query(
         `SELECT id FROM "vendor_pass_vehicles" WHERE "vendorPassRequestId" = $1 ORDER BY id ASC`,
-        [Number(id)]
+        [Number(id)],
       );
       const vehicleEntry = vehicleRes.rows[Number(vehicleIndex)];
       if (!vehicleEntry) {
-        return res.status(404).json({ success: false, message: "Vehicle not found" });
+        return res
+          .status(404)
+          .json({ success: false, message: "Vehicle not found" });
       }
-
-      await pool.query(
-        `UPDATE "vendor_pass_vehicles"
-         SET "twistLockCertified" = true, "twistLockRemarks" = $2, "updatedAt" = NOW()
-         WHERE id = $1`,
-        [vehicleEntry.id, remarks || null]
+      const workflowCheckRes = await pool.query(
+        `
+  SELECT
+    pv."passType",
+    pv."vehicleTypeId",
+    pv."workflowState",
+    vpr."isOilDock"
+  FROM "vendor_pass_vehicles" pv
+  JOIN "vendor_pass_requests" vpr
+    ON vpr.id = pv."vendorPassRequestId"
+  WHERE pv.id = $1
+  `,
+        [vehicleEntry.id],
       );
 
+      const workflowCheck = workflowCheckRes.rows[0];
+
+      const vehiclePassType = String(workflowCheck?.passType || "")
+        .trim()
+        .toUpperCase();
+
+      const vehicleTypeRes = await pool.query(
+        `
+        SELECT name
+        FROM vehicle_types
+        WHERE id = $1
+        `,
+        [workflowCheck?.vehicleTypeId],
+      );
+
+      const vehicleTypeName = String(vehicleTypeRes.rows[0]?.name || "")
+        .trim()
+        .toUpperCase();
+
+      const isNormalAnnualTrailerSafetyFlow =
+        workflowCheck?.isOilDock !== true &&
+        workflowCheck?.workflowState === "PENDING_SAFETY" &&
+        ["YEARLY", "ANNUAL"].includes(vehiclePassType) &&
+        ["TRAILORS", "TRAILER LORRY"].includes(vehicleTypeName);
+
+      if (isNormalAnnualTrailerSafetyFlow) {
+        // ------------------------------------------------------------
+        // SAFETY OFFICER = FINAL APPROVAL FOR NORMAL ANNUAL TRAILER
+        // ------------------------------------------------------------
+
+        // 1. Complete the vehicle
+        await pool.query(
+          `
+    UPDATE "vendor_pass_vehicles"
+    SET
+      "twistLockCertified" = true,
+      "twistLockRemarks" = $2,
+      "status" = 'approved',
+      "workflowState" = 'COMPLETED',
+      "workflowActionStage" = NULL,
+      "workflowActionRemarks" = NULL,
+      "updatedAt" = NOW()
+    WHERE id = $1
+    `,
+          [vehicleEntry.id, remarks || null],
+        );
+
+        // 2. Complete the parent request as well
+        //    Parent and child MUST remain in the same final state.
+        await pool.query(
+          `
+    UPDATE "vendor_pass_requests"
+    SET
+      "status" = 'COMPLETED',
+      "workflowState" = 'COMPLETED',
+      "updatedAt" = NOW()
+    WHERE id = $1
+    `,
+          [Number(id)],
+        );
+      } else {
+        await pool.query(
+          `UPDATE "vendor_pass_vehicles"
+     SET
+       "twistLockCertified" = true,
+       "twistLockRemarks" = $2,
+       "updatedAt" = NOW()
+     WHERE id = $1`,
+          [vehicleEntry.id, remarks || null],
+        );
+      }
+
       const allVehiclesQuery = `
-        SELECT id, "twistLockCertified", "passType"
-        FROM "vendor_pass_vehicles"
-        WHERE "vendorPassRequestId" = $1
+        SELECT
+          pv.id,
+          pv."twistLockCertified",
+          pv."passType",
+          vt.name AS "vehicleTypeName"
+        FROM "vendor_pass_vehicles" pv
+        LEFT JOIN vehicle_types vt
+          ON vt.id = pv."vehicleTypeId"
+        WHERE pv."vendorPassRequestId" = $1
       `;
       const allVehiclesRes = await pool.query(allVehiclesQuery, [Number(id)]);
-      const monthlyYearlyVehicles = allVehiclesRes.rows.filter(v => v.passType === "MONTHLY" || v.passType === "YEARLY");
-      const allCertified = monthlyYearlyVehicles.every(v => v.twistLockCertified);
+      const monthlyYearlyVehicles = allVehiclesRes.rows.filter((v) =>
+        ["MONTHLY", "YEARLY", "ANNUAL"].includes(
+          String(v.passType || "")
+            .trim()
+            .toUpperCase(),
+        ),
+      );
+      const allCertified = monthlyYearlyVehicles.every(
+        (v) => v.twistLockCertified,
+      );
 
       if (allCertified) {
-        const prRes = await pool.query(`SELECT "isOilDock" FROM "vendor_pass_requests" WHERE id = $1`, [Number(id)]);
+        const prRes = await pool.query(
+          `SELECT "isOilDock" FROM "vendor_pass_requests" WHERE id = $1`,
+          [Number(id)],
+        );
         const isOilDock = prRes.rows[0]?.isOilDock;
+        const isNormalAnnualTrailerSafetyFlow =
+          !isOilDock &&
+          allVehiclesRes.rows.some((v) => {
+            const passType = String(v.passType || "")
+              .trim()
+              .toUpperCase();
 
-        const nextState = isOilDock ? 'PENDING_FIRE_SAFETY' : 'PENDING_PASS_SECTION';
+            const vehicleType = String(v.vehicleTypeName || "")
+              .trim()
+              .toUpperCase();
 
-        // Reset entity statuses to 'pending' when entering Pass Section queue
-        if (nextState === 'PENDING_PASS_SECTION') {
+            return (
+              ["YEARLY", "ANNUAL"].includes(passType) &&
+              ["TRAILORS", "TRAILER LORRY"].includes(vehicleType)
+            );
+          });
+        if (!isNormalAnnualTrailerSafetyFlow) {
+          const nextState = isOilDock
+            ? "PENDING_FIRE_SAFETY"
+            : "PENDING_PASS_SECTION";
+
+          // Reset entity statuses to 'pending' when entering Pass Section queue
+          if (nextState === "PENDING_PASS_SECTION") {
+            await pool.query(
+              `UPDATE "vendor_pass_persons" SET status = 'pending', "updatedAt" = NOW() WHERE "vendorPassRequestId" = $1 AND status = 'approved'`,
+              [Number(id)],
+            );
+            await pool.query(
+              `UPDATE "vendor_pass_vehicles" SET status = 'pending', "updatedAt" = NOW() WHERE "vendorPassRequestId" = $1 AND status = 'approved'`,
+              [Number(id)],
+            );
+          }
+
           await pool.query(
-            `UPDATE "vendor_pass_persons" SET status = 'pending', "updatedAt" = NOW() WHERE "vendorPassRequestId" = $1 AND status = 'approved'`,
-            [Number(id)]
-          );
-          await pool.query(
-            `UPDATE "vendor_pass_vehicles" SET status = 'pending', "updatedAt" = NOW() WHERE "vendorPassRequestId" = $1 AND status = 'approved'`,
-            [Number(id)]
+            `UPDATE "vendor_pass_requests" SET "workflowState" = $2, "updatedAt" = NOW() WHERE id = $1`,
+            [Number(id), nextState],
           );
         }
-
-        await pool.query(
-          `UPDATE "vendor_pass_requests" SET "workflowState" = $2, "updatedAt" = NOW() WHERE id = $1`,
-          [Number(id), nextState]
-        );
       }
 
       const result = await VendorPassRequest.getById(Number(id));
       return res.json({ success: true, data: result });
-
-    } else if (roleId === 27 || role === 'Fire Safety Officer') {
+    } else if (roleId === 27 || role === "Fire Safety Officer") {
       const vehicleRes = await pool.query(
         `SELECT id FROM "vendor_pass_vehicles" WHERE "vendorPassRequestId" = $1 ORDER BY id ASC`,
-        [Number(id)]
+        [Number(id)],
       );
       const vehicleEntry = vehicleRes.rows[Number(vehicleIndex)];
       if (!vehicleEntry) {
-        return res.status(404).json({ success: false, message: "Vehicle not found" });
+        return res
+          .status(404)
+          .json({ success: false, message: "Vehicle not found" });
       }
 
       await pool.query(
         `UPDATE "vendor_pass_vehicles"
          SET "sparkArresterCertified" = true, "sparkArresterRemarks" = $2, "updatedAt" = NOW()
          WHERE id = $1`,
-        [vehicleEntry.id, remarks || null]
+        [vehicleEntry.id, remarks || null],
       );
 
       const allVehiclesQuery = `
@@ -1075,34 +1397,83 @@ exports.approveVendorVehicle = async (req, res) => {
         WHERE "vendorPassRequestId" = $1
       `;
       const allVehiclesRes = await pool.query(allVehiclesQuery, [Number(id)]);
-      const oilDockVehicles = allVehiclesRes.rows.filter(v => isOilDockArea(v.accessAreaId));
-      const allCertified = oilDockVehicles.every(v => v.sparkArresterCertified);
+      const oilDockVehicles = allVehiclesRes.rows.filter((v) =>
+        isOilDockArea(v.accessAreaId),
+      );
+      const allCertified = oilDockVehicles.every(
+        (v) => v.sparkArresterCertified,
+      );
 
+      // if (allCertified) {
+      //   await pool.query(
+      //     `UPDATE "vendor_pass_requests" SET "workflowState" = 'PENDING_SR_DTM', "updatedAt" = NOW() WHERE id = $1`,
+      //     [Number(id)]
+      //   );
+      // }
       if (allCertified) {
-        await pool.query(
-          `UPDATE "vendor_pass_requests" SET "workflowState" = 'PENDING_SR_DTM', "updatedAt" = NOW() WHERE id = $1`,
-          [Number(id)]
+        const requestRes = await pool.query(
+          `SELECT "isOilDock", "departmentName", "departmentId"
+     FROM "vendor_pass_requests"
+     WHERE id = $1`,
+          [Number(id)],
         );
+
+        const request = requestRes.rows[0];
+
+        if (request?.isOilDock === true) {
+          const departmentName = String(
+            request.departmentName || "",
+          ).toUpperCase();
+
+          let nextState = "PENDING_VENDOR_ESSENTIAL_CISF";
+
+          if (departmentName.includes("CIVIL")) {
+            nextState = "PENDING_VENDOR_ESSENTIAL_CIVIL";
+          } else if (departmentName.includes("MECH")) {
+            nextState = "PENDING_VENDOR_ESSENTIAL_MECHANICAL";
+          } else if (
+            departmentName.includes("TRAFFIC") ||
+            departmentName.includes("PASS")
+          ) {
+            nextState = "PENDING_VENDOR_ESSENTIAL_CISF";
+          }
+
+          await pool.query(
+            `UPDATE "vendor_pass_requests"
+       SET "workflowState" = $2, "updatedAt" = NOW()
+       WHERE id = $1`,
+            [Number(id), nextState],
+          );
+        } else {
+          // EXISTING NORMAL VENDOR FLOW — DO NOT CHANGE
+          await pool.query(
+            `UPDATE "vendor_pass_requests"
+       SET "workflowState" = 'PENDING_SR_DTM', "updatedAt" = NOW()
+       WHERE id = $1`,
+            [Number(id)],
+          );
+        }
       }
 
       const result = await VendorPassRequest.getById(Number(id));
       return res.json({ success: true, data: result });
-
-    } else if (roleId === 28 || role === 'Senior Deputy Traffic Manager') {
+    } else if (roleId === 28 || role === "Senior Deputy Traffic Manager") {
       const vehicleRes = await pool.query(
         `SELECT id FROM "vendor_pass_vehicles" WHERE "vendorPassRequestId" = $1 ORDER BY id ASC`,
-        [Number(id)]
+        [Number(id)],
       );
       const vehicleEntry = vehicleRes.rows[Number(vehicleIndex)];
       if (!vehicleEntry) {
-        return res.status(404).json({ success: false, message: "Vehicle not found" });
+        return res
+          .status(404)
+          .json({ success: false, message: "Vehicle not found" });
       }
 
       await pool.query(
         `UPDATE "vendor_pass_vehicles"
          SET "srDtmApproved" = true, "srDtmRemarks" = $2, "updatedAt" = NOW()
          WHERE id = $1`,
-        [vehicleEntry.id, remarks || null]
+        [vehicleEntry.id, remarks || null],
       );
 
       const allVehiclesQuery = `
@@ -1111,41 +1482,47 @@ exports.approveVendorVehicle = async (req, res) => {
         WHERE "vendorPassRequestId" = $1
       `;
       const allVehiclesRes = await pool.query(allVehiclesQuery, [Number(id)]);
-      const oilDockVehicles = allVehiclesRes.rows.filter(v => isOilDockArea(v.accessAreaId));
-      const allApproved = oilDockVehicles.every(v => v.srDtmApproved);
+      const oilDockVehicles = allVehiclesRes.rows.filter((v) =>
+        isOilDockArea(v.accessAreaId),
+      );
+      const allApproved = oilDockVehicles.every((v) => v.srDtmApproved);
 
       if (allApproved) {
         // Reset entity statuses to 'pending' for Pass Section review
         await pool.query(
           `UPDATE "vendor_pass_persons" SET status = 'pending', "updatedAt" = NOW() WHERE "vendorPassRequestId" = $1 AND status = 'approved'`,
-          [Number(id)]
+          [Number(id)],
         );
         await pool.query(
           `UPDATE "vendor_pass_vehicles" SET status = 'pending', "updatedAt" = NOW() WHERE "vendorPassRequestId" = $1 AND status = 'approved'`,
-          [Number(id)]
+          [Number(id)],
         );
         await pool.query(
           `UPDATE "vendor_pass_requests" SET "workflowState" = 'PENDING_PASS_SECTION', "updatedAt" = NOW() WHERE id = $1`,
-          [Number(id)]
+          [Number(id)],
         );
       }
 
       const result = await VendorPassRequest.getById(Number(id));
       return res.json({ success: true, data: result });
-
     } else {
       const result = await VendorPassRequest.approveVendorVehicle(
         Number(id),
-        Number(vehicleIndex)
+        Number(vehicleIndex),
       );
       if (!result) {
-        return res.status(404).json({ success: false, message: "Vendor pass not found" });
+        return res
+          .status(404)
+          .json({ success: false, message: "Vendor pass not found" });
       }
       return res.json({ success: true, data: result });
     }
   } catch (error) {
     console.error("approveVendorVehicle error:", error);
-    return res.status(500).json({ success: false, message: error.message || "Internal server error" });
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Internal server error",
+    });
   }
 };
 
@@ -1156,15 +1533,20 @@ exports.rejectVendorVehicle = async (req, res) => {
     const result = await VendorPassRequest.rejectVendorVehicle(
       Number(id),
       Number(vehicleIndex),
-      rejectedReason
+      rejectedReason,
     );
     if (!result) {
-      return res.status(404).json({ success: false, message: "Vendor pass not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "Vendor pass not found" });
     }
     return res.json({ success: true, data: result });
   } catch (error) {
     console.error("rejectVendorVehicle error:", error);
-    return res.status(500).json({ success: false, message: error.message || "Internal server error" });
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Internal server error",
+    });
   }
 };
 
@@ -1173,20 +1555,27 @@ exports.revertVendorVehicle = async (req, res) => {
     const { id, vehicleIndex } = req.params;
     const { revertReason } = req.body;
     if (!revertReason) {
-      return res.status(400).json({ success: false, message: "revertReason is required" });
+      return res
+        .status(400)
+        .json({ success: false, message: "revertReason is required" });
     }
     const result = await VendorPassRequest.revertVendorVehicle(
       Number(id),
       Number(vehicleIndex),
-      revertReason
+      revertReason,
     );
     if (!result) {
-      return res.status(404).json({ success: false, message: "Vendor pass not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "Vendor pass not found" });
     }
     return res.json({ success: true, data: result });
   } catch (error) {
     console.error("revertVendorVehicle error:", error);
-    return res.status(500).json({ success: false, message: error.message || "Internal server error" });
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Internal server error",
+    });
   }
 };
 
@@ -1196,10 +1585,94 @@ exports.completeVendorReview = async (req, res) => {
     const userId = req.user ? req.user.userId : null;
     const role = req.user ? req.user.role : null;
     const roleId = req.user ? req.user.roleId : null;
-    const result = await VendorPassRequest.completeVendorPassReview(Number(id), userId, role, roleId);
+    const result = await VendorPassRequest.completeVendorPassReview(
+      Number(id),
+      userId,
+      role,
+      roleId,
+    );
     return res.json({ success: true, data: result });
   } catch (error) {
     console.error("completeVendorReview error:", error);
-    return res.status(500).json({ success: false, message: error.message || "Internal server error" });
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Internal server error",
+    });
+  }
+};
+
+exports.vendorOilJettyWorkflowAction = async (req, res) => {
+  try {
+    const vendorPassId = Number(req.params.id);
+
+    const { entityType, entityId, decision, remarks } = req.body;
+
+    if (!vendorPassId) {
+      return res.status(400).json({
+        success: false,
+        message: "Vendor pass ID is required",
+      });
+    }
+
+    if (
+      !["PERSON", "VEHICLE"].includes(
+        String(entityType || "")
+          .trim()
+          .toUpperCase(),
+      )
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "entityType must be PERSON or VEHICLE",
+      });
+    }
+
+    if (!Number(entityId)) {
+      return res.status(400).json({
+        success: false,
+        message: "entityId is required",
+      });
+    }
+
+    if (!["APPROVED", "REJECTED", "REVERTED"].includes(decision)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid workflow decision",
+      });
+    }
+
+    if (
+      (decision === "REJECTED" || decision === "REVERTED") &&
+      !String(remarks || "").trim()
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Remarks are required for rejection or revert",
+      });
+    }
+
+    const result = await VendorPassRequest.actionVendorOilJettyWorkflow(
+      vendorPassId,
+      req.user.userId,
+      req.user.roleId,
+      req.user.departmentId,
+      String(entityType).trim().toUpperCase(),
+      Number(entityId),
+      decision,
+      String(remarks || "").trim() || null,
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: result.message,
+      data: result,
+    });
+  } catch (error) {
+    console.error("vendorOilJettyWorkflowAction error:", error);
+
+    return res.status(409).json({
+      success: false,
+      message: error.message,
+    });
   }
 };

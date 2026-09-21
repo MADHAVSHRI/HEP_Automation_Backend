@@ -2,39 +2,38 @@ const AGENT_STATUS = Object.freeze({
   PENDING: "pending",
   APPROVED: "approved",
   REJECTED: "rejected",
-  REVERTED: "reverted"
+  REVERTED: "reverted",
 });
 
 const USER_ROLES = {
   USER: "user",
   TRAFFIC_ADMIN: "trafficAdmin",
-  MARINE_ADMIN: "marineAdmin"
+  MARINE_ADMIN: "marineAdmin",
 };
 
 const PASS_ENTITY_STATUS = Object.freeze({
   PENDING: "pending",
   APPROVED: "approved",
   REJECTED: "rejected",
-  REVERTED: "reverted"
+  REVERTED: "reverted",
 });
 
 const PASS_REQUEST_STATUS = Object.freeze({
   DRAFT: "DRAFT",
   SUBMITTED: "SUBMITTED",
   UNDER_REVIEW: "UNDER_REVIEW",
-  COMPLETED: "COMPLETED"
+  COMPLETED: "COMPLETED",
 });
 
-
 const PASS_TYPES = [
-  { value: "DAILY", label: "Daily" ,id: 1},
+  { value: "DAILY", label: "Daily", id: 1 },
   { value: "MONTHLY", label: "Monthly", id: 2 },
-  { value: "YEARLY", label: "Annual", id: 3 }
+  { value: "YEARLY", label: "Annual", id: 3 },
 ];
 
 const NATIONALITIES = [
   { value: "INDIAN", label: "Indian", id: 1 },
-  { value: "FOREIGNER", label: "Foreigner", id: 2 }
+  { value: "FOREIGNER", label: "Foreigner", id: 2 },
 ];
 
 const ID_PROOF_TYPES = [
@@ -42,23 +41,37 @@ const ID_PROOF_TYPES = [
   { value: "PAN CARD", label: "PAN Card", id: 2 },
   { value: "PASSPORT", label: "Passport", id: 3 },
   { value: "ELECTION CARD", label: "Voter ID", id: 4 },
-  { value: "COMPANY ID CARD", label: "Company ID", id: 5 }
+  { value: "COMPANY ID CARD", label: "Company ID", id: 5 },
 ];
 
 const VISIT_PURPOSES = [
   { value: "BUSINESS", label: "Business", id: 1 },
   { value: "LEISURE", label: "Leisure", id: 2 },
-  { value: "MEDICAL", label: "Medical", id: 3 }
+  { value: "MEDICAL", label: "Medical", id: 3 },
 ];
 
 const ACCESS_AREAS = [
-  { value: "OIL JETTY AND OTHER GATES", label: "Oil Jetty and Other Gates", id: 1 },
-  { value: "OTHER GATES ONLY", label: "Other Gates Only", id: 2 }
+  {
+    value: "OIL JETTY AND OTHER GATES",
+    label: "Oil Jetty and Other Gates",
+    id: 1,
+  },
+  { value: "OTHER GATES ONLY", label: "Other Gates Only", id: 2 },
 ];
 
 const MONTH_CODES = [
-  "JAN","FEB","MAR","APR","MAY","JUN",
-  "JUL","AUG","SEP","OCT","NOV","DEC",
+  "JAN",
+  "FEB",
+  "MAR",
+  "APR",
+  "MAY",
+  "JUN",
+  "JUL",
+  "AUG",
+  "SEP",
+  "OCT",
+  "NOV",
+  "DEC",
 ];
 
 const VISITOR_TYPES = [
@@ -72,6 +85,22 @@ const VISITOR_TYPES = [
 
 // Flat array of visitor type names used by the Bulk Pass module for validation.
 const BULK_VISITOR_TYPES = Object.freeze(VISITOR_TYPES.map((t) => t.name));
+
+const VENDOR_OIL_JETTY_WORKFLOW_STATES = Object.freeze({
+  MARINE: "PENDING_VENDOR_MARINE",
+  CONCERN_DEPARTMENT: "PENDING_VENDOR_CONCERN_DEPARTMENT",
+  CISF: "PENDING_VENDOR_CISF",
+  TRAFFIC: "PENDING_VENDOR_TRAFFIC",
+  COMPLETED: "COMPLETED",
+  REJECTED: "REJECTED",
+  REVERTED: "REVERTED",
+});
+
+const VENDOR_OIL_JETTY_WORKFLOW_ACTIONS = Object.freeze({
+  APPROVED: "APPROVED",
+  REJECTED: "REJECTED",
+  REVERTED: "REVERTED",
+});
 
 const DEPARTMENT_IDS = Object.freeze({
   CISF: 1,
@@ -116,6 +145,8 @@ module.exports = {
   VISITOR_TYPES,
   BULK_VISITOR_TYPES,
   MONTH_CODES,
+  VENDOR_OIL_JETTY_WORKFLOW_STATES,
+  VENDOR_OIL_JETTY_WORKFLOW_ACTIONS,
   DEPARTMENT_IDS,
   WORKFLOW_ROLES,
   ESSENTIAL_WORKFLOW_STAGES,

@@ -24,7 +24,7 @@ const formatISTDateTime = (dateValue, isEndOfDay = false) => {
   // Try to extract full datetime: YYYY-MM-DD HH:MM:SS or YYYY-MM-DDTHH:MM:SS
   // This preserves the actual time from DB without UTC→IST shifting
   const dtMatch = dateStr.match(
-    /^(\d{4})-(\d{2})-(\d{2})[T\s](\d{2}):(\d{2}):(\d{2})/
+    /^(\d{4})-(\d{2})-(\d{2})[T\s](\d{2}):(\d{2}):(\d{2})/,
   );
   if (dtMatch) {
     const [, year, month, day, hour, minute] = dtMatch;
@@ -61,8 +61,7 @@ const formatISTDateTime = (dateValue, isEndOfDay = false) => {
   });
 };
 
-exports.getQrData = async (passRequestId, type ='null', entityId='null') => {
-
+exports.getQrData = async (passRequestId, type = "null", entityId = "null") => {
   // ============================================================
   // MARINE SAFETY QR GUARD
   // Annual/Yearly Trailer or Trailer Lorry vehicles
@@ -90,32 +89,20 @@ exports.getQrData = async (passRequestId, type ='null', entityId='null') => {
     const vehicle = marineCheck.rows[0];
 
     if (vehicle) {
-      const vehicleTypeName = String(
-        vehicle.vehicleTypeName || "",
-      )
+      const vehicleTypeName = String(vehicle.vehicleTypeName || "")
         .trim()
         .toUpperCase();
 
-      const passType = String(
-        vehicle.passType || "",
-      )
+      const passType = String(vehicle.passType || "")
         .trim()
         .toUpperCase();
 
       const isMarineVehicle =
-        (
-          vehicleTypeName === "TRAILORS" ||
-          vehicleTypeName === "TRAILER LORRY"
-        ) &&
-        (
-          passType === "YEARLY" ||
-          passType === "ANNUAL"
-        );
+        (vehicleTypeName === "TRAILORS" ||
+          vehicleTypeName === "TRAILER LORRY") &&
+        (passType === "YEARLY" || passType === "ANNUAL");
 
-      if (
-        isMarineVehicle &&
-        vehicle.marineSafetyApproved !== true
-      ) {
+      if (isMarineVehicle && vehicle.marineSafetyApproved !== true) {
         throw new Error(
           "Marine Safety approval is required before QR can be generated.",
         );
@@ -208,11 +195,14 @@ exports.getQrData = async (passRequestId, type ='null', entityId='null') => {
             photoBase64 = fileBuffer.toString("base64");
 
             const ext = path.extname(fullPath).toLowerCase();
-            if (ext === ".png")  photoMimeType = "image/png";
+            if (ext === ".png") photoMimeType = "image/png";
             if (ext === ".webp") photoMimeType = "image/webp";
           }
         } catch (err) {
-          console.error(`Photo read error for person ${person.id}:`, err.message);
+          console.error(
+            `Photo read error for person ${person.id}:`,
+            err.message,
+          );
         }
       }
 
@@ -236,7 +226,7 @@ exports.getQrData = async (passRequestId, type ='null', entityId='null') => {
         photoBase64,
         photoMimeType,
       };
-    })
+    }),
   );
 
   const vehicles = vehiclesResult.rows.map((vehicle) => {
@@ -265,12 +255,25 @@ exports.getQrData = async (passRequestId, type ='null', entityId='null') => {
  * Get QR data for vendor passes
  * Reads from vendor_pass_persons and vendor_pass_vehicles relational tables
  * so each person/vehicle retains its own dateFrom/dateTo.
+ * 
+ * 
  */
-exports.getVendorQrData = async (vendorPassId) => {
-  // Resolve id from token if it is a token
+
+exports.getVendorQrData = async (
+  vendorPassId,
+  type = null,
+  entityId = null,
+) => {
   let resolvedId = vendorPassId;
+
+  /*
+   * ==========================================================
+   * 1. Resolve encrypted token -> vendor_pass_requests.id
+   * ==========================================================
+   */
   if (vendorPassId && !/^\d+$/.test(String(vendorPassId))) {
     const { decryptToken } = require("../utils/cryptoUtils");
+
     const decrypted = decryptToken(vendorPassId);
     const finalTokenOrId = decrypted || vendorPassId;
 
@@ -278,37 +281,149 @@ exports.getVendorQrData = async (vendorPassId) => {
       resolvedId = Number(finalTokenOrId);
     } else {
       const tokenRes = await pool.query(
-        `SELECT id FROM "vendor_pass_requests" WHERE "token" = $1`,
-        [finalTokenOrId]
+        `
+          SELECT id
+          FROM "vendor_pass_requests"
+          WHERE "token" = $1
+        `,
+        [finalTokenOrId],
       );
+
       resolvedId = tokenRes.rows[0]?.id || null;
     }
   }
 
-  // Verify vendor pass is approved
+  /*
+   * ==========================================================
+   * 2. Determine whether this is an entity-specific QR request
+   * ==========================================================
+   */
+  const normalizedType = String(type || "")
+    .trim()
+    .toLowerCase();
+
+  const normalizedEntityId = Number(entityId);
+
+  const entitySpecific =
+    ["person", "vehicle"].includes(normalizedType) &&
+    Number.isInteger(normalizedEntityId) &&
+    normalizedEntityId > 0;
+
+  /*
+   * ==========================================================
+   * 3. Fetch parent vendor request
+   *
+   * Entity QR:
+   *   Parent does NOT need to be COMPLETED.
+   *
+   * Legacy/general QR:
+   *   Parent still must be COMPLETED.
+   * ==========================================================
+   */
   const vprResult = await pool.query(
-    `SELECT "referenceNo", "companyName", status,
-            "workOrderFilePath", "workOrderFileName", "visitorTypeId", "purposeOfVisitId"
-     FROM "vendor_pass_requests"
-     WHERE id = $1 AND status IN ('APPROVED', 'COMPLETED', 'REVERTED', 'VENDOR_SUBMITTED', 'REJECTED')`,
-    [resolvedId]
+    entitySpecific
+      ? `
+          SELECT
+            "referenceNo",
+            "companyName",
+            status,
+            "workflowState",
+            "workOrderFilePath",
+            "workOrderFileName",
+            "visitorTypeId",
+            "purposeOfVisitId"
+          FROM "vendor_pass_requests"
+          WHERE id = $1
+        `
+      : `
+          SELECT
+            "referenceNo",
+            "companyName",
+            status,
+            "workflowState",
+            "workOrderFilePath",
+            "workOrderFileName",
+            "visitorTypeId",
+            "purposeOfVisitId"
+          FROM "vendor_pass_requests"
+          WHERE id = $1
+            AND status = 'COMPLETED'
+            AND "workflowState" = 'COMPLETED'
+        `,
+    [resolvedId],
   );
 
   if (vprResult.rows.length === 0) {
     throw new Error("No approved vendor pass found");
   }
 
-  const { referenceNo, companyName, status,
-          workOrderFilePath, workOrderFileName, visitorTypeId, purposeOfVisitId } = vprResult.rows[0];
+  const {
+    referenceNo,
+    companyName,
+    status,
+    workOrderFilePath,
+    workOrderFileName,
+    visitorTypeId,
+    purposeOfVisitId,
+  } = vprResult.rows[0];
 
+  /*
+   * ==========================================================
+   * 4. PERSON DATA
+   * ==========================================================
+   */
   const personsResult = await pool.query(
-    `SELECT * FROM "vendor_pass_persons"
-     WHERE "vendorPassRequestId" = $1
-     ORDER BY id ASC`,
-    [resolvedId]
+    entitySpecific && normalizedType === "person"
+      ? `
+          SELECT *
+          FROM "vendor_pass_persons"
+          WHERE "vendorPassRequestId" = $1
+            AND id = $2
+            AND status = 'approved'
+          ORDER BY id ASC
+        `
+      : `
+          SELECT *
+          FROM "vendor_pass_persons"
+          WHERE "vendorPassRequestId" = $1
+          ORDER BY id ASC
+        `,
+    entitySpecific && normalizedType === "person"
+      ? [resolvedId, normalizedEntityId]
+      : [resolvedId],
   );
 
-  // Process persons with photo base64
+  /*
+   * ==========================================================
+   * 5. VEHICLE DATA
+   * ==========================================================
+   */
+  const vehiclesResult = await pool.query(
+    entitySpecific && normalizedType === "vehicle"
+      ? `
+          SELECT *
+          FROM "vendor_pass_vehicles"
+          WHERE "vendorPassRequestId" = $1
+            AND id = $2
+            AND status = 'approved'
+          ORDER BY id ASC
+        `
+      : `
+          SELECT *
+          FROM "vendor_pass_vehicles"
+          WHERE "vendorPassRequestId" = $1
+          ORDER BY id ASC
+        `,
+    entitySpecific && normalizedType === "vehicle"
+      ? [resolvedId, normalizedEntityId]
+      : [resolvedId],
+  );
+
+  /*
+   * ==========================================================
+   * 6. BUILD PERSON RESPONSE
+   * ==========================================================
+   */
   const persons = await Promise.all(
     personsResult.rows.map(async (person) => {
       let photoBase64 = null;
@@ -322,15 +437,21 @@ exports.getVendorQrData = async (vendorPassId) => {
 
           if (fsSync.existsSync(fullPath)) {
             const fileBuffer = await fs.readFile(fullPath);
+
             photoBase64 = fileBuffer.toString("base64");
 
             const ext = path.extname(fullPath).toLowerCase();
-            if (ext === ".png") photoMimeType = "image/png";
-            if (ext === ".webp") photoMimeType = "image/webp";
+
+            if (ext === ".png") {
+              photoMimeType = "image/png";
+            } else if (ext === ".webp") {
+              photoMimeType = "image/webp";
+            }
           }
         } catch (err) {
           console.error(
-            `Photo read error for vendor person ${person.name}:`
+            `Photo read error for vendor person ${person.name}:`,
+            err,
           );
         }
       }
@@ -340,138 +461,460 @@ exports.getVendorQrData = async (vendorPassId) => {
         personPassNo: person.personPassNo,
         name: person.name,
         mobile: person.mobile,
-        email: person.email || '',
+        email: person.email || "",
         aadharNo: person.aadharNo,
-        nationality: person.nationality || 'INDIAN',
+        nationality: person.nationality || "INDIAN",
         dateFrom: person.dateFrom,
         dateTo: person.dateTo,
-        passType: person.passType || '',
+        passType: person.passType || "",
         passPeriod: person.passPeriod || 1,
-        amount: person.amount || '',
+        amount: person.amount || "",
         status: person.status,
         rejectedReason: person.rejectedReason,
         revertReason: person.revertReason,
-        // Full form fields
-        hepTypeId: person.hepTypeId || '',
-        designationId: person.designationId || '',
-        designationOther: person.designationOther || '',
-        idProofType: person.idProofType || '',
-        idProofNumber: person.idProofNumber || '',
-        countryId: person.countryId || '75',
-        accessAreaId: person.accessAreaId || '',
-        cardNumber: person.cardNumber || '',
-        visaNo: person.visaNo || '',
-        passportNo: person.passportNo || '',
-        cdcNumber: person.cdcNumber || '',
-        seafarerPassFor: person.seafarerPassFor || 'Sign-On',
-        seafarerIdType: person.seafarerIdType || '',
+
+        hepTypeId: person.hepTypeId || "",
+        designationId: person.designationId || "",
+        designationOther: person.designationOther || "",
+        idProofType: person.idProofType || "",
+        idProofNumber: person.idProofNumber || "",
+        countryId: person.countryId || "75",
+        accessAreaId: person.accessAreaId || "",
+        cardNumber: person.cardNumber || "",
+        visaNo: person.visaNo || "",
+        passportNo: person.passportNo || "",
+        cdcNumber: person.cdcNumber || "",
+        seafarerPassFor: person.seafarerPassFor || "Sign-On",
+        seafarerIdType: person.seafarerIdType || "",
         withTwoWheeler: person.withTwoWheeler || false,
-        vehicleNo: person.vehicleNo || '',
-        // File names
-        photoFileName: person.photoFileName || '',
-        aadharPDFFileName: person.aadharPDFFileName || '',
-        passportName: person.passportName || '',
-        requisitionLetterName: person.requisitionLetterName || '',
-        driverLicenseName: person.driverLicenseName || '',
-        policeVerificationName: person.policeVerificationName || '',
-        employmentProofName: person.employmentProofName || '',
-        chaLicenseName: person.chaLicenseName || '',
-        idProofFileName: person.idProofFileName || '',
-        cdcDocumentName: person.cdcDocumentName || '',
-        declarationFormName: person.declarationFormName || '',
-        entryAuthorizationFileName: person.entryAuthorizationFileName || '',
-        // File paths
-        aadharPDFFilePATH: person.aadharPDFFilePATH || '',
-        idProofFilePath: person.idProofFilePath || '',
-        photoFilePath: person.photoFilePath || '',
-        passportPath: person.passportPath || '',
-        requisitionLetterPath: person.requisitionLetterPath || '',
-        driverLicensePath: person.driverLicensePath || '',
-        policeVerificationPath: person.policeVerificationPath || '',
-        employmentProofPath: person.employmentProofPath || '',
-        chaLicensePath: person.chaLicensePath || '',
-        cdcDocumentPath: person.cdcDocumentPath || '',
-        declarationFormPath: person.declarationFormPath || '',
-        entryAuthorizationFilePath: person.entryAuthorizationFilePath || '',
-        // QR display fields
-        validFrom: formatISTDateTime(person.dateFrom, false),
-        validTo: formatISTDateTime(person.dateTo, false),
+        vehicleNo: person.vehicleNo || "",
+
+        photoFileName: person.photoFileName || "",
+        aadharPDFFileName: person.aadharPDFFileName || "",
+        passportName: person.passportName || "",
+        requisitionLetterName:
+          person.requisitionLetterName || "",
+        driverLicenseName:
+          person.driverLicenseName || "",
+        policeVerificationName:
+          person.policeVerificationName || "",
+        employmentProofName:
+          person.employmentProofName || "",
+        chaLicenseName: person.chaLicenseName || "",
+        idProofFileName: person.idProofFileName || "",
+        cdcDocumentName:
+          person.cdcDocumentName || "",
+        declarationFormName:
+          person.declarationFormName || "",
+        entryAuthorizationFileName:
+          person.entryAuthorizationFileName || "",
+
+        aadharPDFFilePATH:
+          person.aadharPDFFilePATH || "",
+        idProofFilePath:
+          person.idProofFilePath || "",
+        photoFilePath:
+          person.photoFilePath || "",
+        passportPath:
+          person.passportPath || "",
+        requisitionLetterPath:
+          person.requisitionLetterPath || "",
+        driverLicensePath:
+          person.driverLicensePath || "",
+        policeVerificationPath:
+          person.policeVerificationPath || "",
+        employmentProofPath:
+          person.employmentProofPath || "",
+        chaLicensePath:
+          person.chaLicensePath || "",
+        cdcDocumentPath:
+          person.cdcDocumentPath || "",
+        declarationFormPath:
+          person.declarationFormPath || "",
+        entryAuthorizationFilePath:
+          person.entryAuthorizationFilePath || "",
+
+        validFrom: formatISTDateTime(
+          person.dateFrom,
+          false,
+        ),
+        validTo: formatISTDateTime(
+          person.dateTo,
+          false,
+        ),
+
         photoBase64,
         photoMimeType,
+
         company: companyName,
-        hepType: person.passType || 'Personal',
+        hepType: person.passType || "Personal",
       };
-    })
+    }),
   );
 
-  const vehiclesResult = await pool.query(
-    `SELECT * FROM "vendor_pass_vehicles"
-     WHERE "vendorPassRequestId" = $1
-     ORDER BY id ASC`,
-    [resolvedId]
-  );
+  /*
+   * ==========================================================
+   * 7. BUILD VEHICLE RESPONSE
+   * ==========================================================
+   */
+  const vehicles = vehiclesResult.rows.map((vehicle) => ({
+    id: vehicle.id,
+    vehiclePassNo: vehicle.vehiclePassNo,
+    registrationNo:
+      vehicle.vehicleRegistrationNo,
+    dateFrom: vehicle.dateFrom,
+    dateTo: vehicle.dateTo,
+    passType: vehicle.passType || "",
+    passPeriod: vehicle.passPeriod || 1,
+    amount: vehicle.amount || "",
+    status: vehicle.status,
+    rejectedReason:
+      vehicle.rejectedReason,
+    revertReason:
+      vehicle.revertReason,
 
-  const vehicles = vehiclesResult.rows.map((vehicle) => {
-    return {
-      id: vehicle.id,
-      vehiclePassNo: vehicle.vehiclePassNo,
-      registrationNo: vehicle.vehicleRegistrationNo,
-      dateFrom: vehicle.dateFrom,
-      dateTo: vehicle.dateTo,
-      passType: vehicle.passType || '',
-      passPeriod: vehicle.passPeriod || 1,
-      amount: vehicle.amount || '',
-      status: vehicle.status,
-      rejectedReason: vehicle.rejectedReason,
-      revertReason: vehicle.revertReason,
-      // Full form fields
-      vehicleTypeId: vehicle.vehicleTypeId || '',
-      vehicleType: vehicle.vehicleType || '',
-      fuelType: vehicle.fuelType || '',
-      insuranceExpiry: vehicle.insuranceExpiry || '',
-      rcValidity: vehicle.rcValidity || '',
-      accessAreaId: vehicle.accessAreaId || '',
-      // File names
-      scannedCopyFileName: vehicle.scannedCopyFileName || '',
-      insuranceFileName: vehicle.insuranceFileName || '',
-      permitFileName: vehicle.permitFileName || '',
-      fitnessFileName: vehicle.fitnessFileName || '',
-      requestLetterName: vehicle.requestLetterName || '',
-      taxDocName: vehicle.taxFileName || '',
-      emissionCertName: vehicle.emissionFileName || '',
-      sparkArresterFileName: vehicle.sparkArresterFileName || '',
-      twistLockFileName: vehicle.twistLockFileName || '',
-      // File paths
-      scannedCopyFilePath: vehicle.scannedCopyFilePath || '',
-      insuranceFilePath: vehicle.insuranceFilePath || '',
-      permitFilePath: vehicle.permitFilePath || '',
-      fitnessFilePath: vehicle.fitnessFilePath || '',
-      requestLetterPath: vehicle.requestLetterPath || '',
-      taxFilePath: vehicle.taxFilePath || '',
-      emissionFilePath: vehicle.emissionFilePath || '',
-      sparkArresterFilePath: vehicle.sparkArresterFilePath || '',
-      twistLockFilePath: vehicle.twistLockFilePath || '',
-      // QR display fields
-      validFrom: formatISTDateTime(vehicle.dateFrom, false),
-      validTo: formatISTDateTime(vehicle.dateTo, false),
-      company: companyName,
-    };
-  });
+    vehicleTypeId:
+      vehicle.vehicleTypeId || "",
+    vehicleType:
+      vehicle.vehicleType || "",
+    fuelType:
+      vehicle.fuelType || "",
+    insuranceExpiry:
+      vehicle.insuranceExpiry || "",
+    rcValidity:
+      vehicle.rcValidity || "",
+    accessAreaId:
+      vehicle.accessAreaId || "",
 
-  return { persons, vehicles, referenceNo, companyName, status,
-           workOrderFilePath, workOrderFileName, visitorTypeId, purposeOfVisitId };
+    scannedCopyFileName:
+      vehicle.scannedCopyFileName || "",
+    insuranceFileName:
+      vehicle.insuranceFileName || "",
+    permitFileName:
+      vehicle.permitFileName || "",
+    fitnessFileName:
+      vehicle.fitnessFileName || "",
+    requestLetterName:
+      vehicle.requestLetterName || "",
+    taxDocName:
+      vehicle.taxFileName || "",
+    emissionCertName:
+      vehicle.emissionFileName || "",
+    sparkArresterFileName:
+      vehicle.sparkArresterFileName || "",
+    twistLockFileName:
+      vehicle.twistLockFileName || "",
+
+    scannedCopyFilePath:
+      vehicle.scannedCopyFilePath || "",
+    insuranceFilePath:
+      vehicle.insuranceFilePath || "",
+    permitFilePath:
+      vehicle.permitFilePath || "",
+    fitnessFilePath:
+      vehicle.fitnessFilePath || "",
+    requestLetterPath:
+      vehicle.requestLetterPath || "",
+    taxFilePath:
+      vehicle.taxFilePath || "",
+    emissionFilePath:
+      vehicle.emissionFilePath || "",
+    sparkArresterFilePath:
+      vehicle.sparkArresterFilePath || "",
+    twistLockFilePath:
+      vehicle.twistLockFilePath || "",
+
+    validFrom: formatISTDateTime(
+      vehicle.dateFrom,
+      false,
+    ),
+    validTo: formatISTDateTime(
+      vehicle.dateTo,
+      false,
+    ),
+
+    company: companyName,
+  }));
+
+  return {
+    persons,
+    vehicles,
+    referenceNo,
+    companyName,
+    status,
+    workOrderFilePath,
+    workOrderFileName,
+    visitorTypeId,
+    purposeOfVisitId,
+  };
 };
 
-exports.saveQrPdfPath = async (
-  type,
-  entityId,
-  qrPdfPath
-) => {
 
-  const table =
-    type === "person"
-      ? "pass_persons"
-      : "pass_vehicles";
+// exports.getVendorQrData = async (
+//   vendorPassId,
+//   type = null,
+//   entityId = null,
+// ) => {
+//   // Resolve id from token if it is a token
+//   let resolvedId = vendorPassId;
+//   if (vendorPassId && !/^\d+$/.test(String(vendorPassId))) {
+//     const { decryptToken } = require("../utils/cryptoUtils");
+//     const decrypted = decryptToken(vendorPassId);
+//     const finalTokenOrId = decrypted || vendorPassId;
+
+//     if (/^\d+$/.test(String(finalTokenOrId))) {
+//       resolvedId = Number(finalTokenOrId);
+//     } else {
+//       const tokenRes = await pool.query(
+//         `SELECT id FROM "vendor_pass_requests" WHERE "token" = $1`,
+//         [finalTokenOrId],
+//       );
+//       resolvedId = tokenRes.rows[0]?.id || null;
+//     }
+//   }
+
+//   // Verify vendor pass is approved
+//   const isEntitySpecific =
+//     (type === "person" || type === "vehicle") &&
+//     Number.isInteger(Number(entityId)) &&
+//     Number(entityId) > 0;
+
+//   const vprResult = await pool.query(
+//     isEntitySpecific
+//       ? `SELECT "referenceNo", "companyName", status,
+//                 "workflowState",
+//                 "workOrderFilePath", "workOrderFileName",
+//                 "visitorTypeId", "purposeOfVisitId"
+//          FROM "vendor_pass_requests"
+//          WHERE id = $1`
+//       : `SELECT "referenceNo", "companyName", status,
+//                 "workflowState",
+//                 "workOrderFilePath", "workOrderFileName",
+//                 "visitorTypeId", "purposeOfVisitId"
+//          FROM "vendor_pass_requests"
+//          WHERE id = $1
+//            AND status = 'COMPLETED'
+//            AND "workflowState" = 'COMPLETED'`,
+//     [resolvedId],
+//   );
+//   // const vprResult = await pool.query(
+//   //   `SELECT "referenceNo", "companyName", status,
+//   //           "workOrderFilePath", "workOrderFileName", "visitorTypeId", "purposeOfVisitId"
+//   //    FROM "vendor_pass_requests"
+//   //    WHERE id = $1
+//   // AND status = 'COMPLETED'
+//   // AND "workflowState" = 'COMPLETED'`,
+//   //   [resolvedId]
+//   // );
+
+//   if (vprResult.rows.length === 0) {
+//       if (
+//     isEntitySpecific &&
+//     ["REJECTED", "REVERTED", "EXPIRED", "REVOKED"].includes(
+//       String(vprResult.rows[0].status || "").toUpperCase(),
+//     )
+//   ) {
+//     throw new Error("Vendor pass is not available for QR generation");
+//   }
+//     throw new Error("No approved vendor pass found");
+//   }
+
+//   const {
+//     referenceNo,
+//     companyName,
+//     status,
+//     workOrderFilePath,
+//     workOrderFileName,
+//     visitorTypeId,
+//     purposeOfVisitId,
+//   } = vprResult.rows[0];
+
+//     const personsResult = await pool.query(
+//     isEntitySpecific && type === "person"
+//       ? `SELECT * FROM "vendor_pass_persons"
+//          WHERE "vendorPassRequestId" = $1
+//            AND id = $2
+//            AND status = 'approved'
+//          ORDER BY id ASC`
+//       : `SELECT * FROM "vendor_pass_persons"
+//          WHERE "vendorPassRequestId" = $1
+//          ORDER BY id ASC`,
+//     isEntitySpecific && type === "person"
+//       ? [resolvedId, Number(entityId)]
+//       : [resolvedId],
+//   );
+
+//   // Process persons with photo base64
+//   const persons = await Promise.all(
+//     personsResult.rows.map(async (person) => {
+//       let photoBase64 = null;
+//       let photoMimeType = "image/jpeg";
+
+//       if (person.photoFilePath) {
+//         try {
+//           const fullPath = path.isAbsolute(person.photoFilePath)
+//             ? person.photoFilePath
+//             : path.join(__dirname, "../../", person.photoFilePath);
+
+//           if (fsSync.existsSync(fullPath)) {
+//             const fileBuffer = await fs.readFile(fullPath);
+//             photoBase64 = fileBuffer.toString("base64");
+
+//             const ext = path.extname(fullPath).toLowerCase();
+//             if (ext === ".png") photoMimeType = "image/png";
+//             if (ext === ".webp") photoMimeType = "image/webp";
+//           }
+//         } catch (err) {
+//           console.error(`Photo read error for vendor person ${person.name}:`);
+//         }
+//       }
+
+//       return {
+//         id: person.id,
+//         personPassNo: person.personPassNo,
+//         name: person.name,
+//         mobile: person.mobile,
+//         email: person.email || "",
+//         aadharNo: person.aadharNo,
+//         nationality: person.nationality || "INDIAN",
+//         dateFrom: person.dateFrom,
+//         dateTo: person.dateTo,
+//         passType: person.passType || "",
+//         passPeriod: person.passPeriod || 1,
+//         amount: person.amount || "",
+//         status: person.status,
+//         rejectedReason: person.rejectedReason,
+//         revertReason: person.revertReason,
+//         // Full form fields
+//         hepTypeId: person.hepTypeId || "",
+//         designationId: person.designationId || "",
+//         designationOther: person.designationOther || "",
+//         idProofType: person.idProofType || "",
+//         idProofNumber: person.idProofNumber || "",
+//         countryId: person.countryId || "75",
+//         accessAreaId: person.accessAreaId || "",
+//         cardNumber: person.cardNumber || "",
+//         visaNo: person.visaNo || "",
+//         passportNo: person.passportNo || "",
+//         cdcNumber: person.cdcNumber || "",
+//         seafarerPassFor: person.seafarerPassFor || "Sign-On",
+//         seafarerIdType: person.seafarerIdType || "",
+//         withTwoWheeler: person.withTwoWheeler || false,
+//         vehicleNo: person.vehicleNo || "",
+//         // File names
+//         photoFileName: person.photoFileName || "",
+//         aadharPDFFileName: person.aadharPDFFileName || "",
+//         passportName: person.passportName || "",
+//         requisitionLetterName: person.requisitionLetterName || "",
+//         driverLicenseName: person.driverLicenseName || "",
+//         policeVerificationName: person.policeVerificationName || "",
+//         employmentProofName: person.employmentProofName || "",
+//         chaLicenseName: person.chaLicenseName || "",
+//         idProofFileName: person.idProofFileName || "",
+//         cdcDocumentName: person.cdcDocumentName || "",
+//         declarationFormName: person.declarationFormName || "",
+//         entryAuthorizationFileName: person.entryAuthorizationFileName || "",
+//         // File paths
+//         aadharPDFFilePATH: person.aadharPDFFilePATH || "",
+//         idProofFilePath: person.idProofFilePath || "",
+//         photoFilePath: person.photoFilePath || "",
+//         passportPath: person.passportPath || "",
+//         requisitionLetterPath: person.requisitionLetterPath || "",
+//         driverLicensePath: person.driverLicensePath || "",
+//         policeVerificationPath: person.policeVerificationPath || "",
+//         employmentProofPath: person.employmentProofPath || "",
+//         chaLicensePath: person.chaLicensePath || "",
+//         cdcDocumentPath: person.cdcDocumentPath || "",
+//         declarationFormPath: person.declarationFormPath || "",
+//         entryAuthorizationFilePath: person.entryAuthorizationFilePath || "",
+//         // QR display fields
+//         validFrom: formatISTDateTime(person.dateFrom, false),
+//         validTo: formatISTDateTime(person.dateTo, false),
+//         photoBase64,
+//         photoMimeType,
+//         company: companyName,
+//         hepType: person.passType || "Personal",
+//       };
+//     }),
+//   );
+
+//     const vehiclesResult = await pool.query(
+//     isEntitySpecific && type === "vehicle"
+//       ? `SELECT * FROM "vendor_pass_vehicles"
+//          WHERE "vendorPassRequestId" = $1
+//            AND id = $2
+//            AND status = 'approved'
+//          ORDER BY id ASC`
+//       : `SELECT * FROM "vendor_pass_vehicles"
+//          WHERE "vendorPassRequestId" = $1
+//          ORDER BY id ASC`,
+//     isEntitySpecific && type === "vehicle"
+//       ? [resolvedId, Number(entityId)]
+//       : [resolvedId],
+//   );
+
+//   const vehicles = vehiclesResult.rows.map((vehicle) => {
+//     return {
+//       id: vehicle.id,
+//       vehiclePassNo: vehicle.vehiclePassNo,
+//       registrationNo: vehicle.vehicleRegistrationNo,
+//       dateFrom: vehicle.dateFrom,
+//       dateTo: vehicle.dateTo,
+//       passType: vehicle.passType || "",
+//       passPeriod: vehicle.passPeriod || 1,
+//       amount: vehicle.amount || "",
+//       status: vehicle.status,
+//       rejectedReason: vehicle.rejectedReason,
+//       revertReason: vehicle.revertReason,
+//       // Full form fields
+//       vehicleTypeId: vehicle.vehicleTypeId || "",
+//       vehicleType: vehicle.vehicleType || "",
+//       fuelType: vehicle.fuelType || "",
+//       insuranceExpiry: vehicle.insuranceExpiry || "",
+//       rcValidity: vehicle.rcValidity || "",
+//       accessAreaId: vehicle.accessAreaId || "",
+//       // File names
+//       scannedCopyFileName: vehicle.scannedCopyFileName || "",
+//       insuranceFileName: vehicle.insuranceFileName || "",
+//       permitFileName: vehicle.permitFileName || "",
+//       fitnessFileName: vehicle.fitnessFileName || "",
+//       requestLetterName: vehicle.requestLetterName || "",
+//       taxDocName: vehicle.taxFileName || "",
+//       emissionCertName: vehicle.emissionFileName || "",
+//       sparkArresterFileName: vehicle.sparkArresterFileName || "",
+//       twistLockFileName: vehicle.twistLockFileName || "",
+//       // File paths
+//       scannedCopyFilePath: vehicle.scannedCopyFilePath || "",
+//       insuranceFilePath: vehicle.insuranceFilePath || "",
+//       permitFilePath: vehicle.permitFilePath || "",
+//       fitnessFilePath: vehicle.fitnessFilePath || "",
+//       requestLetterPath: vehicle.requestLetterPath || "",
+//       taxFilePath: vehicle.taxFilePath || "",
+//       emissionFilePath: vehicle.emissionFilePath || "",
+//       sparkArresterFilePath: vehicle.sparkArresterFilePath || "",
+//       twistLockFilePath: vehicle.twistLockFilePath || "",
+//       // QR display fields
+//       validFrom: formatISTDateTime(vehicle.dateFrom, false),
+//       validTo: formatISTDateTime(vehicle.dateTo, false),
+//       company: companyName,
+//     };
+//   });
+
+//   return {
+//     persons,
+//     vehicles,
+//     referenceNo,
+//     companyName,
+//     status,
+//     workOrderFilePath,
+//     workOrderFileName,
+//     visitorTypeId,
+//     purposeOfVisitId,
+//   };
+// };
+
+exports.saveQrPdfPath = async (type, entityId, qrPdfPath) => {
+  const table = type === "person" ? "pass_persons" : "pass_vehicles";
 
   const query = `
     UPDATE ${table}
@@ -480,29 +923,16 @@ exports.saveQrPdfPath = async (
     RETURNING *
   `;
 
-  const result = await pool.query(
-    query,
-    [qrPdfPath, entityId]
-  );
+  const result = await pool.query(query, [qrPdfPath, entityId]);
 
   return result.rows[0];
 };
 
-exports.validateQr = async ({
-  entityId,
-  passRequestId,
-  qrUuid,
-  type,
-}) => {
-  const table =
-    type === "vehicle"
-      ? "pass_vehicles"
-      : "pass_persons";
+exports.validateQr = async ({ entityId, passRequestId, qrUuid, type }) => {
+  const table = type === "vehicle" ? "pass_vehicles" : "pass_persons";
 
   const passNoColumn =
-    type === "vehicle"
-      ? `"vehiclePassNo"`
-      : `"personPassNo"`;
+    type === "vehicle" ? `"vehiclePassNo"` : `"personPassNo"`;
 
   const now = new Date();
 
@@ -524,11 +954,7 @@ exports.validateQr = async ({
     LIMIT 1
   `;
 
-  const result = await pool.query(query, [
-    entityId,
-    passRequestId,
-    qrUuid,
-  ]);
+  const result = await pool.query(query, [entityId, passRequestId, qrUuid]);
 
   if (result.rows.length === 0) {
     return {
@@ -566,32 +992,20 @@ exports.validateQr = async ({
     const vehicle = marineCheck.rows[0];
 
     if (vehicle) {
-      const vehicleTypeName = String(
-        vehicle.vehicleTypeName || "",
-      )
+      const vehicleTypeName = String(vehicle.vehicleTypeName || "")
         .trim()
         .toUpperCase();
 
-      const passType = String(
-        vehicle.passType || "",
-      )
+      const passType = String(vehicle.passType || "")
         .trim()
         .toUpperCase();
 
       const isMarineVehicle =
-        (
-          vehicleTypeName === "TRAILORS" ||
-          vehicleTypeName === "TRAILER LORRY"
-        ) &&
-        (
-          passType === "YEARLY" ||
-          passType === "ANNUAL"
-        );
+        (vehicleTypeName === "TRAILORS" ||
+          vehicleTypeName === "TRAILER LORRY") &&
+        (passType === "YEARLY" || passType === "ANNUAL");
 
-      if (
-        isMarineVehicle &&
-        vehicle.marineSafetyApproved !== true
-      ) {
+      if (isMarineVehicle && vehicle.marineSafetyApproved !== true) {
         throw new Error(
           "Marine Safety approval is required before QR can be generated.",
         );
@@ -632,20 +1046,14 @@ exports.validateQr = async ({
   }
 
   // date valid?
-  if (
-    row.dateFrom &&
-    new Date(row.dateFrom) > now
-  ) {
+  if (row.dateFrom && new Date(row.dateFrom) > now) {
     return {
       valid: false,
       message: "Pass not yet active",
     };
   }
 
-  if (
-    row.dateTo &&
-    new Date(row.dateTo) < now
-  ) {
+  if (row.dateTo && new Date(row.dateTo) < now) {
     return {
       valid: false,
       message: "Pass expired",
@@ -661,7 +1069,7 @@ exports.validateQr = async ({
         "lastScannedAt" = NOW()
       WHERE id = $1
     `,
-    [row.id]
+    [row.id],
   );
 
   // Check if active essential pass conversion exists
