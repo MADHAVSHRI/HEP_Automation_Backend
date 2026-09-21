@@ -1,6 +1,16 @@
 const redisClient = require("../../config/redisClient");
 const { pool } = require("../dbconfig/db");
 
+const getScopedType = (req, baseType) => {
+  if (baseType !== "pass") return baseType;
+  const userDept = req.user?.departmentId
+    ? `dept_${req.user.departmentId}`
+    : req.user?.role
+      ? `role_${String(req.user.role).replace(/\s+/g, '_').toLowerCase()}`
+      : 'default';
+  return `pass:${userDept}`;
+};
+
 exports.acquireLock = async (req, res) => {
   try {
     const { applicationId, type } = req.body;
@@ -20,7 +30,8 @@ exports.acquireLock = async (req, res) => {
       });
     }
 
-    const lockKey = `lock:application:${type}:${applicationId}`;
+    const scopedType = getScopedType(req, type);
+    const lockKey = `lock:application:${scopedType}:${applicationId}`;
     const now = new Date();
     // 5 minutes lock TTL as requested by user
     const LOCK_TTL_MINUTES = 5;
@@ -59,7 +70,7 @@ exports.acquireLock = async (req, res) => {
       await pool.query('DELETE FROM application_locks WHERE expires_at <= NOW()');
       const dbCheck = await pool.query(
         'SELECT user_id, user_name, locked_at, expires_at FROM application_locks WHERE application_id = $1 AND application_type = $2 AND expires_at > NOW()',
-        [String(applicationId), type]
+        [String(applicationId), scopedType]
       );
 
       if (dbCheck.rows.length > 0) {
@@ -88,7 +99,7 @@ exports.acquireLock = async (req, res) => {
          VALUES ($1, $2, $3, $4, NOW(), $5)
          ON CONFLICT (application_id, application_type)
          DO UPDATE SET user_id = $3, user_name = $4, locked_at = NOW(), expires_at = $5`,
-        [String(applicationId), type, userId, userName, expiresAt]
+        [String(applicationId), scopedType, userId, userName, expiresAt]
       );
     } catch (dbWriteErr) {
       console.error("Database lock operation error:", dbWriteErr);
@@ -134,13 +145,14 @@ exports.releaseLock = async (req, res) => {
       });
     }
 
-    const lockKey = `lock:application:${type}:${applicationId}`;
+    const scopedType = getScopedType(req, type);
+    const lockKey = `lock:application:${scopedType}:${applicationId}`;
 
     // Release from DB
     try {
       await pool.query(
         'DELETE FROM application_locks WHERE application_id = $1 AND application_type = $2 AND user_id = $3',
-        [String(applicationId), type, userId]
+        [String(applicationId), scopedType, userId]
       );
     } catch (dbErr) {
       console.error("Error releasing lock from DB:", dbErr);
@@ -174,6 +186,8 @@ exports.getActiveLocks = async (req, res) => {
       company: [],
     };
 
+    const targetScopedType = getScopedType(req, "pass");
+
     // 1. Try Redis first (0 DB hits)
     try {
       const keys = await redisClient.keys("lock:application:*");
@@ -182,14 +196,26 @@ exports.getActiveLocks = async (req, res) => {
         keys.forEach((key, idx) => {
           const val = vals[idx];
           if (val) {
-            const parts = key.split(":");
-            const type = parts[2];
-            const id = parts[3];
-            if (activeLocks[type]) {
-              activeLocks[type].push({
-                applicationId: id,
-                ...JSON.parse(val),
-              });
+            // key format: lock:application:<scopedType>:<appId>
+            const keyWithoutPrefix = key.replace("lock:application:", "");
+            const lastColonIndex = keyWithoutPrefix.lastIndexOf(":");
+            if (lastColonIndex !== -1) {
+              const lockScopedType = keyWithoutPrefix.substring(0, lastColonIndex);
+              const appId = keyWithoutPrefix.substring(lastColonIndex + 1);
+
+              if (lockScopedType.startsWith("pass")) {
+                if (lockScopedType === targetScopedType) {
+                  activeLocks.pass.push({
+                    applicationId: appId,
+                    ...JSON.parse(val),
+                  });
+                }
+              } else if (activeLocks[lockScopedType]) {
+                activeLocks[lockScopedType].push({
+                  applicationId: appId,
+                  ...JSON.parse(val),
+                });
+              }
             }
           }
         });
@@ -208,9 +234,18 @@ exports.getActiveLocks = async (req, res) => {
         'SELECT application_id, application_type, user_id, user_name, locked_at FROM application_locks WHERE expires_at > NOW()'
       );
       dbRes.rows.forEach((row) => {
-        const type = row.application_type;
-        if (activeLocks[type]) {
-          activeLocks[type].push({
+        const lockScopedType = row.application_type;
+        if (lockScopedType.startsWith("pass")) {
+          if (lockScopedType === targetScopedType) {
+            activeLocks.pass.push({
+              applicationId: row.application_id,
+              userId: row.user_id,
+              userName: row.user_name,
+              lockedAt: row.locked_at,
+            });
+          }
+        } else if (activeLocks[lockScopedType]) {
+          activeLocks[lockScopedType].push({
             applicationId: row.application_id,
             userId: row.user_id,
             userName: row.user_name,

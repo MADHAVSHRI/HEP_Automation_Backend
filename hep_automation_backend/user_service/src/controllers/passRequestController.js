@@ -881,6 +881,28 @@ const approvePerson = async (req, res) => {
     const role = req.user?.role;
     const roleId = req.user?.roleId;
 
+    const isConversion = await PassRequest.hasPendingPersonConversion(personId);
+    if (isConversion) {
+      const stage = getEssentialOilDockStage(req) || "PENDING_MARINE_ESSENTIAL";
+      const personConversionStageMap = {
+        "PENDING_MARINE_ESSENTIAL": "PENDING_MARINE_CONVERSION",
+        "PENDING_CIVIL_ESSENTIAL": "PENDING_CIVIL_CONVERSION",
+        "PENDING_MECHANICAL_ESSENTIAL": "PENDING_MECHANICAL_CONVERSION",
+        "PENDING_CISF_ESSENTIAL": "PENDING_CISF_CONVERSION",
+        "PENDING_PASS_SECTION_ESSENTIAL": "PENDING_PASS_SECTION_CONVERSION",
+      };
+      const result = await PassRequest.actionConversionPerson({
+        personId,
+        stage: personConversionStageMap[stage] || stage,
+        decision: "APPROVED",
+        remarks: remarks || null,
+        userId: Number(req.user?.userId ?? req.user?.id),
+        roleId: req.user?.roleId ? Number(req.user?.roleId) : null,
+        departmentId: req.user?.departmentId ? Number(req.user?.departmentId) : null,
+      });
+      return res.json(result);
+    }
+
     if (roleId === 28 || role === "Senior Deputy Traffic Manager") {
       const query = `
         UPDATE pass_persons
@@ -942,6 +964,28 @@ const rejectPerson = async (req, res) => {
   try {
     const { personId, rejectedReason } = req.body;
 
+    const isConversion = await PassRequest.hasPendingPersonConversion(personId);
+    if (isConversion) {
+      const stage = getEssentialOilDockStage(req) || "PENDING_MARINE_ESSENTIAL";
+      const personConversionStageMap = {
+        "PENDING_MARINE_ESSENTIAL": "PENDING_MARINE_CONVERSION",
+        "PENDING_CIVIL_ESSENTIAL": "PENDING_CIVIL_CONVERSION",
+        "PENDING_MECHANICAL_ESSENTIAL": "PENDING_MECHANICAL_CONVERSION",
+        "PENDING_CISF_ESSENTIAL": "PENDING_CISF_CONVERSION",
+        "PENDING_PASS_SECTION_ESSENTIAL": "PENDING_PASS_SECTION_CONVERSION",
+      };
+      const result = await PassRequest.actionConversionPerson({
+        personId,
+        stage: personConversionStageMap[stage] || stage,
+        decision: "REJECTED",
+        remarks: rejectedReason || null,
+        userId: Number(req.user?.userId ?? req.user?.id),
+        roleId: req.user?.roleId ? Number(req.user?.roleId) : null,
+        departmentId: req.user?.departmentId ? Number(req.user?.departmentId) : null,
+      });
+      return res.json(result);
+    }
+
     const person = await PassRequest.rejectPerson(personId, rejectedReason);
 
     return res.json({
@@ -964,6 +1008,28 @@ const approveVehicle = async (req, res) => {
     const role = req.user?.role;
     const roleId = req.user?.roleId;
     const departmentId = req.user?.departmentId;
+
+    const isConversion = await PassRequest.hasPendingVehicleConversion(vehicleId);
+    if (isConversion) {
+      const stage = getEssentialOilDockStage(req) || "PENDING_MARINE_ESSENTIAL";
+      const vehicleConversionStageMap = {
+        "PENDING_MARINE_ESSENTIAL": "PENDING_MARINE_CONVERSION",
+        "PENDING_CIVIL_ESSENTIAL": "PENDING_CIVIL_CONVERSION",
+        "PENDING_MECHANICAL_ESSENTIAL": "PENDING_MECHANICAL_CONVERSION",
+        "PENDING_CISF_ESSENTIAL": "PENDING_CISF_CONVERSION",
+        "PENDING_PASS_SECTION_ESSENTIAL": "PENDING_PASS_SECTION_CONVERSION",
+      };
+      const result = await PassRequest.actionConversionVehicle({
+        vehicleId,
+        stage: vehicleConversionStageMap[stage] || stage,
+        decision: "APPROVED",
+        remarks: remarks || null,
+        userId: Number(req.user?.userId ?? req.user?.id),
+        roleId: req.user?.roleId ? Number(req.user?.roleId) : null,
+        departmentId: req.user?.departmentId ? Number(req.user?.departmentId) : null,
+      });
+      return res.json(result);
+    }
 
     const isMarineFireSafety =
       role === "Fire Safety Officer" && Number(departmentId) === 7;
@@ -1344,6 +1410,28 @@ const rejectVehicle = async (req, res) => {
   try {
     const { vehicleId, rejectedReason } = req.body;
 
+    const isConversion = await PassRequest.hasPendingVehicleConversion(vehicleId);
+    if (isConversion) {
+      const stage = getEssentialOilDockStage(req) || "PENDING_MARINE_ESSENTIAL";
+      const vehicleConversionStageMap = {
+        "PENDING_MARINE_ESSENTIAL": "PENDING_MARINE_CONVERSION",
+        "PENDING_CIVIL_ESSENTIAL": "PENDING_CIVIL_CONVERSION",
+        "PENDING_MECHANICAL_ESSENTIAL": "PENDING_MECHANICAL_CONVERSION",
+        "PENDING_CISF_ESSENTIAL": "PENDING_CISF_CONVERSION",
+        "PENDING_PASS_SECTION_ESSENTIAL": "PENDING_PASS_SECTION_CONVERSION",
+      };
+      const result = await PassRequest.actionConversionVehicle({
+        vehicleId,
+        stage: vehicleConversionStageMap[stage] || stage,
+        decision: "REJECTED",
+        remarks: rejectedReason || null,
+        userId: Number(req.user?.userId ?? req.user?.id),
+        roleId: req.user?.roleId ? Number(req.user?.roleId) : null,
+        departmentId: req.user?.departmentId ? Number(req.user?.departmentId) : null,
+      });
+      return res.json(result);
+    }
+
     const vehicle = await PassRequest.rejectVehicle(vehicleId, rejectedReason);
 
     return res.json({
@@ -1371,6 +1459,28 @@ const revertPerson = async (req, res) => {
       });
     }
 
+    const isConversion = await PassRequest.hasPendingPersonConversion(personId);
+    if (isConversion) {
+      const stage = getEssentialOilDockStage(req) || "PENDING_MARINE_ESSENTIAL";
+      const personConversionStageMap = {
+        "PENDING_MARINE_ESSENTIAL": "PENDING_MARINE_CONVERSION",
+        "PENDING_CIVIL_ESSENTIAL": "PENDING_CIVIL_CONVERSION",
+        "PENDING_MECHANICAL_ESSENTIAL": "PENDING_MECHANICAL_CONVERSION",
+        "PENDING_CISF_ESSENTIAL": "PENDING_CISF_CONVERSION",
+        "PENDING_PASS_SECTION_ESSENTIAL": "PENDING_PASS_SECTION_CONVERSION",
+      };
+      const result = await PassRequest.actionConversionPerson({
+        personId,
+        stage: personConversionStageMap[stage] || stage,
+        decision: "REVERTED",
+        remarks: revertReason || null,
+        userId: Number(req.user?.userId ?? req.user?.id),
+        roleId: req.user?.roleId ? Number(req.user?.roleId) : null,
+        departmentId: req.user?.departmentId ? Number(req.user?.departmentId) : null,
+      });
+      return res.json(result);
+    }
+
     const person = await PassRequest.revertPerson(personId, revertReason);
 
     return res.json({
@@ -1396,6 +1506,28 @@ const revertVehicle = async (req, res) => {
         success: false,
         message: "Revert reason is required",
       });
+    }
+
+    const isConversion = await PassRequest.hasPendingVehicleConversion(vehicleId);
+    if (isConversion) {
+      const stage = getEssentialOilDockStage(req) || "PENDING_MARINE_ESSENTIAL";
+      const vehicleConversionStageMap = {
+        "PENDING_MARINE_ESSENTIAL": "PENDING_MARINE_CONVERSION",
+        "PENDING_CIVIL_ESSENTIAL": "PENDING_CIVIL_CONVERSION",
+        "PENDING_MECHANICAL_ESSENTIAL": "PENDING_MECHANICAL_CONVERSION",
+        "PENDING_CISF_ESSENTIAL": "PENDING_CISF_CONVERSION",
+        "PENDING_PASS_SECTION_ESSENTIAL": "PENDING_PASS_SECTION_CONVERSION",
+      };
+      const result = await PassRequest.actionConversionVehicle({
+        vehicleId,
+        stage: vehicleConversionStageMap[stage] || stage,
+        decision: "REVERTED",
+        remarks: revertReason || null,
+        userId: Number(req.user?.userId ?? req.user?.id),
+        roleId: req.user?.roleId ? Number(req.user?.roleId) : null,
+        departmentId: req.user?.departmentId ? Number(req.user?.departmentId) : null,
+      });
+      return res.json(result);
     }
 
     const vehicle = await PassRequest.revertVehicle(vehicleId, revertReason);
@@ -2866,28 +2998,27 @@ const getEssentialOilDockStage = (req) => {
   const role = String(req.user?.role || "").trim();
   const roleCode = String(req.user?.roleCode || "").trim();
   const departmentId = Number(req.user?.departmentId);
+  const roleId = Number(req.user?.roleId);
 
+  // 1. CIVIL DEPARTMENT (departmentId: 3)
   if (
-    departmentId === DEPARTMENT_IDS.MARINE &&
-    ["Dy. Conservator", "Fire Safety Officer", WORKFLOW_ROLES.FIRE_SAFETY_OFFICER].includes(role)
-  ) {
-    return ESSENTIAL_WORKFLOW_STAGES.PENDING_MARINE;
-  }
-
-  if (
-    (role === WORKFLOW_ROLES.APPROVAL || roleCode === WORKFLOW_ROLES.APPROVAL) &&
-    departmentId === DEPARTMENT_IDS.ENGINEERING_CIVIL
+    departmentId === DEPARTMENT_IDS.ENGINEERING_CIVIL ||
+    ((role === WORKFLOW_ROLES.APPROVAL || roleCode === WORKFLOW_ROLES.APPROVAL || role === "Approval") &&
+      departmentId === DEPARTMENT_IDS.ENGINEERING_CIVIL)
   ) {
     return ESSENTIAL_WORKFLOW_STAGES.PENDING_CIVIL;
   }
 
+  // 2. MECHANICAL DEPARTMENT (departmentId: 4)
   if (
-    (role === WORKFLOW_ROLES.APPROVAL || roleCode === WORKFLOW_ROLES.APPROVAL) &&
-    departmentId === DEPARTMENT_IDS.ENGINEERING_MECHANICAL
+    departmentId === DEPARTMENT_IDS.ENGINEERING_MECHANICAL ||
+    ((role === WORKFLOW_ROLES.APPROVAL || roleCode === WORKFLOW_ROLES.APPROVAL || role === "Approval") &&
+      departmentId === DEPARTMENT_IDS.ENGINEERING_MECHANICAL)
   ) {
     return ESSENTIAL_WORKFLOW_STAGES.PENDING_MECHANICAL;
   }
 
+  // 3. CISF DEPARTMENT (departmentId: 10)
   if (
     departmentId === DEPARTMENT_IDS.CISF ||
     [
@@ -2901,11 +3032,24 @@ const getEssentialOilDockStage = (req) => {
     return ESSENTIAL_WORKFLOW_STAGES.PENDING_CISF;
   }
 
+  // 4. TRAFFIC / PASS SECTION DEPARTMENT (departmentId: 9)
   if (
-    (role === WORKFLOW_ROLES.APPROVAL || roleCode === WORKFLOW_ROLES.APPROVAL) &&
-    departmentId === DEPARTMENT_IDS.TRAFFIC
+    departmentId === DEPARTMENT_IDS.TRAFFIC ||
+    ((role === WORKFLOW_ROLES.APPROVAL || roleCode === WORKFLOW_ROLES.APPROVAL || role === "Approval") &&
+      departmentId === DEPARTMENT_IDS.TRAFFIC)
   ) {
     return ESSENTIAL_WORKFLOW_STAGES.PENDING_PASS_SECTION;
+  }
+
+  // 5. MARINE / FIRE SAFETY DEPARTMENT (departmentId: 7)
+  if (
+    departmentId === DEPARTMENT_IDS.MARINE ||
+    [7, 10, 2].includes(roleId) ||
+    ["Dy. Conservator", "Fire Safety Officer", "Marine Safety Officer", "Safety Officer", WORKFLOW_ROLES.FIRE_SAFETY_OFFICER].includes(role) ||
+    ((role === WORKFLOW_ROLES.APPROVAL || roleCode === WORKFLOW_ROLES.APPROVAL || role === "Approval") &&
+      departmentId === DEPARTMENT_IDS.MARINE)
+  ) {
+    return ESSENTIAL_WORKFLOW_STAGES.PENDING_MARINE;
   }
 
   return null;
@@ -2997,15 +3141,37 @@ const essentialOilDockVehicleAction = async (req, res) => {
       decision,
     });
 
-    const result = await PassRequest.actionEssentialOilDockVehicle({
-      vehicleId,
-      stage,
-      decision: String(decision).toUpperCase(),
-      remarks: rejectedReason || revertReason || remarks || null,
-      userId,
-      roleId: req.user?.roleId || null,
-      departmentId: Number(req.user?.departmentId) || null,
-    });
+    const vehicleConversionStageMap = {
+      "PENDING_MARINE_ESSENTIAL": "PENDING_MARINE_CONVERSION",
+      "PENDING_CIVIL_ESSENTIAL": "PENDING_CIVIL_CONVERSION",
+      "PENDING_MECHANICAL_ESSENTIAL": "PENDING_MECHANICAL_CONVERSION",
+      "PENDING_CISF_ESSENTIAL": "PENDING_CISF_CONVERSION",
+      "PENDING_PASS_SECTION_ESSENTIAL": "PENDING_PASS_SECTION_CONVERSION",
+    };
+
+    const isConversion = await PassRequest.hasPendingVehicleConversion(vehicleId);
+    let result;
+    if (isConversion) {
+      result = await PassRequest.actionConversionVehicle({
+        vehicleId,
+        stage: vehicleConversionStageMap[stage] || stage,
+        decision: String(decision).toUpperCase(),
+        remarks: rejectedReason || revertReason || remarks || null,
+        userId,
+        roleId: req.user?.roleId || null,
+        departmentId: Number(req.user?.departmentId) || null,
+      });
+    } else {
+      result = await PassRequest.actionEssentialOilDockVehicle({
+        vehicleId,
+        stage,
+        decision: String(decision).toUpperCase(),
+        remarks: rejectedReason || revertReason || remarks || null,
+        userId,
+        roleId: req.user?.roleId || null,
+        departmentId: Number(req.user?.departmentId) || null,
+      });
+    }
 
     return res.json({
       success: true,
@@ -3064,13 +3230,16 @@ const getEssentialOilDockPersonPassRequests = async (req, res) => {
 
 const getEssentialOilDockPersonStage = (req) => {
   const role = String(req.user?.role || "").trim();
+  const roleCode = String(req.user?.roleCode || "").trim();
   const departmentId = Number(req.user?.departmentId);
   const userId = Number(req.user?.userId ?? req.user?.id);
 
   // Civil
   if (
-    role === "Approval" &&
-    departmentId === 3
+    departmentId === DEPARTMENT_IDS.ENGINEERING_CIVIL ||
+    departmentId === 3 ||
+    ((role === WORKFLOW_ROLES.APPROVAL || roleCode === WORKFLOW_ROLES.APPROVAL || role === "Approval") &&
+      (departmentId === DEPARTMENT_IDS.ENGINEERING_CIVIL || departmentId === 3))
   ) {
     return {
       stage: "PENDING_CIVIL_PERSON_ESSENTIAL",
@@ -3080,8 +3249,10 @@ const getEssentialOilDockPersonStage = (req) => {
 
   // Mechanical
   if (
-    role === "Approval" &&
-    departmentId === 4
+    departmentId === DEPARTMENT_IDS.ENGINEERING_MECHANICAL ||
+    departmentId === 4 ||
+    ((role === WORKFLOW_ROLES.APPROVAL || roleCode === WORKFLOW_ROLES.APPROVAL || role === "Approval") &&
+      (departmentId === DEPARTMENT_IDS.ENGINEERING_MECHANICAL || departmentId === 4))
   ) {
     return {
       stage: "PENDING_MECHANICAL_PERSON_ESSENTIAL",
@@ -3091,8 +3262,12 @@ const getEssentialOilDockPersonStage = (req) => {
 
   // Traffic / Pass Section
   if (
-    role === "Approval" &&
-    departmentId === 9
+    departmentId === DEPARTMENT_IDS.TRAFFIC ||
+    departmentId === 9 ||
+    role === "trafficAdmin" ||
+    role === "admin" ||
+    ((role === WORKFLOW_ROLES.APPROVAL || roleCode === WORKFLOW_ROLES.APPROVAL || role === "Approval") &&
+      (departmentId === DEPARTMENT_IDS.TRAFFIC || departmentId === 9))
   ) {
     return {
       stage: "PENDING_TRAFFIC_PERSON_ESSENTIAL",
@@ -3142,15 +3317,35 @@ const essentialOilDockPersonAction = async (req, res) => {
 
     const userId = Number(req.user?.userId ?? req.user?.id);
 
-    const result = await PassRequest.actionEssentialOilDockPerson({
-      personId,
-      stage,
-      decision: String(decision).trim().toUpperCase(),
-      remarks: rejectedReason || revertReason || remarks || null,
-      userId,
-      roleId: req.user?.roleId || null,
-      departmentId: Number(req.user?.departmentId) || null,
-    });
+    const personConversionStageMap = {
+      "PENDING_CIVIL_PERSON_ESSENTIAL": "PENDING_CIVIL_PERSON_CONVERSION",
+      "PENDING_MECHANICAL_PERSON_ESSENTIAL": "PENDING_MECHANICAL_PERSON_CONVERSION",
+      "PENDING_TRAFFIC_PERSON_ESSENTIAL": "PENDING_TRAFFIC_PERSON_CONVERSION",
+    };
+
+    const isConversion = await PassRequest.hasPendingPersonConversion(personId);
+    let result;
+    if (isConversion) {
+      result = await PassRequest.actionConversionPerson({
+        personId,
+        stage: personConversionStageMap[stage] || stage,
+        decision: String(decision).toUpperCase(),
+        remarks: rejectedReason || revertReason || remarks || null,
+        userId,
+        roleId: req.user?.roleId || null,
+        departmentId: Number(req.user?.departmentId) || null,
+      });
+    } else {
+      result = await PassRequest.actionEssentialOilDockPerson({
+        personId,
+        stage,
+        decision: String(decision).trim().toUpperCase(),
+        remarks: rejectedReason || revertReason || remarks || null,
+        userId,
+        roleId: req.user?.roleId || null,
+        departmentId: Number(req.user?.departmentId) || null,
+      });
+    }
 
     return res.json({
       success: true,
@@ -3221,6 +3416,99 @@ module.exports = {
   essentialOilDockVehicleAction,
   getEssentialOilDockPersonPassRequests,
   getEssentialOilDockPersonStage,
-  essentialOilDockPersonAction
+  essentialOilDockPersonAction,
 
+  async requestBulkPassConversion(req, res) {
+
+    try {
+      const { items, departmentId, purpose } = req.body;
+      const file = req.file;
+      const userId = req.user?.id;
+
+      if (!file) {
+        return res.status(400).json({ success: false, message: "Requisition letter PDF is required." });
+      }
+
+      let parsedItems = [];
+      if (typeof items === "string") {
+        parsedItems = JSON.parse(items);
+      } else if (Array.isArray(items)) {
+        parsedItems = items;
+      }
+
+      if (!parsedItems || parsedItems.length === 0) {
+        return res.status(400).json({ success: false, message: "No conversion items provided." });
+      }
+
+      const result = await PassRequest.requestBulkPassConversion({
+        items: parsedItems,
+        departmentId,
+        purpose,
+        file,
+        userId,
+      });
+
+      return res.status(200).json(result);
+    } catch (error) {
+      console.error("requestBulkPassConversion error:", error);
+      return res.status(500).json({ success: false, message: error.message || "Server error submitting conversion." });
+    }
+  },
+
+  async actionConversionPerson(req, res) {
+    try {
+      const { personId, stage, decision, remarks } = req.body;
+      const userId = req.user?.id;
+      const roleId = req.user?.roleId;
+      const departmentId = req.user?.departmentId;
+
+      if (!personId || !stage || !decision) {
+        return res.status(400).json({ success: false, message: "Missing required fields." });
+      }
+
+      const result = await PassRequest.actionConversionPerson({
+        personId,
+        stage,
+        decision,
+        remarks,
+        userId,
+        roleId,
+        departmentId,
+      });
+
+      return res.status(200).json(result);
+    } catch (error) {
+      console.error("actionConversionPerson error:", error);
+      return res.status(500).json({ success: false, message: error.message || "Server error processing person conversion." });
+    }
+  },
+
+  async actionConversionVehicle(req, res) {
+    try {
+      const { vehicleId, stage, decision, remarks } = req.body;
+      const userId = req.user?.id;
+      const roleId = req.user?.roleId;
+      const departmentId = req.user?.departmentId;
+
+      if (!vehicleId || !stage || !decision) {
+        return res.status(400).json({ success: false, message: "Missing required fields." });
+      }
+
+      const result = await PassRequest.actionConversionVehicle({
+        vehicleId,
+        stage,
+        decision,
+        remarks,
+        userId,
+        roleId,
+        departmentId,
+      });
+
+      return res.status(200).json(result);
+    } catch (error) {
+      console.error("actionConversionVehicle error:", error);
+      return res.status(500).json({ success: false, message: error.message || "Server error processing vehicle conversion." });
+    }
+  },
 };
+

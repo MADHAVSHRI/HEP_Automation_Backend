@@ -257,8 +257,8 @@ async function handlePdfStorage(
       passNo,
     });
 
-  // FAST PATH → file exists
-  const exists = await fileExists(filePath);
+  // FAST PATH → file exists (only if not active essential conversion, so conversions always regenerate fresh PDF)
+  const exists = !pass.isEssentialActive && (await fileExists(filePath));
 
   if (exists) {
     console.log(

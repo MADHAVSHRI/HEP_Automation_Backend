@@ -136,10 +136,21 @@ exports.getQrData = async (passRequestId, type ='null', entityId='null') => {
     pp."dateFrom",
     pp."dateTo",
     pp."photoFilePath",
-    a."entityName" AS company
+    pp."essentialWorkflowState",
+    pp."essentialDepartmentId",
+    a."entityName" AS company,
+    epc."conversionStartDate",
+    epc."conversionEndDate",
+    epc.status AS "conversionStatus"
   FROM pass_persons pp
   JOIN pass_requests pr ON pr.id = pp."passRequestId"
   JOIN "Agents" a ON a.id = pr."agentId"
+  LEFT JOIN LATERAL (
+    SELECT "conversionStartDate", "conversionEndDate", status
+    FROM essential_pass_conversions
+    WHERE "entityType" = 'person' AND "entityId" = pp.id AND status = 'APPROVED'
+    ORDER BY id DESC LIMIT 1
+  ) epc ON true
   WHERE pp."passRequestId"=$1
   AND pp.status='approved'
   ${type === "person" && entityId ? `AND pp.id=${Number(entityId)}` : ""}
@@ -155,10 +166,19 @@ exports.getQrData = async (passRequestId, type ='null', entityId='null') => {
     pv."vehiclePassNo",
     pv."dateFrom",
     pv."dateTo",
-    a."entityName" AS company
+    a."entityName" AS company,
+    epc."conversionStartDate",
+    epc."conversionEndDate",
+    epc.status AS "conversionStatus"
   FROM pass_vehicles pv
   JOIN pass_requests pr ON pr.id = pv."passRequestId"
   JOIN "Agents" a ON a.id = pr."agentId"
+  LEFT JOIN LATERAL (
+    SELECT "conversionStartDate", "conversionEndDate", status
+    FROM essential_pass_conversions
+    WHERE "entityType" = 'vehicle' AND "entityId" = pv.id AND status = 'APPROVED'
+    ORDER BY id DESC LIMIT 1
+  ) epc ON true
   WHERE pv."passRequestId"=$1
   AND pv.status='approved'
   ${type === "vehicle" && entityId ? `AND pv.id=${Number(entityId)}` : ""}
@@ -168,6 +188,8 @@ exports.getQrData = async (passRequestId, type ='null', entityId='null') => {
     pool.query(personsQuery, [passRequestId]),
     pool.query(vehiclesQuery, [passRequestId]),
   ]);
+
+  const now = new Date();
 
   // Convert photoFilePath → base64 for each person — all reads in parallel
   const persons = await Promise.all(
@@ -194,21 +216,47 @@ exports.getQrData = async (passRequestId, type ='null', entityId='null') => {
         }
       }
 
+      const convStart = person.conversionStartDate ? new Date(person.conversionStartDate) : null;
+      const convEnd = person.conversionEndDate ? new Date(person.conversionEndDate) : null;
+      const isEssentialActive = Boolean(
+        convStart && convEnd && now >= convStart && now <= convEnd
+      );
+
+      const effectiveFrom = isEssentialActive ? person.conversionStartDate : person.dateFrom;
+      const effectiveTo = isEssentialActive ? person.conversionEndDate : person.dateTo;
+
       return {
         ...person,
-        validFrom: formatISTDateTime(person.dateFrom, false),
-        validTo: formatISTDateTime(person.dateTo, false),
+        isEssentialActive,
+        passCategory: isEssentialActive
+          ? "ESSENTIAL ENTRY PERMIT"
+          : (person.essentialDepartmentId ? "ESSENTIAL PASS" : "ORDINARY PASS"),
+        validFrom: formatISTDateTime(effectiveFrom, false),
+        validTo: formatISTDateTime(effectiveTo, false),
         photoBase64,
         photoMimeType,
       };
     })
   );
 
-  const vehicles = vehiclesResult.rows.map((vehicle) => ({
-    ...vehicle,
-    validFrom: formatISTDateTime(vehicle.dateFrom, false),
-    validTo: formatISTDateTime(vehicle.dateTo, false),
-  }));
+  const vehicles = vehiclesResult.rows.map((vehicle) => {
+    const convStart = vehicle.conversionStartDate ? new Date(vehicle.conversionStartDate) : null;
+    const convEnd = vehicle.conversionEndDate ? new Date(vehicle.conversionEndDate) : null;
+    const isEssentialActive = Boolean(
+      convStart && convEnd && now >= convStart && now <= convEnd
+    );
+
+    const effectiveFrom = isEssentialActive ? vehicle.conversionStartDate : vehicle.dateFrom;
+    const effectiveTo = isEssentialActive ? vehicle.conversionEndDate : vehicle.dateTo;
+
+    return {
+      ...vehicle,
+      isEssentialActive,
+      passCategory: isEssentialActive ? "ESSENTIAL ENTRY PERMIT" : "ORDINARY PASS",
+      validFrom: formatISTDateTime(effectiveFrom, false),
+      validTo: formatISTDateTime(effectiveTo, false),
+    };
+  });
 
   return { persons, vehicles };
 };
@@ -616,13 +664,32 @@ exports.validateQr = async ({
     [row.id]
   );
 
+  // Check if active essential pass conversion exists
+  const convRes = await pool.query(
+    `SELECT "conversionStartDate", "conversionEndDate"
+     FROM essential_pass_conversions
+     WHERE "entityType" = $1 AND "entityId" = $2 AND status = 'APPROVED'
+     ORDER BY id DESC LIMIT 1`,
+    [type, entityId]
+  );
+
+  let isEssentialConverted = false;
+  if (convRes.rows.length > 0) {
+    const cStart = new Date(convRes.rows[0].conversionStartDate);
+    const cEnd = new Date(convRes.rows[0].conversionEndDate);
+    if (now >= cStart && now <= cEnd) {
+      isEssentialConverted = true;
+    }
+  }
+
   return {
     valid: true,
     message: "Pass valid",
     data: {
       passNo: row.passNo,
-      scanCount:
-        Number(row.scanCount) + 1,
+      scanCount: Number(row.scanCount) + 1,
+      isEssentialConverted,
+      passCategory: isEssentialConverted ? "ESSENTIAL ENTRY PERMIT" : "ORDINARY PASS",
     },
   };
 };

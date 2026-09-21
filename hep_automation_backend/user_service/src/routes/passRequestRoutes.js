@@ -255,4 +255,26 @@ router.put(
   passRequestController.essentialOilDockPersonAction,
 );
 
+// Essential Pass Conversion routes
+router.post(
+  "/request-bulk-pass-conversion",
+  verifyToken,
+  upload.single("passRequisitionLetter"),
+  passRequestController.requestBulkPassConversion
+);
+
+
+router.put(
+  "/approve-conversion-person",
+  verifyToken,
+  passRequestController.actionConversionPerson
+);
+
+router.put(
+  "/approve-conversion-vehicle",
+  verifyToken,
+  passRequestController.actionConversionVehicle
+);
+
 module.exports = router;
+
