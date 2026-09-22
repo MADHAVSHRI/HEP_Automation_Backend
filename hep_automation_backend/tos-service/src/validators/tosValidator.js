@@ -168,6 +168,30 @@ function normalizeForm13Payload(payload) {
     normalized.form13No = String(rawForm13No).trim();
   }
 
+  const rawTrailerNumber =
+    normalized.trailerNumber ||
+    normalized.trailernumber ||
+    normalized.TrailerNumber ||
+    normalized.TRAILERNUMBER ||
+    normalized.TRAILER_NUMBER ||
+    normalized.trailer_number ||
+    normalized.trailerNo ||
+    normalized.TrailerNo ||
+    normalized.trailer_no ||
+    normalized.TruckNumber ||
+    normalized.truckNumber ||
+    normalized.truck_number ||
+    normalized.TRUCKNUMBER ||
+    normalized.TRUCK_NUMBER ||
+    normalized.vehicleNumber ||
+    normalized.VehicleNumber ||
+    normalized.vehicle_number ||
+    null;
+
+  if (rawTrailerNumber !== null && rawTrailerNumber !== undefined) {
+    normalized.trailerNumber = String(rawTrailerNumber).trim();
+  }
+
   let rawContainers = normalized.containers;
   if (rawContainers === undefined || rawContainers === null) {
     if (normalized.container !== undefined && normalized.container !== null) {

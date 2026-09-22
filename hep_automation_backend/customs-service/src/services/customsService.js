@@ -7,9 +7,6 @@ const {
   sequelize,
 } = require("../../models");
 const { signToken } = require("../utils/jwt");
-const { rapiscanQueue, rapiscanQueueEvents } = require("../queues/rapiscanQueue");
-const { examinationQueue, examinationQueueEvents } = require("../queues/examinationQueue");
-const { oocQueue, oocQueueEvents } = require("../queues/oocQueue");
 
 async function loginOperator({ loginId, password }) {
   if (!loginId || !password) {
@@ -70,17 +67,27 @@ async function pushRapiscanRecord({ payload, operatorId }) {
   }
 
   try {
-    const job = await rapiscanQueue.add("pushRapiscanJob", {
+    const record = await CustomsRapiscan.create({
       containerNumber,
       containerSize,
       scanningStatus,
-      scanningDateTime,
+      scanningDateTime: new Date(scanningDateTime),
       createdBy: operatorId,
     });
 
-    const result = await job.waitUntilFinished(rapiscanQueueEvents, 5000);
-
-    if (result?.skipped) {
+    return {
+      status: "SUCCESS",
+      data: {
+        id: record?.id,
+        containerNumber: record?.containerNumber || containerNumber,
+        containerSize: record?.containerSize || containerSize,
+        scanningStatus: record?.scanningStatus || scanningStatus,
+        scanningDateTime: payload.scanningDateTime,
+      },
+      message: "Rapiscan details received successfully.",
+    };
+  } catch (error) {
+    if (error.name === "SequelizeUniqueConstraintError") {
       return {
         status: "ALREADY_EXISTS",
         data: {
@@ -92,53 +99,7 @@ async function pushRapiscanRecord({ payload, operatorId }) {
         message: "Duplicate Rapiscan transaction",
       };
     }
-
-    return {
-      status: "SUCCESS",
-      data: {
-        containerNumber,
-        containerSize,
-        scanningStatus,
-        scanningDateTime,
-      },
-      message: "Rapiscan details received successfully.",
-    };
-  } catch (queueErr) {
-    // Direct DB fallback if Redis is busy or offline
-    try {
-      await CustomsRapiscan.create({
-        containerNumber,
-        containerSize,
-        scanningStatus,
-        scanningDateTime: new Date(scanningDateTime),
-        createdBy: operatorId,
-      });
-
-      return {
-        status: "PROCESSED_DIRECTLY",
-        data: {
-          containerNumber,
-          containerSize,
-          scanningStatus,
-          scanningDateTime,
-        },
-        message: "Rapiscan details received successfully.",
-      };
-    } catch (dbErr) {
-      if (dbErr.name === "SequelizeUniqueConstraintError") {
-        return {
-          status: "ALREADY_EXISTS",
-          data: {
-            containerNumber,
-            containerSize,
-            scanningStatus,
-            scanningDateTime,
-          },
-          message: "Duplicate Rapiscan transaction",
-        };
-      }
-      throw dbErr;
-    }
+    throw error;
   }
 }
 
@@ -165,7 +126,7 @@ async function submitExaminationRecord({ payload, operatorId }) {
   }
 
   try {
-    const job = await examinationQueue.add("submitExaminationJob", {
+    const examination = await CustomsExamination.create({
       containerNumber,
       igmNumber,
       dateOfExamination,
@@ -174,60 +135,27 @@ async function submitExaminationRecord({ payload, operatorId }) {
       createdBy: operatorId,
     });
 
-    const result = await job.waitUntilFinished(examinationQueueEvents, 5000);
-
-    if (result?.skipped) {
+    return {
+      status: "SUCCESS",
+      data: {
+        id: examination.id,
+        containerNumber: examination.containerNumber,
+        igmNumber: examination.igmNumber,
+        dateOfExamination: examination.dateOfExamination,
+        examinationFindings: examination.examinationFindings,
+        discrepancyFound: examination.discrepancyFound,
+        createdAt: examination.createdAt,
+      },
+      message: "Customs examination details saved successfully.",
+    };
+  } catch (error) {
+    if (error.name === "SequelizeUniqueConstraintError") {
       return {
         status: "ALREADY_EXISTS",
         message: `Examination record already exists for container ${containerNumber}, IGM ${igmNumber}`,
       };
     }
-
-    return {
-      status: "SUCCESS",
-      data: {
-        containerNumber: result.containerNumber || containerNumber,
-        igmNumber: result.igmNumber || igmNumber,
-        dateOfExamination: result.dateOfExamination || dateOfExamination,
-        examinationFindings: result.examinationFindings || examinationFindings,
-        discrepancyFound: result.discrepancyFound || discrepancyFound,
-        createdAt: result.createdAt || new Date(),
-      },
-      message: "Customs examination details saved successfully.",
-    };
-  } catch (queueErr) {
-    // Direct DB fallback
-    try {
-      const examination = await CustomsExamination.create({
-        containerNumber,
-        igmNumber,
-        dateOfExamination,
-        examinationFindings,
-        discrepancyFound,
-        createdBy: operatorId,
-      });
-
-      return {
-        status: "PROCESSED_DIRECTLY",
-        data: {
-          containerNumber: examination.containerNumber,
-          igmNumber: examination.igmNumber,
-          dateOfExamination: examination.dateOfExamination,
-          examinationFindings: examination.examinationFindings,
-          discrepancyFound: examination.discrepancyFound,
-          createdAt: examination.createdAt,
-        },
-        message: "Customs examination details saved successfully.",
-      };
-    } catch (dbErr) {
-      if (dbErr.name === "SequelizeUniqueConstraintError") {
-        return {
-          status: "ALREADY_EXISTS",
-          message: "Examination record with these details already exists",
-        };
-      }
-      throw dbErr;
-    }
+    throw error;
   }
 }
 
@@ -251,71 +179,36 @@ async function pushOocRecord({ payload, operatorId }) {
   }
 
   try {
-    const job = await oocQueue.add("pushOocJob", {
+    const oocRecord = await CustomsOoc.create({
       containerNumber,
       containerSize,
       oocStatus,
       oocNumber,
-      dateTime,
+      dateTime: new Date(dateTime),
       receivedBy: operatorId,
     });
 
-    const result = await job.waitUntilFinished(oocQueueEvents, 5000);
-
-    if (result?.skipped) {
+    return {
+      status: "SUCCESS",
+      data: {
+        id: oocRecord.id,
+        containerNumber: oocRecord.containerNumber,
+        containerSize: oocRecord.containerSize,
+        oocStatus: oocRecord.oocStatus,
+        oocNumber: oocRecord.oocNumber,
+        dateTime: oocRecord.dateTime,
+        receivedAt: oocRecord.createdAt,
+      },
+      message: "OOC details received successfully.",
+    };
+  } catch (error) {
+    if (error.name === "SequelizeUniqueConstraintError") {
       return {
         status: "ALREADY_EXISTS",
         message: "Duplicate OOC transaction",
       };
     }
-
-    return {
-      status: "SUCCESS",
-      data: {
-        id: result.id,
-        containerNumber: result.containerNumber || containerNumber,
-        containerSize: result.containerSize || containerSize,
-        oocStatus: result.oocStatus || oocStatus,
-        oocNumber: result.oocNumber || oocNumber,
-        dateTime: result.dateTime || dateTime,
-        receivedAt: result.receivedAt || new Date(),
-      },
-      message: "OOC details received successfully.",
-    };
-  } catch (queueErr) {
-    // Direct DB fallback
-    try {
-      const oocRecord = await CustomsOoc.create({
-        containerNumber,
-        containerSize,
-        oocStatus,
-        oocNumber,
-        dateTime: new Date(dateTime),
-        receivedBy: operatorId,
-      });
-
-      return {
-        status: "PROCESSED_DIRECTLY",
-        data: {
-          id: oocRecord.id,
-          containerNumber: oocRecord.containerNumber,
-          containerSize: oocRecord.containerSize,
-          oocStatus: oocRecord.oocStatus,
-          oocNumber: oocRecord.oocNumber,
-          dateTime: oocRecord.dateTime,
-          receivedAt: oocRecord.createdAt,
-        },
-        message: "OOC details received successfully.",
-      };
-    } catch (dbErr) {
-      if (dbErr.name === "SequelizeUniqueConstraintError") {
-        return {
-          status: "ALREADY_EXISTS",
-          message: "Duplicate OOC transaction",
-        };
-      }
-      throw dbErr;
-    }
+    throw error;
   }
 }
 
@@ -325,3 +218,4 @@ module.exports = {
   submitExaminationRecord,
   pushOocRecord,
 };
+

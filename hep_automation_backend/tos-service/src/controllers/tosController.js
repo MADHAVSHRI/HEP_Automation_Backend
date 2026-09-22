@@ -85,6 +85,7 @@ exports.pushEir = async (req, res) => {
         status: res0.status,
         message: res0.message,
         eirNo: res0.eirNo,
+        containerNumber: res0.containerNumber,
       });
     }
 
@@ -108,5 +109,3 @@ exports.pushEir = async (req, res) => {
     });
   }
 };
-
-

@@ -36,6 +36,11 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: false,
         defaultValue: true,
       },
+      apiKey: {
+        type: DataTypes.STRING(128),
+        allowNull: true,
+        unique: true,
+      },
     },
     {
       sequelize,
@@ -46,6 +51,7 @@ module.exports = (sequelize, DataTypes) => {
       },
       scopes: {
         withPassword: { attributes: { include: ["password"] } },
+        withApiKey: { attributes: { include: ["apiKey"] } },
       },
     },
   );

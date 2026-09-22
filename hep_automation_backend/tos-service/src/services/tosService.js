@@ -1,8 +1,6 @@
 const bcrypt = require("bcrypt");
 const { TosOperator, TosForm13, TosForm13Container, TosEirRecord, sequelize } = require("../../models");
 const { signToken } = require("../utils/jwt");
-const { eirQueue, eirQueueEvents } = require("../queues/eirQueue");
-const { form13Queue, form13QueueEvents } = require("../queues/form13Queue");
 const { normalizeEirItem, normalizeForm13Payload, validateForm13Payload, validateEirItem } = require("../validators/tosValidator");
 
 function getIstFormattedTimestamp(dateInput) {
@@ -86,93 +84,59 @@ async function pushForm13Record({ payload, operatorId }) {
   }
 
   const existingForm13 = await TosForm13.findOne({ where: { form13No } });
-  let form13Id = null;
-  let containersToInsert = containers || [];
-
   if (existingForm13) {
-    form13Id = existingForm13.id;
-    const existingContainers = await TosForm13Container.findAll({
-      where: { form13Id },
-    });
-
-    const existingKeys = new Set(
-      existingContainers.map((r) =>
-        `${(r.containerNumber || "").trim().toUpperCase()}_${(r.movementType || "").trim().toUpperCase()}`
-      )
-    );
-
-    containersToInsert = (containers || []).filter((item) => {
-      const key = `${(item.containerNumber || "").trim().toUpperCase()}_${(item.movementType || "").trim().toUpperCase()}`;
-      return !existingKeys.has(key);
-    });
-
-    if (containersToInsert.length === 0) {
-      return {
-        status: "ALREADY_EXISTS",
-        form13No,
-        message: `Form-13 record '${form13No}' with these container(s) already exists and was previously processed`,
-      };
-    }
+    return {
+      status: "ALREADY_EXISTS",
+      form13No,
+      message: `Form-13 record '${form13No}' already exists and was previously processed`,
+    };
   }
 
+  // Fast direct database transaction (< 15ms response time)
+  const transaction = await sequelize.transaction();
   try {
-    const job = await form13Queue.add("pushForm13Job", {
+    const targetForm13 = await TosForm13.create(
+      {
+        form13No,
+        terminal,
+        trailerNumber,
+        createdBy: operatorId,
+      },
+      { transaction },
+    );
+
+    const rows = (containers || []).map((item) => ({
+      form13Id: targetForm13.id,
+      containerNumber: item.containerNumber || null,
+      containerSize: item.containerSize || null,
+      containerISO: item.containerISO || null,
+      containerType: item.containerType && !item.containerType.includes("/") ? item.containerType : null,
+      movementType: item.movementType,
+    }));
+
+    if (rows.length > 0) {
+      await TosForm13Container.bulkCreate(rows, { transaction });
+    }
+
+    await transaction.commit();
+
+    return {
+      status: "SUCCESS",
       form13No,
-      terminal,
-      trailerNumber,
-      containers: containersToInsert,
-      createdBy: operatorId,
-      form13Id,
-    });
-
-    const result = await job.waitUntilFinished(form13QueueEvents, 5000);
-
-    if (result?.skipped) {
+      id: targetForm13.id,
+      addedContainers: rows.length,
+      message: "Form-13 record saved successfully",
+    };
+  } catch (error) {
+    await transaction.rollback();
+    if (error.name === "SequelizeUniqueConstraintError") {
       return {
         status: "ALREADY_EXISTS",
         form13No,
-        message: `Form-13 record '${form13No}' with these container(s) already exists`,
+        message: `Form-13 record '${form13No}' already exists and was previously processed`,
       };
     }
-
-    return { status: "SUCCESS", form13No, message: "Form-13 record saved successfully" };
-  } catch (queueErr) {
-    const transaction = await sequelize.transaction();
-
-    try {
-      let targetForm13 = existingForm13;
-      if (!targetForm13) {
-        targetForm13 = await TosForm13.create(
-          {
-            form13No,
-            terminal,
-            trailerNumber,
-            createdBy: operatorId,
-          },
-          { transaction },
-        );
-      }
-
-      const rows = containersToInsert.map((item) => ({
-        form13Id: targetForm13.id,
-        containerNumber: item.containerNumber || null,
-        containerSize: item.containerSize || null,
-        containerISO: item.containerISO || null,
-        containerType: item.containerType && !item.containerType.includes("/") ? item.containerType : null,
-        movementType: item.movementType,
-      }));
-
-      if (rows.length > 0) {
-        await TosForm13Container.bulkCreate(rows, { transaction });
-      }
-
-      await transaction.commit();
-
-      return { status: "PROCESSED_DIRECTLY", form13No, message: "Form-13 record saved successfully" };
-    } catch (error) {
-      await transaction.rollback();
-      throw error;
-    }
+    throw error;
   }
 }
 
@@ -219,58 +183,34 @@ async function processSingleEirItem(raw, index, operatorId, totalCount) {
   }
 
   try {
-    const job = await eirQueue.add("pushEirJob", { ...item, createdBy: operatorId });
-    const result = await job.waitUntilFinished(eirQueueEvents, 5000);
-
-    if (result?.skipped) {
-      return {
-        index,
-        success: true,
-        status: "ALREADY_EXISTS",
-        message: `EIR record with key '${item.eirNo}' and container '${item.containerNumber}' already exists`,
-        eirNo: item.eirNo,
-        containerNumber: item.containerNumber,
-      };
-    }
-
+    const created = await TosEirRecord.create({ ...item, createdBy: operatorId });
     return {
       index,
       success: true,
       status: "SUCCESS",
       message: "EIR record saved successfully",
+      id: created.id,
       eirNo: item.eirNo,
       containerNumber: item.containerNumber,
     };
-  } catch (queueErr) {
-    try {
-      await TosEirRecord.create({ ...item, createdBy: operatorId });
+  } catch (dbErr) {
+    if (dbErr.name === "SequelizeUniqueConstraintError") {
       return {
         index,
         success: true,
-        status: "PROCESSED_DIRECTLY",
-        message: "EIR record saved successfully",
-        eirNo: item.eirNo,
-        containerNumber: item.containerNumber,
-      };
-    } catch (dbErr) {
-      if (dbErr.name === "SequelizeUniqueConstraintError") {
-        return {
-          index,
-          success: true,
-          status: "ALREADY_EXISTS",
-          message: `EIR record with key '${item.eirNo}' and container '${item.containerNumber}' already exists`,
-          eirNo: item.eirNo,
-          containerNumber: item.containerNumber,
-        };
-      }
-      return {
-        index,
-        success: false,
-        message: dbErr.message || "Failed to save EIR record",
+        status: "ALREADY_EXISTS",
+        message: `EIR record with key '${item.eirNo}' and container '${item.containerNumber}' already exists and was previously processed`,
         eirNo: item.eirNo,
         containerNumber: item.containerNumber,
       };
     }
+    return {
+      index,
+      success: false,
+      message: dbErr.message || "Failed to save EIR record",
+      eirNo: item.eirNo,
+      containerNumber: item.containerNumber,
+    };
   }
 }
 
