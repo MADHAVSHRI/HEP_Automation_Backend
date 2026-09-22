@@ -157,6 +157,120 @@ const getPhoto = async (req, res) => {
   }
 };
 
+const path = require("path");
+const recognitionEngine = require("../services/recognitionEngine");
+
+/** GET /api/face/passenger/view — Mobile Web Capture Page */
+const passengerView = (req, res) => {
+  const htmlPath = path.join(__dirname, "../public/passenger_capture.html");
+  return res.sendFile(htmlPath);
+};
+
+/** POST /api/face/passenger/identify — Direct 1:N Passenger Identification */
+const passengerIdentify = async (req, res) => {
+  try {
+    if (!req.file?.buffer) {
+      return res.status(400).json({ code: "PHOTO_MISSING", message: "No photo was received." });
+    }
+
+    const result = await recognitionEngine.identify(req.file.buffer);
+    return res.json(result);
+  } catch (error) {
+    errorLogger.error(`[passengerIdentify] Error: ${error.stack || error.message}`);
+    return res.status(500).json({ code: "IDENTIFICATION_FAILED", message: error.message });
+  }
+};
+
+/** GET /api/face/passenger/stats — Biometric Gallery Stats */
+const DATASET_DIR = process.env.FACE_GALLERY_DIR || process.env.GALLERY_DATASET_DIR || '/home/cdac/Documents/lfw-apacs-processed-v2';
+
+const passengerStats = (req, res) => {
+  return res.json(recognitionEngine.getGalleryStats());
+};
+
+/** GET /api/face/passenger/test-sample?file=... — Test pre-indexed dataset sample */
+const passengerTestSample = async (req, res) => {
+  try {
+    const filename = req.query.file;
+    if (!filename) {
+      return res.status(400).json({ code: "FILE_REQUIRED", message: "file parameter is required" });
+    }
+    const safeName = path.basename(filename);
+    const samplePath = path.join(DATASET_DIR, safeName);
+    if (!fs.existsSync(samplePath)) {
+      return res.status(404).json({ code: "SAMPLE_NOT_FOUND", message: "Sample image not found" });
+    }
+
+    const buffer = fs.readFileSync(samplePath);
+    const result = await recognitionEngine.identify(buffer);
+    return res.json(result);
+  } catch (error) {
+    return res.status(500).json({ code: "SAMPLE_TEST_FAILED", message: error.message });
+  }
+};
+
+const MIME_BY_EXT = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
+  '.avif': 'image/avif',
+  '.bmp': 'image/bmp',
+  '.gif': 'image/gif',
+  '.tiff': 'image/tiff',
+  '.tif': 'image/tiff',
+};
+
+/** GET /api/face/passenger/sample-image?file=... — Stream sample image for UI preview */
+const passengerSampleImage = (req, res) => {
+  const filename = req.query.file;
+  if (!filename) {
+    return res.status(400).send("File required");
+  }
+  const safeName = path.basename(filename);
+  const samplePath = path.join(DATASET_DIR, safeName);
+  if (!fs.existsSync(samplePath)) {
+    return res.status(404).send("Not found");
+  }
+  const ext = path.extname(safeName).toLowerCase();
+  res.setHeader("Content-Type", MIME_BY_EXT[ext] || "image/jpeg");
+  return fs.createReadStream(samplePath).pipe(res);
+};
+
+/** POST /api/face/passenger/sync-gallery — Sync newly added files from folder */
+const passengerSync = async (req, res) => {
+  try {
+    const result = await recognitionEngine.syncFolder();
+    return res.json({ success: true, ...result });
+  } catch (error) {
+    return res.status(500).json({ code: "SYNC_FAILED", message: error.message });
+  }
+};
+
+/** POST /api/face/passenger/enroll — Direct face enrollment */
+const passengerEnroll = async (req, res) => {
+  try {
+    if (!req.file || !req.file.buffer) {
+      return res.status(400).json({ code: "PHOTO_REQUIRED", message: "photo file is required" });
+    }
+    const name = req.body.name;
+    if (!name) {
+      return res.status(400).json({ code: "NAME_REQUIRED", message: "name field is required" });
+    }
+
+    const result = await recognitionEngine.enrollIdentity(req.file.buffer, {
+      name,
+      passNumber: req.body.passNumber,
+      isActive: req.body.isActive !== undefined ? (req.body.isActive === 'true' || req.body.isActive === true) : true,
+      expiryDate: req.body.expiryDate
+    });
+
+    return res.status(201).json(result);
+  } catch (error) {
+    return res.status(400).json({ code: "ENROLLMENT_FAILED", message: error.message });
+  }
+};
+
 module.exports = {
   createSession,
   getSession,
@@ -166,4 +280,13 @@ module.exports = {
   openCapture,
   submitPhoto,
   getPhoto,
+  passengerView,
+  passengerIdentify,
+  passengerStats,
+  passengerTestSample,
+  passengerSampleImage,
+  passengerSync,
+  passengerEnroll,
 };
+
+

@@ -20,8 +20,7 @@ const connectDB = async () => {
     await pool.query("SELECT NOW()");
     console.log("PostgreSQL Connected Successfully");
   } catch (error) {
-    console.error("PostgreSQL Connection Failed:", error.message);
-    process.exit(1);
+    console.warn("PostgreSQL Connection Warning (Pass DB):", error.message);
   }
 };
 

@@ -22,6 +22,10 @@ yarn-error.log*
 uploads/
 **/uploads/
 
+# ─── Face verify model / gallery files (too large for GitHub) ──
+face_verify/models/*.onnx
+face_verify/models/gallery_index*.json
+
 # ─── OS / Editor Artifacts ─────────────────────────────────────
 .DS_Store
 Thumbs.db

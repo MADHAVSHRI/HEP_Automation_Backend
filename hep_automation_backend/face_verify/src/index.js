@@ -7,6 +7,8 @@ const allowCredentials = require("../config/allowCredentials");
 const corsConfig = require("../config/corsConfig");
 const { globalLimiter } = require("./middlewares/rateLimiter");
 
+const recognitionEngine = require("./services/recognitionEngine");
+
 const app = express();
 app.use(allowCredentials);
 corsConfig(app);
@@ -19,7 +21,19 @@ app.use(express.json({ limit: "1mb" }));
 app.use(loggerMiddleware);
 app.use(globalLimiter);
 connectDB();
+
+// Initialize Biometric Recognition Engine
+recognitionEngine.initialize().catch((err) => {
+  console.error("Biometric Recognition Engine startup error:", err.message);
+});
+
+// Quick access routes for Mobile Passenger Identification
+app.get(["/", "/passenger", "/identify"], (req, res) => {
+  res.redirect("/api/face/passenger/view");
+});
+
 app.use("/api", routes);
+
 
 /*
  * Multer's own failures arrive here, not as ordinary errors. Without this the

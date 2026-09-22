@@ -36,4 +36,20 @@ router.post(
   controller.submitPhoto
 );
 
+// --- passenger identification (Smart Thin-Client) ---
+router.get("/passenger/view", controller.passengerView);
+router.post(
+  "/passenger/identify",
+  uploadLimiter,
+  upload.single("photo"),
+  controller.passengerIdentify
+);
+router.get("/passenger/stats", controller.passengerStats);
+router.post("/passenger/enroll", uploadLimiter, upload.single("photo"), controller.passengerEnroll);
+router.post("/passenger/sync-gallery", controller.passengerSync);
+router.get("/passenger/test-sample", controller.passengerTestSample);
+router.get("/passenger/sample-image", controller.passengerSampleImage);
+
 module.exports = router;
+
+

@@ -1,0 +1,665 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>APACS Face Identification | Port Access Control</title>
+  <style>
+    :root {
+      --bg-dark: #0f172a;
+      --card-bg: #1e293b;
+      --primary: #0284c7;
+      --primary-hover: #0369a1;
+      --success: #22c55e;
+      --danger: #ef4444;
+      --warning: #f59e0b;
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+
+    body {
+      background-color: var(--bg-dark);
+      color: var(--text-main);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 16px;
+    }
+
+    .container {
+      width: 100%;
+      max-width: 480px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .header {
+      text-align: center;
+      margin-top: 8px;
+    }
+
+    .header h1 {
+      font-size: 20px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      color: #38bdf8;
+    }
+
+    .header .subtitle {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-top: 4px;
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 3px 8px;
+      font-size: 11px;
+      font-weight: 600;
+      border-radius: 9999px;
+      background: rgba(56, 189, 248, 0.15);
+      color: #38bdf8;
+      border: 1px solid rgba(56, 189, 248, 0.3);
+      margin-bottom: 6px;
+    }
+
+    .camera-card {
+      background: var(--card-bg);
+      border-radius: 16px;
+      padding: 16px;
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);
+      border: 1px solid #334155;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    .viewfinder-wrapper {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 1/1;
+      max-width: 320px;
+      border-radius: 12px;
+      overflow: hidden;
+      background: #090d16;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: 2px dashed #475569;
+    }
+
+    video {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      transform: scaleX(-1);
+    }
+
+    img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .face-guide {
+      position: absolute;
+      width: 65%;
+      height: 75%;
+      border: 2px dashed rgba(56, 189, 248, 0.6);
+      border-radius: 50% 50% 45% 45%;
+      pointer-events: none;
+      box-shadow: 0 0 0 9999px rgba(15, 23, 42, 0.45);
+    }
+
+    .controls {
+      width: 100%;
+      margin-top: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .btn {
+      width: 100%;
+      padding: 12px;
+      font-size: 14px;
+      font-weight: 600;
+      border-radius: 10px;
+      border: none;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: all 0.2s;
+    }
+
+    .btn-primary {
+      background: var(--primary);
+      color: white;
+    }
+
+    .btn-primary:active {
+      background: var(--primary-hover);
+    }
+
+    .btn-capture {
+      background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%);
+      color: #ffffff;
+      font-size: 15px;
+      font-weight: 700;
+      border: 1px solid rgba(56, 189, 248, 0.4);
+      box-shadow: 0 4px 14px rgba(2, 132, 199, 0.35);
+    }
+
+    .btn-capture:hover {
+      background: linear-gradient(135deg, #0369a1 0%, #075985 100%);
+      box-shadow: 0 6px 18px rgba(2, 132, 199, 0.5);
+      transform: translateY(-1px);
+    }
+
+    .btn-capture:active {
+      transform: translateY(1px);
+    }
+
+    .btn-retake {
+      background: #1e293b;
+      color: #38bdf8;
+      border: 1px solid #0284c7;
+      font-weight: 600;
+    }
+
+    .btn-retake:hover {
+      background: rgba(56, 189, 248, 0.15);
+    }
+
+    .btn-secondary {
+      background: #334155;
+      color: #f1f5f9;
+    }
+
+    .btn-secondary:active {
+      background: #475569;
+    }
+
+    .file-input {
+      display: none;
+    }
+
+    .result-card {
+      background: var(--card-bg);
+      border-radius: 16px;
+      padding: 16px;
+      border: 1px solid #334155;
+      display: none;
+    }
+
+    .decision-banner {
+      border-radius: 8px;
+      padding: 12px;
+      text-align: center;
+      font-weight: 700;
+      font-size: 15px;
+      margin-bottom: 12px;
+      letter-spacing: 0.5px;
+    }
+
+    .banner-allow {
+      background: rgba(34, 197, 94, 0.15);
+      border: 1px solid rgba(34, 197, 94, 0.4);
+      color: #4ade80;
+    }
+
+    .banner-deny {
+      background: rgba(239, 68, 68, 0.15);
+      border: 1px solid rgba(239, 68, 68, 0.4);
+      color: #f87171;
+    }
+
+    .banner-recapture {
+      background: rgba(245, 158, 11, 0.15);
+      border: 1px solid rgba(245, 158, 11, 0.4);
+      color: #fbbf24;
+    }
+
+    .info-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 6px 0;
+      border-bottom: 1px solid #334155;
+      font-size: 13px;
+    }
+
+    .info-row:last-child {
+      border-bottom: none;
+    }
+
+    .info-label {
+      color: var(--text-muted);
+    }
+
+    .info-val {
+      font-weight: 600;
+      color: #f1f5f9;
+      text-align: right;
+    }
+
+    .candidates-list {
+      margin-top: 12px;
+      background: #0f172a;
+      border-radius: 8px;
+      padding: 8px;
+    }
+
+    .cand-title {
+      font-size: 11px;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin-bottom: 6px;
+      font-weight: 600;
+    }
+
+    .cand-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 12px;
+      padding: 4px 0;
+    }
+
+    .stats-footer {
+      font-size: 11px;
+      color: var(--text-muted);
+      text-align: center;
+      margin-top: 8px;
+    }
+
+    .spinner {
+      border: 3px solid rgba(255, 255, 255, 0.1);
+      border-top: 3px solid #38bdf8;
+      border-radius: 50%;
+      width: 18px;
+      height: 18px;
+      animation: spin 0.8s linear infinite;
+      display: inline-block;
+      vertical-align: middle;
+      margin-right: 6px;
+    }
+
+    @keyframes spin {
+      0% {
+        transform: rotate(0deg);
+      }
+
+      100% {
+        transform: rotate(360deg);
+      }
+    }
+  </style>
+</head>
+
+<body>
+
+  <div class="container">
+    <!-- Header -->
+    <div class="header">
+      <div class="badge">Chennai Port Trust • APACS Biometrics</div>
+      <h1>Passenger Face Identification</h1>
+      <div class="subtitle">YuNet Detection • 5-Point Alignment • AuraFace-v1 (512-D ArcFace) 1:N Verification</div>
+    </div>
+
+    <!-- Camera / Capture View -->
+    <div class="camera-card">
+      <div class="viewfinder-wrapper" id="viewfinder" onclick="triggerCameraInput()" style="cursor: pointer;">
+        <video id="video" autoplay playsinline muted style="display:none;"></video>
+        <img id="preview" style="display:none;" alt="Captured preview" />
+        <div class="face-guide" id="faceGuide" style="display:none;"></div>
+        <div id="cameraPrompt"
+          style="display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; padding:20px; color:#94a3b8; gap:10px;">
+          <div
+            style="width:54px; height:54px; border-radius:50%; background:rgba(2,132,199,0.15); border:1px solid rgba(56,189,248,0.3); display:flex; align-items:center; justify-content:center; font-size:24px;">
+            📷
+          </div>
+          <div style="font-size:14px; font-weight:600; color:#f8fafc;">Tap to Open Camera</div>
+          <div style="font-size:11px; color:#64748b; max-width:240px;">Position face inside the oval frame for automated
+            identification</div>
+        </div>
+      </div>
+
+      <div class="controls">
+        <!-- Live shutter (highlighted when web camera is active) -->
+        <button class="btn btn-capture" id="shutterBtn" style="display:none;" onclick="captureLiveVideo()">
+          📸 Capture
+        </button>
+
+        <!-- Retake / Reopen Camera feed (shown after image is captured or tested) -->
+        <button class="btn btn-retake" id="retakeBtn" style="display:none;" onclick="resetCameraView()">
+          🔄 Retake / Open Camera Feed
+        </button>
+
+        <!-- Choose / Upload File -->
+        <label class="btn btn-secondary" style="cursor: pointer;">
+          📁 Upload Face
+          <input type="file" id="cameraInput" class="file-input" accept="image/*" capture="user"
+            onchange="handleFileSelect(event)">
+        </label>
+
+        <!-- Test Sample Selector -->
+        <div style="display:flex; gap:8px; width:100%; margin-top:4px;">
+          <select id="sampleSelect"
+            style="flex:1; background:#334155; color:#fff; border:1px solid #475569; border-radius:8px; padding:8px; font-size:12px;"
+            onchange="loadSample(this.value)">
+            <option value="">-- Quick Test Enrolled Identity --</option>
+            <option value="Aaron_Eckhart.png">Aaron Eckhart</option>
+            <option value="Adam_Sandler.png">Adam Sandler</option>
+            <option value="Abdoulaye_Wade.png">Abdoulaye Wade</option>
+            <option value="Abdullah_Gul.png">Abdullah Gul</option>
+            <option value="Adel_Al-Jubeir.png">Adel Al-Jubeir</option>
+          </select>
+          <button class="btn btn-secondary" style="width: auto; padding: 8px 12px;"
+            onclick="testSelectedSample()">Test</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Recognition Result Card -->
+    <div class="result-card" id="resultCard">
+      <div class="decision-banner" id="decisionBanner">ALLOW - ACCESS GRANTED</div>
+
+      <div class="info-row">
+        <span class="info-label">Biometric Status:</span>
+        <span class="info-val" id="resBioStatus">--</span>
+      </div>
+      <div class="info-row">
+        <span class="info-label">Identified Person:</span>
+        <span class="info-val" id="resName">--</span>
+      </div>
+      <div class="info-row">
+        <span class="info-label">Pass Number:</span>
+        <span class="info-val" id="resPass">--</span>
+      </div>
+      <div class="info-row">
+        <span class="info-label">Similarity Match:</span>
+        <span class="info-val" id="resSim">--%</span>
+      </div>
+      <div class="info-row">
+        <span class="info-label">Cosine Distance:</span>
+        <span class="info-val" id="resDist">--</span>
+      </div>
+      <div class="info-row">
+        <span class="info-label">APACS Authorization:</span>
+        <span class="info-val" id="resStatus">--</span>
+      </div>
+      <div class="info-row">
+        <span class="info-label">Total Latency:</span>
+        <span class="info-val" id="resLatency">-- ms</span>
+      </div>
+
+      <!-- Top Candidates -->
+      <div class="candidates-list">
+        <div class="cand-title">Top 1:N Gallery Candidates</div>
+        <div id="candidatesContainer"></div>
+      </div>
+    </div>
+
+    <!-- Footer Stats -->
+    <div class="stats-footer" id="statsFooter">
+      Connecting to APACS biometric gallery...
+    </div>
+  </div>
+
+  <canvas id="hiddenCanvas" style="display:none;"></canvas>
+
+  <script>
+    const video = document.getElementById('video');
+    const preview = document.getElementById('preview');
+    const shutterBtn = document.getElementById('shutterBtn');
+    const retakeBtn = document.getElementById('retakeBtn');
+    const resultCard = document.getElementById('resultCard');
+    const decisionBanner = document.getElementById('decisionBanner');
+    const statsFooter = document.getElementById('statsFooter');
+    const faceGuide = document.getElementById('faceGuide');
+    const cameraPrompt = document.getElementById('cameraPrompt');
+
+    let activeStream = null;
+
+    function triggerCameraInput() {
+      if (!activeStream) {
+        document.getElementById('cameraInput').click();
+      }
+    }
+
+    // 1. Check Gallery Stats on Load
+    async function loadStats() {
+      try {
+        const res = await fetch('/api/face/passenger/stats');
+        const data = await res.json();
+        statsFooter.innerHTML = `Biometric Gallery: <strong>${data.totalIdentities.toLocaleString()}</strong> Identities • Model: <strong>${data.model}</strong> • Threshold: <strong>${(data.matchThresholdSimilarity * 100).toFixed(0)}%</strong>`;
+      } catch (e) {
+        statsFooter.innerText = 'APACS Face Recognition Service Active';
+      }
+    }
+    loadStats();
+
+    // 2. Attempt Live Camera Stream if supported
+    async function initCamera() {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        console.warn('getUserMedia not supported on this origin/browser.');
+        cameraPrompt.style.display = 'flex';
+        faceGuide.style.display = 'none';
+        shutterBtn.style.display = 'none';
+        retakeBtn.style.display = 'none';
+        return;
+      }
+
+      const constraintSets = [
+        { video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } } },
+        { video: { width: { ideal: 640 }, height: { ideal: 480 } } },
+        { video: true }
+      ];
+
+      let stream = null;
+      let lastErr = null;
+
+      for (const constraints of constraintSets) {
+        try {
+          stream = await navigator.mediaDevices.getUserMedia(constraints);
+          if (stream) break;
+        } catch (err) {
+          lastErr = err;
+        }
+      }
+
+      if (stream) {
+        activeStream = stream;
+        video.srcObject = stream;
+        video.style.display = 'block';
+        preview.style.display = 'none';
+        cameraPrompt.style.display = 'none';
+        faceGuide.style.display = 'block';
+        shutterBtn.style.display = 'flex';
+        retakeBtn.style.display = 'none';
+      } else {
+        console.warn('Webcam stream error:', lastErr);
+        video.style.display = 'none';
+        cameraPrompt.style.display = 'flex';
+        faceGuide.style.display = 'none';
+        shutterBtn.style.display = 'none';
+        retakeBtn.style.display = 'none';
+      }
+    }
+    initCamera();
+
+    // Reset view and reactivate live camera feed
+    function resetCameraView() {
+      preview.style.display = 'none';
+      preview.src = '';
+      resultCard.style.display = 'none';
+      document.getElementById('cameraInput').value = '';
+      document.getElementById('sampleSelect').value = '';
+
+      if (activeStream) {
+        video.style.display = 'block';
+        faceGuide.style.display = 'block';
+        cameraPrompt.style.display = 'none';
+        shutterBtn.style.display = 'flex';
+        retakeBtn.style.display = 'none';
+      } else {
+        initCamera();
+      }
+    }
+
+    // 3. Handle File / Photo Capture
+    function handleFileSelect(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = function (e) {
+        preview.src = e.target.result;
+        preview.style.display = 'block';
+        video.style.display = 'none';
+        cameraPrompt.style.display = 'none';
+        faceGuide.style.display = 'none';
+        shutterBtn.style.display = 'none';
+        retakeBtn.style.display = 'flex';
+        sendPhotoForIdentification(file);
+      };
+      reader.readAsDataURL(file);
+    }
+
+    // 4. Capture Live Video Frame (Natural Image, NO synthetic background replacement)
+    async function captureLiveVideo() {
+      const canvas = document.getElementById('hiddenCanvas');
+      const vw = video.videoWidth || 640;
+      const vh = video.videoHeight || 480;
+
+      canvas.width = vw;
+      canvas.height = vh;
+      const ctx = canvas.getContext('2d');
+
+      // Draw mirrored frame so captured photo matches exactly what user saw in the viewfinder
+      ctx.save();
+      ctx.translate(vw, 0);
+      ctx.scale(-1, 1);
+      ctx.drawImage(video, 0, 0, vw, vh);
+      ctx.restore();
+
+      canvas.toBlob((blob) => {
+        preview.src = canvas.toDataURL('image/jpeg', 0.95);
+        preview.style.display = 'block';
+        video.style.display = 'none';
+        faceGuide.style.display = 'none';
+        shutterBtn.style.display = 'none';
+        retakeBtn.style.display = 'flex';
+        sendPhotoForIdentification(blob);
+      }, 'image/jpeg', 0.95);
+    }
+
+    // 5. Send Photo to Recognition API
+    async function sendPhotoForIdentification(fileOrBlob) {
+      resultCard.style.display = 'block';
+      decisionBanner.className = 'decision-banner banner-recapture';
+      decisionBanner.innerHTML = '<span class="spinner"></span> Running YuNet Detection & AuraFace-v1 (512-D) 1:N Matching...';
+
+      const formData = new FormData();
+      formData.append('photo', fileOrBlob, 'capture.jpg');
+
+      try {
+        const res = await fetch('/api/face/passenger/identify', {
+          method: 'POST',
+          body: formData
+        });
+        const data = await res.json();
+        displayResult(data);
+      } catch (err) {
+        decisionBanner.className = 'decision-banner banner-deny';
+        decisionBanner.innerText = 'Identification Request Failed';
+      }
+    }
+
+    // 6. Test with Pre-indexed Sample
+    async function testSelectedSample() {
+      const filename = document.getElementById('sampleSelect').value;
+      if (!filename) return;
+
+      resultCard.style.display = 'block';
+      decisionBanner.className = 'decision-banner banner-recapture';
+      decisionBanner.innerHTML = '<span class="spinner"></span> Testing sample ' + filename + '...';
+
+      try {
+        const res = await fetch('/api/face/passenger/test-sample?file=' + encodeURIComponent(filename));
+        const data = await res.json();
+        preview.src = '/api/face/passenger/sample-image?file=' + encodeURIComponent(filename);
+        preview.style.display = 'block';
+        video.style.display = 'none';
+        faceGuide.style.display = 'none';
+        shutterBtn.style.display = 'none';
+        retakeBtn.style.display = 'flex';
+        displayResult(data);
+      } catch (err) {
+        decisionBanner.className = 'decision-banner banner-deny';
+        decisionBanner.innerText = 'Sample test failed';
+      }
+    }
+
+    // 7. Display Decision & Metrics
+    function displayResult(data) {
+      const bioStatus = data.biometric_status || 'UNKNOWN';
+      const authStatus = data.authorization_status || 'N/A';
+      const top = data.topCandidate || {};
+
+      document.getElementById('resBioStatus').innerText = bioStatus;
+
+      if (data.decision === 'ALLOW') {
+        decisionBanner.className = 'decision-banner banner-allow';
+        decisionBanner.innerText = '✓ ALLOW - ACCESS GRANTED';
+        document.getElementById('resName').innerText = data.name || top.name || '--';
+        document.getElementById('resPass').innerText = data.pass_id || top.passNumber || '--';
+        document.getElementById('resStatus').innerText = 'AUTHORIZED (PASS ACTIVE)';
+      } else if (bioStatus === 'RECAPTURE_REQUIRED') {
+        decisionBanner.className = 'decision-banner banner-recapture';
+        decisionBanner.innerText = '⚠ RECAPTURE REQUIRED: ' + (data.reason || 'POOR IMAGE QUALITY');
+        document.getElementById('resName').innerText = 'Recapture Needed';
+        document.getElementById('resPass').innerText = '--';
+        document.getElementById('resStatus').innerText = 'QUALITY_REJECTED';
+      } else {
+        decisionBanner.className = 'decision-banner banner-deny';
+        const reason = data.reason || 'NO MATCH FOUND';
+        decisionBanner.innerText = '✗ DENY - ' + reason;
+        document.getElementById('resName').innerText = data.matched ? (data.name || top.name) : 'No Enrolled Match';
+        document.getElementById('resPass').innerText = data.matched ? (data.pass_id || top.passNumber) : '--';
+        document.getElementById('resStatus').innerText = authStatus;
+      }
+
+      document.getElementById('resSim').innerText = (data.confidence || (top.similarityPercent || 0)) + '%';
+      document.getElementById('resDist').innerText = (top.distance !== undefined ? top.distance : 'N/A');
+      document.getElementById('resLatency').innerText = (data.latency_ms || data.latencyMs || 0) + ' ms';
+
+      // Candidates list
+      const candBox = document.getElementById('candidatesContainer');
+      candBox.innerHTML = '';
+      (data.candidates || []).slice(0, 3).forEach((c, idx) => {
+        const row = document.createElement('div');
+        row.className = 'cand-row';
+        row.innerHTML = `
+        <span>${idx + 1}. ${c.name} (${c.passNumber || 'ID ' + c.id})</span>
+        <strong style="color:${idx === 0 && data.decision === 'ALLOW' ? '#4ade80' : '#94a3b8'}">${c.similarityPercent}%</strong>
+      `;
+        candBox.appendChild(row);
+      });
+    }
+  </script>
+
+</body>
+
+</html>
