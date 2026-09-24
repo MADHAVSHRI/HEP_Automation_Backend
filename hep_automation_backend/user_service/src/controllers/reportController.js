@@ -84,3 +84,8 @@ exports.getGateLaneWiseSummary = async (req, res) => {
   catch (error) { console.error("Gate lane-wise report error:", error); return res.status(500).json({ success: false, message: "Failed to fetch gate lane-wise report" }); }
 };
 exports.getPassPenaltyReport = sendReport("getPassPenaltyReport", "pass penalty");
+exports.getShiftWiseApprovalReport = sendReport("getShiftWiseApprovalReport", "shift-wise approval and rejection");
+exports.getBulkPassReport = sendReport("getBulkPassReport", "bulk pass");
+exports.getBlacklistingReport = sendReport("getBlacklistingReport", "blacklisting");
+exports.getMaterialMovementReport = sendReport("getMaterialMovementReport", "material movement");
+exports.getVehicleMasterReport = sendReport("getVehicleMasterReport", "vehicle master");

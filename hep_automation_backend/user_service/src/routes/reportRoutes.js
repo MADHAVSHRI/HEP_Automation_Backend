@@ -26,5 +26,10 @@ router.get("/gate-wise-in-out-summary", reportController.getGateWiseSummary);
 router.get("/gate-lane-wise-in-out-summary", reportController.getGateLaneWiseSummary);
 router.get("/card-inventory-summary", reportController.getQrInventorySummary);
 router.get("/card-penalty-report", reportController.getPassPenaltyReport);
+router.get("/shift-wise-approval-rejection", reportController.getShiftWiseApprovalReport);
+router.get("/bulk-pass-report", reportController.getBulkPassReport);
+router.get("/blacklisting-report", reportController.getBlacklistingReport);
+router.get("/material-movement-report", reportController.getMaterialMovementReport);
+router.get("/vehicle-master", reportController.getVehicleMasterReport);
 
 module.exports = router;
