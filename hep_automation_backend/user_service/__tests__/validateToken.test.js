@@ -84,7 +84,7 @@ describe('validateToken Controller', () => {
       expect(response.body.data.nextSubmissionNumber).toBe(2);
     });
 
-    test('should return 403 when parent request is expired', async () => {
+    test('should keep serving history but block submissions when parent request is expired', async () => {
       const mockParentRequest = {
         id: 1,
         shared_token: 'test-token',
@@ -94,14 +94,30 @@ describe('validateToken Controller', () => {
         status: 'ACTIVE',
       };
 
+      const mockSubmissionHistory = [
+        { id: 7, refNo: 'BP/2025/00007', submissionNumber: 1, status: 'COMPLETED' },
+      ];
+
       BulkPassParentRequest.findByToken.mockResolvedValue(mockParentRequest);
+      BulkPassSchema.getChildBatches.mockResolvedValue(mockSubmissionHistory);
+      BulkPassSchema.getSubmissionSummary.mockResolvedValue({
+        totalSubmissions: 1, totalPersons: 4, totalVehicles: 1, byStatus: {}, lastSubmissionAt: null,
+      });
+      BulkPassSchema.getNextSubmissionNumber.mockResolvedValue(2);
 
       const response = await request(app)
         .get('/api/bulk-pass/validate-token/test-token')
-        .expect(403);
+        .expect(200);
 
-      expect(response.body.success).toBe(false);
-      expect(response.body.message).toContain('submission period has expired');
+      expect(response.body.success).toBe(true);
+      expect(response.body.data.canSubmit).toBe(false);
+      expect(response.body.data.withinValidityPeriod).toBe(false);
+      expect(response.body.data.blockReason).toBe('EXPIRED');
+      expect(response.body.data.validity.state).toBe('EXPIRED');
+      expect(response.body.data.message).toContain('expired');
+      // Previous submissions stay readable after expiry.
+      expect(response.body.data.submissionHistory).toHaveLength(1);
+      expect(response.body.data.submissionSummary.totalSubmissions).toBe(1);
     });
   });
 
@@ -162,11 +178,12 @@ describe('validateToken Controller', () => {
       expect(response.body.data.nextSubmissionNumber).toBe(2);
     });
 
-    test('should return 403 when multiple submission batch is expired', async () => {
+    test('should keep serving history but block submissions when multiple submission batch is expired', async () => {
       const mockBatch = {
         id: 1,
         token: 'test-batch-token',
-        tokenActive: true,
+        tokenActive: false,      // cleared by getByToken once the window elapses
+        tokenActiveRaw: true,    // never revoked by a person
         multipleSubmissionsEnabled: true,
         validityFrom: '2025-01-01',
         validityUpto: '2025-12-31', // Past date
@@ -174,13 +191,54 @@ describe('validateToken Controller', () => {
 
       BulkPassParentRequest.findByToken.mockResolvedValue(null);
       BulkPassSchema.getByToken.mockResolvedValue(mockBatch);
+      BulkPassSchema.getChildBatches.mockResolvedValue([
+        { id: 9, refNo: 'BP/2025/00009', submissionNumber: 1, status: 'COMPLETED' },
+        { id: 10, refNo: 'BP/2025/00010', submissionNumber: 2, status: 'COMPLETED' },
+      ]);
+      BulkPassSchema.getSubmissionSummary.mockResolvedValue({
+        totalSubmissions: 2, totalPersons: 12, totalVehicles: 3, byStatus: {}, lastSubmissionAt: null,
+      });
+      BulkPassSchema.getNextSubmissionNumber.mockResolvedValue(3);
 
       const response = await request(app)
         .get('/api/bulk-pass/validate-token/test-batch-token')
-        .expect(403);
+        .expect(200);
 
-      expect(response.body.success).toBe(false);
-      expect(response.body.message).toContain('submission period has expired');
+      expect(response.body.success).toBe(true);
+      expect(response.body.data.isParentBatch).toBe(true);
+      expect(response.body.data.canSubmit).toBe(false);
+      expect(response.body.data.withinValidityPeriod).toBe(false);
+      expect(response.body.data.blockReason).toBe('EXPIRED');
+      expect(response.body.data.submissionHistory).toHaveLength(2);
+      expect(response.body.data.submissionSummary.totalPersons).toBe(12);
+    });
+
+    test('should report a deactivated link separately from an expired one', async () => {
+      const mockBatch = {
+        id: 1,
+        token: 'test-batch-token',
+        tokenActive: false,
+        tokenActiveRaw: false,   // deliberately revoked
+        multipleSubmissionsEnabled: true,
+        validityFrom: '2026-01-01',
+        validityUpto: '2099-12-31',
+      };
+
+      BulkPassParentRequest.findByToken.mockResolvedValue(null);
+      BulkPassSchema.getByToken.mockResolvedValue(mockBatch);
+      BulkPassSchema.getChildBatches.mockResolvedValue([]);
+      BulkPassSchema.getSubmissionSummary.mockResolvedValue({
+        totalSubmissions: 0, totalPersons: 0, totalVehicles: 0, byStatus: {}, lastSubmissionAt: null,
+      });
+      BulkPassSchema.getNextSubmissionNumber.mockResolvedValue(1);
+
+      const response = await request(app)
+        .get('/api/bulk-pass/validate-token/test-batch-token')
+        .expect(200);
+
+      expect(response.body.data.canSubmit).toBe(false);
+      expect(response.body.data.blockReason).toBe('LINK_INACTIVE');
+      expect(response.body.data.validity.state).toBe('ACTIVE');
     });
   });
 

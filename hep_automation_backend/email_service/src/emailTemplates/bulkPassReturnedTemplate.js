@@ -1,8 +1,11 @@
+const { renderIssueList } = require("./_correctionParts");
+
 const bulkPassReturnedTemplate = ({
   companyName,
   refNo,
   returnReason,
   uploadLink,
+  issues,
 }) => {
   return `
   <div style="font-family: Arial, sans-serif; color:#1f2937; max-width:600px; margin:0 auto;">
@@ -30,6 +33,9 @@ const bulkPassReturnedTemplate = ({
       </div>
       ` : ""}
 
+      ${renderIssueList(issues)}
+
+      ${uploadLink ? `
       <p style="margin:24px 0; text-align:center;">
         <a href="${uploadLink}"
            style="background:#ea580c; color:#fff; text-decoration:none;
@@ -40,11 +46,12 @@ const bulkPassReturnedTemplate = ({
       </p>
 
       <p style="font-size:13px; color:#475569;">
-        If the button above doesn't work, copy and paste this URL into your browser:
+        Your previously submitted details are already filled in — you only need to fix the entries above.
+        If the button doesn't work, copy and paste this URL into your browser:
       </p>
       <p style="word-break:break-all; font-size:13px;">
         <a href="${uploadLink}" style="color:#2563eb;">${uploadLink}</a>
-      </p>
+      </p>` : ""}
 
       <table style="width:100%; margin-top:24px; font-size:14px; border-collapse:collapse;">
         <tr>

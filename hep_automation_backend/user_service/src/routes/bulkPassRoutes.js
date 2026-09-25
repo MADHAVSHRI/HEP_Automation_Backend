@@ -28,8 +28,14 @@ const publicRequestController = require("../controllers/publicRequestController"
 const adminPublicRequestController = require("../controllers/adminPublicRequestController");
 const authorizeToken = require("../middlewares/authorizeToken");
 const authorizeDepartment = require("../middlewares/authorizeDepartment");
-const { otpRateLimiter, publicRequestRateLimiter } = require("../middlewares/rateLimitMiddleware");
+const {
+  otpRateLimiter,
+  publicRequestRateLimiter,
+  bulkSubmissionRateLimiter,
+  captchaRateLimiter,
+} = require("../middlewares/rateLimitMiddleware");
 const { validatePublicRequest } = require("../validations/publicRequestValidator");
+const { BULK_PASS_LIMITS } = require("../constants/constants");
 
 // ── Excel-upload multer instance (Req 11.8) ────────────────────────────────
 const EXCEL_TMP_DIR = "/tmp/bulk_pass_excel";
@@ -113,6 +119,9 @@ router.post("/public/request-otp", otpRateLimiter, publicRequestController.reque
 // Verify OTP for email verification
 router.post("/public/verify-otp", publicRequestController.verifyOTP);
 
+// Check the status of a public request (tracking number + applicant email)
+router.get("/public/request-status", captchaRateLimiter, publicRequestController.getRequestStatus);
+
 // Submit public bulk pass request (with validation and rate limiting)
 // Requirements: 21.1-21.15, 23.6-23.8, 24.1-24.7
 router.post("/public/request", validatePublicRequest, publicRequestRateLimiter, publicRequestController.submitPublicRequest);
@@ -131,6 +140,16 @@ router.get("/public/blacklist-check", bulkPassController.publicBlacklistCheck);
 // ULIP vehicle validity check for the public upload form (no auth needed)
 // POST /public/vehicle-check  { vehiclenumber: "TN01AB1234" }
 router.post("/public/vehicle-check", bulkPassController.publicVehicleCheck);
+
+// Submission history + aggregate statistics for the Bulk Pass behind a link.
+// Declared before /public/:token so the extra path segments resolve here.
+router.get("/public/:token/submissions", bulkPassController.getPublicSubmissions);
+
+// Detail of one previous batch, scoped to the Bulk Pass that owns it.
+router.get("/public/:token/submissions/:submissionId", bulkPassController.getPublicSubmissionDetail);
+
+// The approved pass (QR PDF) of one batch, through the Bulk Pass link that owns it
+router.get("/public/:token/submissions/:submissionId/pdf", bulkPassController.getPublicSubmissionPdf);
 
 // Lookup batch by token
 router.get("/public/:token", bulkPassController.getPublicByToken);
@@ -176,11 +195,12 @@ router.post(
 // Submit rows directly with photoDataUrl per row + optional vehicle docs
 router.post(
   "/public/:token/submit-rows",
+  bulkSubmissionRateLimiter,
   (req, res, next) => {
     // Accept any field name for vehicle docs + Aadhaar cards for all persons.
-    // Vehicles: up to 20 × 6 docs = 120 files. Persons: up to 200 Aadhaar cards.
+    // Vehicles: up to MAX_VEHICLES × 8 docs. Persons: up to 200 Aadhaar cards.
     const fields = [];
-    for (let i = 0; i < 20; i++) {
+    for (let i = 0; i < BULK_PASS_LIMITS.MAX_VEHICLES; i++) {
       ["rc", "insurance", "fitness", "permit", "roadTax", "emission", "driverAadhaarCard", "driverLicense"].forEach((doc) => {
         fields.push({ name: `vehicle_${i}_${doc}`, maxCount: 1 });
       });
@@ -196,7 +216,7 @@ router.post(
       },
       filename: (_req, file, cb) => cb(null, Date.now() + "_" + file.originalname.replace(/[^a-zA-Z0-9._-]/g, "_")),
     });
-    multer({ storage: docStorage, limits: { fileSize: 10 * 1024 * 1024, files: 360 } })
+    multer({ storage: docStorage, limits: { fileSize: 10 * 1024 * 1024, files: fields.length } })
       .fields(fields)(req, res, (err) => {
         if (err) return res.status(400).json({ success: false, message: err.message || "File upload error" });
         next();
@@ -204,6 +224,15 @@ router.post(
   },
   validateUploadedFileTypes,
   bulkPassController.submitRowsDirectly
+);
+
+// ── Internal service-to-service routes (x-service-key) ─────────────────────
+
+// Daily expiry reminders, triggered by approval-admin-service's scheduler.
+router.post(
+  "/internal/send-expiry-reminders",
+  verifyService,
+  bulkPassController.sendExpiryReminders
 );
 
 // ── Protected routes (verifyToken required) ────────────────────────────────
@@ -269,6 +298,10 @@ router.get("/scan/:id", bulkPassController.getPublicScanData);
 // Internal per-person approve / reject / undo — declared BEFORE /:id to prevent
 // "persons" being swallowed by a hypothetical /:id/persons pattern
 // C-03 fix: guarded by verifyService — requires x-service-key header.
+// Approve everything still pending in one action — declared before the
+// :personId routes so "approve-all" is not parsed as a person id.
+router.post("/:batchId/persons/approve-all", verifyService, bulkPassController.approveAllPendingInBatch);
+
 router.post("/:batchId/persons/:personId/approve", verifyService, bulkPassController.approvePersonInBatch);
 router.post("/:batchId/persons/:personId/reject",  verifyService, bulkPassController.rejectPersonInBatch);
 router.post("/:batchId/persons/:personId/undo",    verifyService, bulkPassController.undoPersonInBatch);
@@ -284,11 +317,11 @@ router.post("/:id/reject", verifyService, bulkPassController.rejectBatch);
 // Get batch detail
 router.get("/:id", verifyToken, bulkPassController.getBatchDetail);
 
-// Edit batch (DRAFT / REJECTED / RETURNED_TO_APPLICANT)
+// Edit batch (DRAFT / REJECTED / RETURNED_TO_APPLICANT, or any reusable Bulk Pass)
 router.put("/:id", verifyToken, bulkPassController.updateBatch);
 
-// Forward to Traffic Department approval
-router.post("/:id/forward", verifyToken, bulkPassController.forwardToApproval);
+// Switch the applicant link off / back on without waiting for expiry
+router.post("/:id/link-status", verifyToken, bulkPassController.setLinkActive);
 
 // Resend invitation email to applicant
 router.post("/:id/resend-invitation", verifyToken, bulkPassController.resendInvitation);

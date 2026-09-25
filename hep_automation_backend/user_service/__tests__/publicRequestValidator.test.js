@@ -187,14 +187,14 @@ describe('Public Request Validator', () => {
         });
 
         describe('noOfPersons validation', () => {
-            it('should accept 0 persons', () => {
+            it('should reject 0 persons (a pass needs at least one person)', () => {
                 const request = { ...validRequest, noOfPersons: 0 };
                 const result = publicRequestSchema.safeParse(request);
-                expect(result.success).toBe(true);
+                expect(result.success).toBe(false);
             });
 
-            it('should accept 30 persons (max)', () => {
-                const request = { ...validRequest, noOfPersons: 30 };
+            it('should accept a large total such as 100 persons', () => {
+                const request = { ...validRequest, noOfPersons: 100 };
                 const result = publicRequestSchema.safeParse(request);
                 expect(result.success).toBe(true);
             });
@@ -205,8 +205,8 @@ describe('Public Request Validator', () => {
                 expect(result.success).toBe(false);
             });
 
-            it('should reject persons exceeding 30', () => {
-                const request = { ...validRequest, noOfPersons: 31 };
+            it('should reject persons beyond the sanity ceiling', () => {
+                const request = { ...validRequest, noOfPersons: 10001 };
                 const result = publicRequestSchema.safeParse(request);
                 expect(result.success).toBe(false);
             });
@@ -225,8 +225,8 @@ describe('Public Request Validator', () => {
                 expect(result.success).toBe(true);
             });
 
-            it('should accept 20 vehicles (max)', () => {
-                const request = { ...validRequest, noOfVehicles: 20 };
+            it('should accept a large total such as 40 vehicles', () => {
+                const request = { ...validRequest, noOfVehicles: 40 };
                 const result = publicRequestSchema.safeParse(request);
                 expect(result.success).toBe(true);
             });
@@ -237,8 +237,8 @@ describe('Public Request Validator', () => {
                 expect(result.success).toBe(false);
             });
 
-            it('should reject vehicles exceeding 20', () => {
-                const request = { ...validRequest, noOfVehicles: 21 };
+            it('should reject vehicles beyond the sanity ceiling', () => {
+                const request = { ...validRequest, noOfVehicles: 10001 };
                 const result = publicRequestSchema.safeParse(request);
                 expect(result.success).toBe(false);
             });
@@ -340,10 +340,10 @@ describe('Public Request Validator', () => {
                 expect(result.success).toBe(false);
             });
 
-            it('should reject missing captcha token', () => {
+            it('should accept a missing captcha token — the security code is enforced when the OTP is requested', () => {
                 const { captchaToken, ...requestWithoutToken } = validRequest;
                 const result = publicRequestSchema.safeParse(requestWithoutToken);
-                expect(result.success).toBe(false);
+                expect(result.success).toBe(true);
             });
         });
 

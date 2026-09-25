@@ -3,6 +3,14 @@
 /** @type {import('sequelize-cli').Migration} */
 module.exports = {
   async up(queryInterface, Sequelize) {
+    // The per-weight unit columns were introduced by a migration that no longer
+    // exists in this repo. If they are absent the table already has a single
+    // "weightUnit" column (from 20270520030000), so there is nothing to revert.
+    const columns = await queryInterface.describeTable("weighbridge_records");
+    if (!columns.grossWeightUnit) {
+      return;
+    }
+
     await queryInterface.addColumn("weighbridge_records", "weightUnit", {
       type: Sequelize.STRING,
       allowNull: true,

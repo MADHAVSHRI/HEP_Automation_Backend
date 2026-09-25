@@ -86,6 +86,7 @@ const VISITOR_TYPES = [
 // Flat array of visitor type names used by the Bulk Pass module for validation.
 const BULK_VISITOR_TYPES = Object.freeze(VISITOR_TYPES.map((t) => t.name));
 
+<<<<<<< Updated upstream
 const VENDOR_OIL_JETTY_WORKFLOW_STATES = Object.freeze({
   MARINE: "PENDING_VENDOR_MARINE",
   CONCERN_DEPARTMENT: "PENDING_VENDOR_CONCERN_DEPARTMENT",
@@ -100,6 +101,27 @@ const VENDOR_OIL_JETTY_WORKFLOW_ACTIONS = Object.freeze({
   APPROVED: "APPROVED",
   REJECTED: "REJECTED",
   REVERTED: "REVERTED",
+=======
+// Bulk Pass ceilings and defaults.
+//
+// A Bulk Pass declares how many persons and vehicles it allows IN TOTAL — any
+// size the issuing department is prepared to approve. Each individual
+// submission (batch) against the pass is capped at 30 persons and 30
+// vehicles, so a 100-person pass is used up over four or more batches.
+const BULK_PASS_LIMITS = Object.freeze({
+  // Hard ceiling for one submission, whatever the pass allows in total.
+  MAX_PERSONS_PER_BATCH: 30,
+  MAX_VEHICLES_PER_BATCH: 30,
+  // Legacy aliases for the per-batch ceiling (older call sites).
+  MAX_PERSONS: 30,
+  MAX_VEHICLES: 30,
+  // Defaults for the pass-level totals on the create forms.
+  DEFAULT_MAX_PERSONS: 30,
+  DEFAULT_MAX_VEHICLES: 30,
+  // Sanity ceiling for a pass-level total; guards against typos, not policy.
+  MAX_TOTAL_PERSONS: 10000,
+  MAX_TOTAL_VEHICLES: 10000,
+>>>>>>> Stashed changes
 });
 
 const DEPARTMENT_IDS = Object.freeze({
@@ -144,6 +166,7 @@ module.exports = {
   PASS_REQUEST_STATUS_LIST: Object.values(PASS_REQUEST_STATUS),
   VISITOR_TYPES,
   BULK_VISITOR_TYPES,
+  BULK_PASS_LIMITS,
   MONTH_CODES,
   VENDOR_OIL_JETTY_WORKFLOW_STATES,
   VENDOR_OIL_JETTY_WORKFLOW_ACTIONS,

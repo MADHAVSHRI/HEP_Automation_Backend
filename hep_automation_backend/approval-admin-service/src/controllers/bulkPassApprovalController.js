@@ -314,6 +314,27 @@ exports.approvePersonInBatch = async (req, res) => {
  * POST /api/bulk-pass/:batchId/persons/:personId/reject
  * Reject a single person within a batch (Req 8.3 — individual).
  */
+/**
+ * POST /api/bulk-pass/:batchId/persons/approve-all
+ * Approve every entry still awaiting a decision, leaving rejections intact.
+ */
+exports.approveAllPendingInBatch = async (req, res) => {
+  try {
+    const { batchId } = req.params;
+    const result = await callUserService(
+      "post",
+      `/api/bulk-pass/${batchId}/persons/approve-all`,
+      { approvedBy: req.user?.userId || null },
+      req
+    );
+    return res.status(200).json(result);
+  } catch (err) {
+    console.error("[bulkPassApproval] approveAllPendingInBatch error:", err.response?.data || err.message);
+    if (err.response) return res.status(err.response.status).json(err.response.data);
+    return res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
 exports.rejectPersonInBatch = async (req, res) => {
   try {
     const { batchId, personId } = req.params;

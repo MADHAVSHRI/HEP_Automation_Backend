@@ -205,6 +205,71 @@ async function checkPublicRequestRateLimit(email, ipAddress) {
 }
 
 /**
+ * Check bulk pass batch submission rate limits
+ *
+ * A reusable Bulk Pass link is unauthenticated and stays live for its whole
+ * validity window, so a leaked link would otherwise allow unbounded automated
+ * submissions. The cumulative limits on the pass itself bound the total; this
+ * bounds the rate.
+ *
+ * Rules:
+ * - 5 batch submissions per hour per link
+ * - 30 batch submissions per day per link
+ * - 20 batch submissions per hour per IP
+ *
+ * @param {string} token - The (already resolved) bulk pass link token
+ * @param {string} ipAddress
+ * @returns {Promise<{allowed: boolean, retryAfter?: number, message?: string}>}
+ */
+async function checkBulkSubmissionRateLimit(token, ipAddress) {
+  try {
+    if (process.env.NODE_ENV === "development") {
+      return { allowed: true };
+    }
+
+    const tokenHourKey = `ratelimit:bulksubmit:token:hour:${token}`;
+    const tokenDayKey = `ratelimit:bulksubmit:token:day:${token}`;
+    const ipHourKey = `ratelimit:bulksubmit:ip:hour:${ipAddress}`;
+
+    const limits = [
+      { key: tokenHourKey, max: 5, window: 3600,
+        message: "Too many batch submissions on this bulk pass link. Please wait before submitting again." },
+      { key: tokenDayKey, max: 30, window: 86400,
+        message: "This bulk pass link has reached its daily submission limit. Please try again tomorrow." },
+      { key: ipHourKey, max: 20, window: 3600,
+        message: "Too many submissions from this network. Please try again later." },
+    ];
+
+    for (const limit of limits) {
+      const count = await redisClient.get(limit.key);
+      if (count && parseInt(count) >= limit.max) {
+        const ttl = await redisClient.ttl(limit.key);
+        return {
+          allowed: false,
+          retryAfter: ttl > 0 ? ttl : limit.window,
+          message: limit.message,
+        };
+      }
+    }
+
+    for (const limit of limits) {
+      const count = await redisClient.get(limit.key);
+      await redisClient.setEx(
+        limit.key,
+        limit.window,
+        ((count ? parseInt(count) : 0) + 1).toString()
+      );
+    }
+
+    return { allowed: true };
+  } catch (error) {
+    console.error("Error checking bulk submission rate limit:", error);
+    // Fail open — Redis being down must not block legitimate submissions.
+    return { allowed: true };
+  }
+}
+
+/**
  * Express middleware wrapper for OTP rate limiting
  * Extracts email from request body and IP from request
  */
@@ -295,12 +360,47 @@ const publicRequestRateLimiter = async (req, res, next) => {
   }
 };
 
+/**
+ * Express middleware wrapper for bulk pass batch submission rate limiting.
+ * Keyed on the link token from the route, so one abused link cannot exhaust
+ * the allowance of every other organisation.
+ *
+ * Declared before the multipart parser runs, so it rejects floods before the
+ * request body (which may carry hundreds of files) is read from the wire.
+ */
+const bulkSubmissionRateLimiter = async (req, res, next) => {
+  try {
+    const token = req.params?.token;
+    const ipAddress =
+      req.ip || req.connection?.remoteAddress || req.headers["x-forwarded-for"]?.split(",")[0];
+
+    if (!token) return next();
+
+    const result = await checkBulkSubmissionRateLimit(token, ipAddress);
+
+    if (!result.allowed) {
+      return res.status(429).json({
+        success: false,
+        message: result.message,
+        retryAfter: result.retryAfter,
+      });
+    }
+
+    next();
+  } catch (error) {
+    console.error("Bulk submission rate limiter error:", error);
+    next(); // Fail open
+  }
+};
+
 module.exports = {
   checkOTPRateLimit,
   checkCAPTCHARateLimit,
   checkPublicRequestRateLimit,
+  checkBulkSubmissionRateLimit,
   recordCAPTCHAFailure,
   otpRateLimiter,
   captchaRateLimiter,
-  publicRequestRateLimiter
+  publicRequestRateLimiter,
+  bulkSubmissionRateLimiter
 };

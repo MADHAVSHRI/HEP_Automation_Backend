@@ -523,7 +523,7 @@ describe("Property 8 — Validity Period: date range validation", () => {
   test("batch with future validityFrom is not active", () => {
     fc.assert(
       fc.property(
-        fc.date({ min: new Date(Date.now() + 86400000), max: new Date("2030-12-31") }),
+        fc.date({ min: new Date(Date.now() + 86400000), max: new Date("2030-12-31"), noInvalidDate: true }),
         (futureDate) => {
           const batch = {
             validityFrom: futureDate.toISOString(),
@@ -539,7 +539,7 @@ describe("Property 8 — Validity Period: date range validation", () => {
   test("batch with past validityUpto is not active", () => {
     fc.assert(
       fc.property(
-        fc.date({ min: new Date("2020-01-01"), max: new Date(Date.now() - 86400000) }),
+        fc.date({ min: new Date("2020-01-01"), max: new Date(Date.now() - 86400000), noInvalidDate: true }),
         (pastDate) => {
           const batch = {
             validityFrom: new Date("2020-01-01").toISOString(),

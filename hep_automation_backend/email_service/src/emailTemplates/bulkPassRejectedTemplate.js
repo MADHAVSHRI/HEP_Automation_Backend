@@ -1,7 +1,11 @@
+const { renderIssueList, renderCorrectionCta } = require("./_correctionParts");
+
 const bulkPassRejectedTemplate = ({
   companyName,
   refNo,
   rejectionReason,
+  uploadLink,
+  issues,
 }) => {
   return `
   <div style="font-family: Arial, sans-serif; color:#1f2937; max-width:600px; margin:0 auto;">
@@ -16,8 +20,8 @@ const bulkPassRejectedTemplate = ({
       <p>Dear ${companyName || "Applicant"},</p>
 
       <p style="background:#fef2f2; padding:12px 16px; border-radius:6px; color:#991b1b;">
-        We regret to inform you that your bulk pass application has been <strong>REJECTED</strong> by the
-        Traffic Department. Please review the reason below.
+        Your bulk pass submission was <strong>not approved</strong> by the Traffic Department.
+        You can correct it and submit again — your details have been kept, so nothing needs retyping.
       </p>
 
       ${rejectionReason ? `
@@ -27,6 +31,10 @@ const bulkPassRejectedTemplate = ({
       </div>
       ` : ""}
 
+      ${renderIssueList(issues)}
+
+      ${renderCorrectionCta(uploadLink)}
+
       <table style="width:100%; margin-top:24px; font-size:14px; border-collapse:collapse; background:#f8fafc; border-radius:6px;">
         <tr>
           <td style="padding:12px; color:#64748b; border-bottom:1px solid #e2e8f0;">Reference Number</td>
@@ -34,13 +42,13 @@ const bulkPassRejectedTemplate = ({
         </tr>
         <tr>
           <td style="padding:12px; color:#64748b;">Status</td>
-          <td style="padding:12px; font-weight:600; color:#dc2626;">REJECTED</td>
+          <td style="padding:12px; font-weight:600; color:#dc2626;">NEEDS CORRECTION</td>
         </tr>
       </table>
 
       <p style="margin-top:24px; font-size:13px; color:#475569;">
-        If you believe this decision is incorrect or wish to reapply, please contact the department officer
-        who initiated this application for further assistance.
+        Once you resubmit, the batch returns to the Traffic Department for review.
+        If you believe this decision is incorrect, contact the department officer who initiated this application.
       </p>
 
       <p style="margin-top:24px; font-size:12px; color:#94a3b8;">

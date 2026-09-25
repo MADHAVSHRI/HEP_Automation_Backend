@@ -71,23 +71,7 @@ function validateIntakeBody(body) {
   return { ok: true };
 }
 
-/**
- * Mirrors forwardToApproval status guard logic.
- * Returns { allowed: bool, reason: string|null }
- */
-function canForwardToApproval(batch) {
-  if (batch.status !== "SUBMITTED") {
-    return { allowed: false, reason: "Only SUBMITTED batches can be forwarded for approval" };
-  }
-  return { allowed: true, reason: null };
-}
 
-/**
- * Simulates the state change produced by forwardToApproval.
- */
-function applyForwardToApproval(batch) {
-  return { ...batch, status: "UNDER_REVIEW", tokenActive: false };
-}
 
 /**
  * Mirrors returnToApplicant status guard + state change.
@@ -222,49 +206,6 @@ const arbCompletedBatch = (overrides = {}) =>
   arbBatch({ status: fc.constant("COMPLETED"), ...overrides });
 
 const arbNonEmptyString = fc.string({ minLength: 1, maxLength: 200 }).filter((s) => s.trim().length > 0);
-
-// ---------------------------------------------------------------------------
-// Property 7: Forward-to-approval produces UNDER_REVIEW and deactivates token
-// **Feature: bulk-pass-module, Property 7: Forward-to-approval produces UNDER_REVIEW and deactivates token**
-// **Validates: Requirements 3.1**
-// ---------------------------------------------------------------------------
-
-describe("Property 7 — Forward-to-approval state change", () => {
-  test("forwarding a SUBMITTED batch sets status=UNDER_REVIEW and tokenActive=false", () => {
-    fc.assert(
-      fc.property(arbSubmittedBatch(), (batch) => {
-        const check = canForwardToApproval(batch);
-        if (!check.allowed) return false;
-        const updated = applyForwardToApproval(batch);
-        return updated.status === "UNDER_REVIEW" && updated.tokenActive === false;
-      }),
-      { numRuns: 100 }
-    );
-  });
-
-  test("forwarding a non-SUBMITTED batch is rejected with a descriptive reason", () => {
-    fc.assert(
-      fc.property(
-        arbBatch({ status: fc.constantFrom("DRAFT", "UNDER_REVIEW", "RETURNED_TO_APPLICANT", "REJECTED", "COMPLETED") }),
-        (batch) => {
-          const check = canForwardToApproval(batch);
-          return !check.allowed && typeof check.reason === "string" && check.reason.length > 0;
-        }
-      ),
-      { numRuns: 100 }
-    );
-  });
-
-  test("forwarding preserves all other batch fields unchanged", () => {
-    fc.assert(
-      fc.property(arbSubmittedBatch(), (batch) => {
-        const updated = applyForwardToApproval(batch);
-        return updated.id === batch.id && updated.refNo === batch.refNo && updated.companyName === batch.companyName;
-      }),
-      { numRuns: 100 }
-    );
-  });
-});
 
 // ---------------------------------------------------------------------------
 // Property 8: Return-to-applicant produces RETURNED_TO_APPLICANT and activates token

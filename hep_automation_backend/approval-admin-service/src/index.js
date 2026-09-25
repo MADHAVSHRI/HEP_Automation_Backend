@@ -11,6 +11,7 @@ const Overstay = require("./models/overstaySchema");
 const Blacklist = require("./models/blacklistSchema");
 const HepRate = require("./models/hepRateConfigSchema");
 const overstayEmailJob = require("./jobs/overstayEmailJob");
+const bulkPassExpiryJob = require("./jobs/bulkPassExpiryJob");
 
 const app = express();
 corsConfig(app);
@@ -43,6 +44,14 @@ cron.schedule("0 9 * * *", overstayEmailJob, {
   timezone: "Asia/Kolkata",
 });
 
+// Warn organisations whose reusable bulk pass link is about to stop accepting
+// batches. Runs before the overstay job so the two do not contend for the
+// email service.
+cron.schedule("0 8 * * *", bulkPassExpiryJob, {
+  scheduled: true,
+  timezone: "Asia/Kolkata",
+});
+
 // Serve uploaded files statically
 app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
 
@@ -55,4 +64,4 @@ const PORT = process.env.PORT || 5005;
 
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`Approval Admin Service running on port ${PORT}`);
-});
+});

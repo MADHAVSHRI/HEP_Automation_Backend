@@ -102,10 +102,12 @@ router.get(
  * 
  * Path Parameters:
  * - id: Request ID (integer)
- * 
+ *
  * Authentication: Required (JWT)
- * Authorization: Not restricted (any authenticated user can view)
- * 
+ * Authorization: Required (General Administration) — the response includes the
+ *   applicant's PII and the reusable upload link/shared token, so it must not be
+ *   exposed to arbitrary authenticated users.
+ *
  * Response (200 OK):
  * {
  *   "success": true,
@@ -167,6 +169,7 @@ router.get(
 router.get(
   "/public-requests/:id",
   verifyToken,
+  authorizeDepartment("General Administration"),
   adminPublicRequestController.getRequestDetail
 );
 

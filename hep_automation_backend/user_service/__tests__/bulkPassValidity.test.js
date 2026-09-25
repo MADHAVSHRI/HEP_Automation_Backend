@@ -1,0 +1,159 @@
+/**
+ * Tests for the shared Bulk Pass validity rules.
+ *
+ * These rules decide the central business behaviour of the module: one link
+ * accepts batch after batch until its validity expires, and not a moment
+ * longer — while the history stays readable forever.
+ */
+
+const {
+  getValidityState,
+  isWithinValidity,
+  resolveValidityWindow,
+  normalizeValidityUpto,
+  getBlockedMessage,
+} = require("../src/utils/bulkPassValidity");
+
+const NOW = new Date("2026-09-21T10:00:00.000Z");
+
+const daysFromNow = (n) => new Date(NOW.getTime() + n * 86400000).toISOString();
+
+describe("resolveValidityWindow", () => {
+  test("reads the camelCase batch shape", () => {
+    const w = resolveValidityWindow({
+      validityFrom: "2026-09-01T00:00:00Z",
+      validityUpto: "2026-10-01T12:00:00Z",
+    });
+    expect(w.validityFrom.toISOString()).toBe("2026-09-01T00:00:00.000Z");
+    expect(w.validityUpto.toISOString()).toBe("2026-10-01T12:00:00.000Z");
+  });
+
+  test("prefers the approved window over the requested one on a public request", () => {
+    const w = resolveValidityWindow({
+      validity_from: "2026-01-01T00:00:00Z",
+      validity_upto: "2026-02-01T12:00:00Z",
+      approved_time_from: "2026-03-01T00:00:00Z",
+      approved_time_upto: "2026-04-01T12:00:00Z",
+    });
+    expect(w.validityFrom.toISOString()).toBe("2026-03-01T00:00:00.000Z");
+    expect(w.validityUpto.toISOString()).toBe("2026-04-01T12:00:00.000Z");
+  });
+
+  test("returns nulls for a record with no window", () => {
+    expect(resolveValidityWindow({})).toEqual({ validityFrom: null, validityUpto: null });
+    expect(resolveValidityWindow(null)).toEqual({ validityFrom: null, validityUpto: null });
+  });
+});
+
+describe("normalizeValidityUpto", () => {
+  test("stretches a bare date to the end of that day", () => {
+    // Constructed in local time so the midnight check is meaningful.
+    const midnight = new Date(2026, 8, 30, 0, 0, 0, 0);
+    const end = normalizeValidityUpto(midnight);
+    expect(end.getHours()).toBe(23);
+    expect(end.getMinutes()).toBe(59);
+    expect(end.getDate()).toBe(30);
+  });
+
+  test("leaves an explicit time alone", () => {
+    const at = new Date(2026, 8, 30, 14, 30, 0, 0);
+    expect(normalizeValidityUpto(at).getHours()).toBe(14);
+  });
+
+  test("returns null for unusable input", () => {
+    expect(normalizeValidityUpto(null)).toBeNull();
+    expect(normalizeValidityUpto("not a date")).toBeNull();
+  });
+});
+
+describe("getValidityState", () => {
+  test("a bulk pass inside its window is ACTIVE and can accept batches", () => {
+    const v = getValidityState(
+      { validityFrom: daysFromNow(-10), validityUpto: daysFromNow(20) },
+      NOW
+    );
+    expect(v.state).toBe("ACTIVE");
+    expect(v.canSubmit).toBe(true);
+    expect(v.expiringSoon).toBe(false);
+    expect(v.daysRemaining).toBe(20);
+  });
+
+  test("a bulk pass with no validityFrom is open from the start", () => {
+    const v = getValidityState({ validityUpto: daysFromNow(5) }, NOW);
+    expect(v.state).toBe("ACTIVE");
+    expect(v.canSubmit).toBe(true);
+  });
+
+  test("flags a bulk pass nearing expiry", () => {
+    const v = getValidityState({ validityUpto: daysFromNow(2) }, NOW);
+    expect(v.state).toBe("ACTIVE");
+    expect(v.canSubmit).toBe(true);
+    expect(v.expiringSoon).toBe(true);
+  });
+
+  test("a bulk pass past its window is EXPIRED and cannot accept batches", () => {
+    const v = getValidityState(
+      { validityFrom: daysFromNow(-30), validityUpto: daysFromNow(-1) },
+      NOW
+    );
+    expect(v.state).toBe("EXPIRED");
+    expect(v.canSubmit).toBe(false);
+    expect(v.daysRemaining).toBe(0);
+  });
+
+  test("a bulk pass whose window has not opened is NOT_STARTED", () => {
+    const v = getValidityState(
+      { validityFrom: daysFromNow(3), validityUpto: daysFromNow(30) },
+      NOW
+    );
+    expect(v.state).toBe("NOT_STARTED");
+    expect(v.canSubmit).toBe(false);
+  });
+
+  test("a bulk pass with no end date cannot accept batches", () => {
+    const v = getValidityState({ validityFrom: daysFromNow(-1) }, NOW);
+    expect(v.state).toBe("UNKNOWN");
+    expect(v.canSubmit).toBe(false);
+  });
+
+  test("uses the approved window for a public request", () => {
+    const v = getValidityState(
+      { approved_time_from: daysFromNow(-1), approved_time_upto: daysFromNow(7) },
+      NOW
+    );
+    expect(v.state).toBe("ACTIVE");
+    expect(v.canSubmit).toBe(true);
+  });
+
+  test("a validity ending today at midnight stays open all day", () => {
+    const today = new Date(2026, 8, 21, 0, 0, 0, 0);
+    const middayToday = new Date(2026, 8, 21, 12, 0, 0, 0);
+    const v = getValidityState({ validityUpto: today }, middayToday);
+    expect(v.state).toBe("ACTIVE");
+    expect(v.canSubmit).toBe(true);
+  });
+});
+
+describe("isWithinValidity", () => {
+  test("mirrors canSubmit", () => {
+    expect(isWithinValidity({ validityUpto: daysFromNow(1) }, NOW)).toBe(true);
+    expect(isWithinValidity({ validityUpto: daysFromNow(-1) }, NOW)).toBe(false);
+    expect(isWithinValidity(null, NOW)).toBe(false);
+  });
+});
+
+describe("getBlockedMessage", () => {
+  test("explains an expired pass without hiding the history", () => {
+    const msg = getBlockedMessage({ state: "EXPIRED" });
+    expect(msg).toMatch(/expired/i);
+    expect(msg).toMatch(/previous submissions remain available/i);
+  });
+
+  test("returns null while the window is open", () => {
+    expect(getBlockedMessage({ state: "ACTIVE" })).toBeNull();
+  });
+
+  test("explains a window that has not opened yet", () => {
+    expect(getBlockedMessage({ state: "NOT_STARTED" })).toMatch(/not started/i);
+  });
+});

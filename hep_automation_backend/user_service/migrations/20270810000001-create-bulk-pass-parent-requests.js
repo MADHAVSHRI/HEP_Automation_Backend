@@ -3,6 +3,20 @@
 /** @type {import('sequelize-cli').Migration} */
 module.exports = {
   async up(queryInterface, Sequelize) {
+    // An earlier migration (20260811000002) created this same table and ran in
+    // deployed databases, so creating it unconditionally breaks any environment
+    // that already has it. Skip when it is present and let
+    // 20270921000003-reconcile-bulk-pass-parent-requests align the columns.
+    try {
+      await queryInterface.describeTable("bulk_pass_parent_requests");
+      console.log(
+        "[migration] bulk_pass_parent_requests already exists — skipping create."
+      );
+      return;
+    } catch {
+      // Table is absent; create it below.
+    }
+
     await queryInterface.createTable("bulk_pass_parent_requests", {
       id: {
         type: Sequelize.INTEGER,

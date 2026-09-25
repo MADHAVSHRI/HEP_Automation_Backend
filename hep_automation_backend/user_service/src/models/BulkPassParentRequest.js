@@ -23,8 +23,8 @@ const BulkPassParentRequest = {
         "applicant_email",
         "applicant_mobile",
         "visitor_type",
-        "no_of_persons",
-        "no_of_vehicles",
+        "max_no_of_persons",
+        "max_no_of_vehicles",
         "payment_mode",
         "purpose",
         "validity_from",
@@ -82,8 +82,8 @@ const BulkPassParentRequest = {
          applicant_email,
          applicant_mobile,
          visitor_type,
-         no_of_persons,
-         no_of_vehicles,
+         max_no_of_persons  AS no_of_persons,
+         max_no_of_vehicles AS no_of_vehicles,
          payment_mode,
          purpose,
          validity_from,
@@ -94,6 +94,9 @@ const BulkPassParentRequest = {
          token_active,
          approved_time_from,
          approved_time_upto,
+         max_submissions,
+         max_total_persons,
+         expiry_reminder_sent_at,
          status,
          rejection_reason,
          created_at,
@@ -124,8 +127,8 @@ const BulkPassParentRequest = {
          applicant_email,
          applicant_mobile,
          visitor_type,
-         no_of_persons,
-         no_of_vehicles,
+         max_no_of_persons  AS no_of_persons,
+         max_no_of_vehicles AS no_of_vehicles,
          payment_mode,
          purpose,
          validity_from,
@@ -136,6 +139,9 @@ const BulkPassParentRequest = {
          token_active,
          approved_time_from,
          approved_time_upto,
+         max_submissions,
+         max_total_persons,
+         expiry_reminder_sent_at,
          status,
          rejection_reason,
          created_at,
@@ -166,8 +172,8 @@ const BulkPassParentRequest = {
          applicant_email,
          applicant_mobile,
          visitor_type,
-         no_of_persons,
-         no_of_vehicles,
+         max_no_of_persons  AS no_of_persons,
+         max_no_of_vehicles AS no_of_vehicles,
          payment_mode,
          purpose,
          validity_from,
@@ -178,6 +184,9 @@ const BulkPassParentRequest = {
          token_active,
          approved_time_from,
          approved_time_upto,
+         max_submissions,
+         max_total_persons,
+         expiry_reminder_sent_at,
          status,
          rejection_reason,
          created_at,
@@ -247,8 +256,8 @@ const BulkPassParentRequest = {
         applicant_email,
         applicant_mobile,
         visitor_type,
-        no_of_persons,
-        no_of_vehicles,
+        max_no_of_persons  AS no_of_persons,
+        max_no_of_vehicles AS no_of_vehicles,
         payment_mode,
         purpose,
         validity_from,
@@ -279,72 +288,95 @@ const BulkPassParentRequest = {
     const params = [];
     let i = 1;
 
+    // Columns are qualified with the `r` alias because the query below joins
+    // the child-submission rollup.
     if (filters.status) {
-      where.push(`status = $${i++}`);
+      where.push(`r.status = $${i++}`);
       params.push(filters.status);
     }
 
     if (filters.applicant_email) {
-      where.push(`applicant_email ILIKE $${i++}`);
+      where.push(`r.applicant_email ILIKE $${i++}`);
       params.push(`%${filters.applicant_email}%`);
     }
 
     if (filters.company_name) {
-      where.push(`company_name ILIKE $${i++}`);
+      where.push(`r.company_name ILIKE $${i++}`);
       params.push(`%${filters.company_name}%`);
     }
 
     if (filters.tracking_number) {
-      where.push(`tracking_number ILIKE $${i++}`);
+      where.push(`r.tracking_number ILIKE $${i++}`);
       params.push(`%${filters.tracking_number}%`);
     }
 
     // Combined search box: match against tracking number OR company name OR email
     if (filters.search) {
-      where.push(`(tracking_number ILIKE $${i} OR company_name ILIKE $${i} OR applicant_email ILIKE $${i})`);
+      where.push(`(r.tracking_number ILIKE $${i} OR r.company_name ILIKE $${i} OR r.applicant_email ILIKE $${i})`);
       params.push(`%${filters.search}%`);
       i++;
     }
 
     if (filters.from_date) {
-      where.push(`created_at >= $${i++}`);
+      where.push(`r.created_at >= $${i++}`);
       params.push(filters.from_date);
     }
 
     if (filters.to_date) {
-      where.push(`created_at <= $${i++}`);
+      where.push(`r.created_at <= $${i++}`);
       params.push(`${filters.to_date} 23:59:59`);
     }
 
     const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
 
+    // Roll the batch submissions made against each request into the row so the
+    // Bulk Pass console can show submission activity without an N+1 fetch.
     const query = `
       SELECT
-        id,
-        tracking_number,
-        company_name,
-        applicant_email,
-        applicant_mobile,
-        visitor_type,
-        no_of_persons,
-        no_of_vehicles,
-        payment_mode,
-        purpose,
-        validity_from,
-        validity_upto,
-        work_order_required,
-        ref_doc_no,
-        remarks,
-        status,
-        rejection_reason,
-        created_at,
-        approved_at,
-        approved_by_user_id,
-        rejected_at,
-        rejected_by_user_id
-      FROM "bulk_pass_parent_requests"
+        r.id,
+        r.tracking_number,
+        r.company_name,
+        r.applicant_email,
+        r.applicant_mobile,
+        r.visitor_type,
+        r.max_no_of_persons  AS no_of_persons,
+        r.max_no_of_vehicles AS no_of_vehicles,
+        r.payment_mode,
+        r.purpose,
+        r.validity_from,
+        r.validity_upto,
+        r.approved_time_from,
+        r.approved_time_upto,
+        r.token_active,
+        r.work_order_required,
+        r.ref_doc_no,
+        r.remarks,
+        r.status,
+        r.rejection_reason,
+        r.created_at,
+        r.approved_at,
+        r.approved_by_user_id,
+        r.rejected_at,
+        r.rejected_by_user_id,
+        COALESCE(c.child_count, 0)   AS submissions_count,
+        COALESCE(c.child_persons, 0) AS submitted_persons_count,
+        COALESCE(c.child_vehicles, 0) AS submitted_vehicles_count,
+        c.last_submission_at
+      FROM "bulk_pass_parent_requests" r
+      LEFT JOIN (
+        SELECT
+          cb.parent_request_id AS parent_id,
+          COUNT(DISTINCT cb.id) AS child_count,
+          COUNT(cp.id) FILTER (WHERE cp."vehicleNumber" IS NULL OR cp."vehicleNumber" = '') AS child_persons,
+          COUNT(cp.id) FILTER (WHERE cp."vehicleNumber" IS NOT NULL AND cp."vehicleNumber" != '') AS child_vehicles,
+          MAX(cb."createdAt") AS last_submission_at
+        FROM "bulk_pass_batches" cb
+        LEFT JOIN "bulk_pass_persons" cp ON cp."batchId" = cb.id
+        WHERE cb.parent_request_id IS NOT NULL AND cb."request_source" = 'PUBLIC_WEBSITE'
+        GROUP BY cb.parent_request_id
+      ) c ON c.parent_id = r.id
       ${whereSql}
-      ORDER BY created_at DESC
+      ORDER BY r.created_at DESC
       LIMIT 500
     `;
 
@@ -379,7 +411,22 @@ const BulkPassParentRequest = {
       "approved_time_upto",
       "status",
       "rejection_reason",
+      // Approval/rejection audit columns — without these the admin approve
+      // flow silently dropped who approved the request and when.
+      "max_submissions",
+      "max_total_persons",
+      "approved_by_user_id",
+      "approved_at",
+      "rejected_by_user_id",
+      "rejected_at",
     ];
+
+    // The person/vehicle ceilings are stored as max_no_of_* columns; callers
+    // still pass them by their API names.
+    const COLUMN_FOR = {
+      no_of_persons: "max_no_of_persons",
+      no_of_vehicles: "max_no_of_vehicles",
+    };
 
     const updates = [];
     const values = [id];
@@ -387,12 +434,14 @@ const BulkPassParentRequest = {
 
     for (const field of allowedFields) {
       if (data[field] !== undefined) {
-        updates.push(`"${field}" = $${paramIndex}`);
+        updates.push(`"${COLUMN_FOR[field] || field}" = $${paramIndex}`);
         
         if (field === "work_order_required" || field === "token_active") {
           values.push(!!data[field]);
         } else if (["no_of_persons", "no_of_vehicles"].includes(field)) {
           values.push(Number(data[field]));
+        } else if (["max_submissions", "max_total_persons"].includes(field)) {
+          values.push(data[field] === "" || data[field] === null ? null : Number(data[field]));
         } else {
           values.push(data[field]);
         }
@@ -613,24 +662,29 @@ const BulkPassParentRequest = {
       `SELECT
          b.id,
          b."refNo",
-         b."submissionNumber",
+         b."submission_number" AS "submissionNumber",
+         b."request_source"    AS "requestSource",
          b.status,
          b."noOfPersons",
          b."noOfVehicles",
+         b."submittedAt",
          b."createdAt",
-         COALESCE(p.person_count, 0) AS "submittedPersonsCount",
-         COALESCE(p.vehicle_count, 0) AS "submittedVehiclesCount"
+         b."updatedAt",
+         COALESCE(p.person_count, 0)  AS "submittedPersonsCount",
+         COALESCE(p.vehicle_count, 0) AS "submittedVehiclesCount",
+         COALESCE(p.person_count, 0)  AS "personsCount",
+         COALESCE(p.vehicle_count, 0) AS "vehiclesCount"
        FROM "bulk_pass_batches" b
        LEFT JOIN (
          SELECT
            "batchId",
-           COUNT(*) AS person_count,
+           COUNT(CASE WHEN "vehicleNumber" IS NULL OR "vehicleNumber" = '' THEN 1 END) AS person_count,
            COUNT(CASE WHEN "vehicleNumber" IS NOT NULL AND "vehicleNumber" != '' THEN 1 END) AS vehicle_count
          FROM "bulk_pass_persons"
          GROUP BY "batchId"
        ) p ON p."batchId" = b.id
        WHERE b.parent_request_id = $1
-       ORDER BY b."submissionNumber" ASC`,
+       ORDER BY b."submission_number" ASC, b."createdAt" ASC`,
       [parentRequestId]
     );
     return result.rows;
@@ -644,12 +698,58 @@ const BulkPassParentRequest = {
   */
   async getNextSubmissionNumber(parentRequestId) {
     const result = await pool.query(
-      `SELECT COALESCE(MAX("submissionNumber"), 0) + 1 AS next_number
+      `SELECT COALESCE(MAX("submission_number"), 0) + 1 AS next_number
        FROM "bulk_pass_batches"
        WHERE parent_request_id = $1`,
       [parentRequestId]
     );
     return Number(result.rows[0]?.next_number) || 1;
+  },
+
+  /*
+  ==========================================
+  Public Bulk Passes whose approved window closes within `days` and which have
+  not been sent an expiry reminder yet. Mirrors the department-side query.
+  ==========================================
+  */
+  async findNearingExpiry(days = 3) {
+    const result = await pool.query(
+      `SELECT
+         r.id,
+         r.tracking_number,
+         r.company_name,
+         r.applicant_email,
+         r.shared_token,
+         r.approved_time_from,
+         r.approved_time_upto,
+         r.max_submissions,
+         r.max_total_persons,
+         COALESCE(c.child_count, 0) AS submissions_count
+       FROM "bulk_pass_parent_requests" r
+       LEFT JOIN (
+         SELECT parent_request_id AS parent_id, COUNT(*) AS child_count
+         FROM "bulk_pass_batches"
+         WHERE parent_request_id IS NOT NULL AND "request_source" = 'PUBLIC_WEBSITE'
+         GROUP BY parent_request_id
+       ) c ON c.parent_id = r.id
+       WHERE r.status = 'ACTIVE'
+         AND r.token_active = true
+         AND r.expiry_reminder_sent_at IS NULL
+         AND r.approved_time_upto IS NOT NULL
+         AND r.approved_time_upto > NOW()
+         AND r.approved_time_upto <= NOW() + ($1 || ' days')::interval
+       ORDER BY r.approved_time_upto ASC
+       LIMIT 200`,
+      [String(days)]
+    );
+    return result.rows;
+  },
+
+  async markExpiryReminderSent(id) {
+    await pool.query(
+      `UPDATE "bulk_pass_parent_requests" SET expiry_reminder_sent_at = NOW() WHERE id = $1`,
+      [id]
+    );
   },
 
   /*
@@ -685,8 +785,8 @@ const BulkPassParentRequest = {
          applicant_email,
          applicant_mobile,
          visitor_type,
-         no_of_persons,
-         no_of_vehicles,
+         max_no_of_persons  AS no_of_persons,
+         max_no_of_vehicles AS no_of_vehicles,
          status,
          created_at,
          approved_at,

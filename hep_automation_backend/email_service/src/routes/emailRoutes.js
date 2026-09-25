@@ -20,6 +20,7 @@ router.post("/sendForgotPasswordOtp", emailController.sendForgotPasswordOtp);
 // ── Bulk Pass Email Routes ───────────────────────────────────────────────────
 router.post("/sendBulkPassInvitation", emailController.sendBulkPassInvitation);
 router.post("/sendBulkPassSubmitted", emailController.sendBulkPassSubmitted);
+router.post("/sendBulkPassExpiring", emailController.sendBulkPassExpiring);
 router.post("/sendBulkPassUnderReview", emailController.sendBulkPassUnderReview);
 router.post("/sendBulkPassReturned", emailController.sendBulkPassReturned);
 router.post("/sendBulkPassApproved", emailController.sendBulkPassApproved);

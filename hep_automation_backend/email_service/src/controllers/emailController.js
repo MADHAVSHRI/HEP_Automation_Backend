@@ -36,7 +36,8 @@ const {
   sendAdminNotification,
   sendApprovalNotification,
   sendRejectionNotification,
-  sendChildBatchConfirmation
+  sendChildBatchConfirmation,
+  sendBulkPassExpiringEmail
 } = require("../services/emailService");
 
 exports.sendOverstayReminder = async (req, res) => {
@@ -502,6 +503,20 @@ exports.sendBulkPassInvitation = async (req, res) => {
     return res.json({ success: true, message: "Bulk pass invitation email sent" });
   } catch (error) {
     console.error("[EMAIL-CTRL] sendBulkPassInvitation error:", error);
+    res.status(500).json({ success: false, message: "Email sending failed" });
+  }
+};
+
+exports.sendBulkPassExpiring = async (req, res) => {
+  try {
+    const { email, refNo } = req.body;
+    if (!email || !refNo) {
+      return res.status(400).json({ success: false, message: "email and refNo are required" });
+    }
+    await sendBulkPassExpiringEmail(req.body);
+    return res.json({ success: true, message: "Bulk pass expiring email sent" });
+  } catch (error) {
+    console.error("[EMAIL-CTRL] sendBulkPassExpiring error:", error);
     res.status(500).json({ success: false, message: "Email sending failed" });
   }
 };

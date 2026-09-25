@@ -2,6 +2,7 @@ const bulkPassSubmittedTemplate = ({
   companyName,
   refNo,
   personsCount,
+  submissionNumber,
 }) => {
   return `
   <div style="font-family: Arial, sans-serif; color:#1f2937; max-width:600px; margin:0 auto;">
@@ -25,6 +26,11 @@ const bulkPassSubmittedTemplate = ({
           <td style="padding:6px 0; color:#64748b;">Reference Number</td>
           <td style="padding:6px 0; font-weight:600;">${refNo}</td>
         </tr>
+        ${submissionNumber ? `
+        <tr>
+          <td style="padding:6px 0; color:#64748b;">Batch</td>
+          <td style="padding:6px 0; font-weight:600;">Submission #${submissionNumber}</td>
+        </tr>` : ""}
         <tr>
           <td style="padding:6px 0; color:#64748b;">Persons Submitted</td>
           <td style="padding:6px 0; font-weight:600;">${personsCount || 0} person(s)</td>

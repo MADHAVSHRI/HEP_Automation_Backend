@@ -1,7 +1,9 @@
 const BulkPassParentRequest = require("../models/BulkPassParentRequest");
 const { pool } = require("../dbconfig/db");
 const axios = require("axios");
-const { generateUploadToken, encryptToken } = require("../utils/tokenUtils");
+const { generateUploadToken } = require("../utils/tokenUtils");
+// Links must be readable by the applicant portal, which decrypts with cryptoUtils.
+const { encryptToken } = require("../utils/cryptoUtils");
 
 /**
  * Admin Public Request Controller
@@ -41,27 +43,30 @@ exports.getPendingRequests = async (req, res) => {
 
     // Parse query parameters
     const status = req.query.status || 'PENDING_ADMIN_APPROVAL';
-    const page = req.query.page ? parseInt(req.query.page) : 1;
-    const limit = req.query.limit ? parseInt(req.query.limit) : 20;
+    const page = req.query.page ? parseInt(req.query.page, 10) : 1;
+    const limit = req.query.limit ? parseInt(req.query.limit, 10) : 20;
     const search = req.query.search || null;
 
-    // Validate pagination parameters
-    if (page < 1) {
+    // Validate pagination parameters. parseInt("abc") is NaN, and NaN passes
+    // every < / > comparison, so guard it explicitly or a bad ?page=abc slips
+    // through to slice(NaN, NaN) and returns an empty list with NaN metadata.
+    if (!Number.isInteger(page) || page < 1) {
       return res.status(400).json({
         success: false,
-        message: "Page number must be at least 1"
+        message: "Page number must be a positive integer"
       });
     }
 
-    if (limit < 1 || limit > 100) {
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
       return res.status(400).json({
         success: false,
-        message: "Limit must be between 1 and 100"
+        message: "Limit must be an integer between 1 and 100"
       });
     }
 
-    // Validate status filter
-    const validStatuses = ['PENDING_ADMIN_APPROVAL', 'ACTIVE', 'REJECTED_BY_ADMIN', 'EXPIRED'];
+    // Validate status filter. "ALL" lifts the filter entirely so the Bulk Pass
+    // console can show every public request, not just the pending queue.
+    const validStatuses = ['PENDING_ADMIN_APPROVAL', 'ACTIVE', 'REJECTED_BY_ADMIN', 'EXPIRED', 'ALL'];
     if (status && !validStatuses.includes(status)) {
       return res.status(400).json({
         success: false,
@@ -73,11 +78,17 @@ exports.getPendingRequests = async (req, res) => {
 
     // Build filters object
     const filters = {};
-    if (status) {
+    if (status && status !== 'ALL') {
       filters.status = status;
     }
     if (search) {
       filters.search = search;
+    }
+    if (req.query.fromDate) {
+      filters.from_date = req.query.fromDate;
+    }
+    if (req.query.toDate) {
+      filters.to_date = req.query.toDate;
     }
 
     // Query bulk_pass_parent_requests with filters
@@ -101,12 +112,23 @@ exports.getPendingRequests = async (req, res) => {
       company_name: request.company_name,
       applicant_email: request.applicant_email,
       applicant_mobile: request.applicant_mobile,
+      visitor_type: request.visitor_type,
       no_of_persons: request.no_of_persons,
       no_of_vehicles: request.no_of_vehicles,
       validity_from: request.validity_from,
       validity_upto: request.validity_upto,
+      // The window an admin actually approved takes precedence over the one the
+      // applicant asked for — this is what governs the reusable link.
+      approved_time_from: request.approved_time_from,
+      approved_time_upto: request.approved_time_upto,
+      token_active: request.token_active,
       purpose: request.purpose,
       status: request.status,
+      // Batch activity against this Bulk Pass
+      submissions_count: Number(request.submissions_count) || 0,
+      submitted_persons_count: Number(request.submitted_persons_count) || 0,
+      submitted_vehicles_count: Number(request.submitted_vehicles_count) || 0,
+      last_submission_at: request.last_submission_at || null,
       created_at: request.created_at,
       approved_at: request.approved_at,
       rejected_at: request.rejected_at,
@@ -130,8 +152,7 @@ exports.getPendingRequests = async (req, res) => {
 
     return res.status(500).json({
       success: false,
-      message: `Failed to fetch requests: ${error.message}`,
-      errorDetails: error.message
+      message: "Internal server error while fetching requests"
     });
   }
 };
@@ -264,7 +285,13 @@ exports.getRequestDetail = async (req, res) => {
         rejected_at: parentRequest.rejected_at,
         rejected_by_user_id: parentRequest.rejected_by_user_id,
         rejected_by_user: rejectedByUser,
-        child_batches: childBatches
+        child_batches: childBatches,
+        // The applicant's portal link, so the console can show, copy or resend
+        // it instead of relying on the one approval email.
+        upload_link:
+          parentRequest.status === "ACTIVE" && parentRequest.shared_token
+            ? `${process.env.FRONTEND_BASE_URL || "http://localhost:3000"}/bulk_pass/${encryptToken(parentRequest.shared_token)}`
+            : null
       }
     });
 
@@ -314,8 +341,21 @@ exports.getRequestDetail = async (req, res) => {
 exports.approveRequest = async (req, res) => {
   try {
     const requestId = parseInt(req.params.id);
-    const { validityFrom, validityUpto, remarks } = req.body;
+    const { validityFrom, validityUpto, remarks, maxSubmissions, maxTotalPersons } = req.body;
     const adminUserId = req.user?.id || req.user?.userId;
+
+    // Cumulative allowance for the whole Bulk Pass. Blank means "no limit";
+    // otherwise a whole number of at least one.
+    const isBlank = (v) => v === undefined || v === null || v === "";
+    const toLimit = (v) => (isBlank(v) ? null : Number(v));
+    for (const [label, value] of [["maxSubmissions", maxSubmissions], ["maxTotalPersons", maxTotalPersons]]) {
+      if (!isBlank(value) && (!Number.isInteger(Number(value)) || Number(value) < 1)) {
+        return res.status(400).json({
+          success: false,
+          message: `${label} must be a whole number of at least 1, or blank for no limit`,
+        });
+      }
+    }
 
     console.log(`[ADMIN-PUBLIC-REQUEST] Approve request ${requestId} by admin user: ${adminUserId}`);
 
@@ -354,6 +394,15 @@ exports.approveRequest = async (req, res) => {
       });
     }
 
+    // The upto window must be in the future — approving with a past date produces
+    // an ACTIVE pass whose link is already expired (dead on arrival).
+    if (uptoDate.getTime() < Date.now()) {
+      return res.status(400).json({
+        success: false,
+        message: "validityUpto must be in the future"
+      });
+    }
+
     // Retrieve parent request by ID
     const parentRequest = await BulkPassParentRequest.getById(requestId);
 
@@ -375,6 +424,11 @@ exports.approveRequest = async (req, res) => {
       });
     }
 
+    // The requested "Max No. of Persons" is the allowance for the whole pass.
+    // An explicit maxTotalPersons from an older client may only raise it.
+    const requestedPersons = Number(parentRequest.no_of_persons) || 0;
+    const personBudget = Math.max(requestedPersons, toLimit(maxTotalPersons) ?? 0) || null;
+
     console.log(`[ADMIN-PUBLIC-REQUEST] Generating upload token for parent request ${requestId}`);
 
     // Generate unique shared_token (encrypted JWT)
@@ -383,7 +437,12 @@ exports.approveRequest = async (req, res) => {
       expiresIn: "365d" // Token valid for 1 year (actual validity controlled by approved_time_upto)
     });
 
-    const shared_token = encryptToken(jwtToken);
+    // The raw token is what we store and look up by; the link carries its
+    // encrypted form. This mirrors bulk_pass_batches, where `token` holds the
+    // plain value and buildUploadLink() encrypts it for the URL — without that
+    // symmetry the applicant's link could never resolve back to this request.
+    const shared_token = jwtToken;
+    const linkToken = encryptToken(jwtToken);
 
     console.log(`[ADMIN-PUBLIC-REQUEST] Token generated and encrypted for request ${requestId}`);
 
@@ -395,7 +454,9 @@ exports.approveRequest = async (req, res) => {
       approved_time_upto: validityUpto,
       approved_by_user_id: adminUserId,
       approved_at: new Date(),
-      shared_token: shared_token
+      shared_token: shared_token,
+      max_submissions: toLimit(maxSubmissions),
+      max_total_persons: personBudget,
     };
 
     // Add remarks if provided
@@ -416,9 +477,9 @@ exports.approveRequest = async (req, res) => {
 
     console.log(`[ADMIN-PUBLIC-REQUEST] Request ${requestId} approved successfully`);
 
-    // Generate upload link: ${FRONTEND_URL}/bulk-upload/${shared_token}
+    // Applicants land on the same Bulk Pass portal as department-issued links.
     const FRONTEND_URL = process.env.FRONTEND_BASE_URL || "http://localhost:3000";
-    const uploadLink = `${FRONTEND_URL}/bulk-upload/${shared_token}`;
+    const uploadLink = `${FRONTEND_URL}/bulk_pass/${linkToken}`;
 
     console.log(`[ADMIN-PUBLIC-REQUEST] Upload link generated: ${uploadLink.substring(0, 50)}...`);
 
@@ -428,14 +489,25 @@ exports.approveRequest = async (req, res) => {
     if (EMAIL_SERVICE_URL) {
       try {
         await axios.post(
-          `${EMAIL_SERVICE_URL}/api/email/sendPublicRequestApproved`,
+          // email_service exposes this template as sendApprovalNotification and
+          // reads the recipient from applicantEmail; the old endpoint name and
+          // field silently 404'd, so no approval email ever went out.
+          `${EMAIL_SERVICE_URL}/api/email/sendApprovalNotification`,
           {
+            applicantEmail: parentRequest.applicant_email,
             email: parentRequest.applicant_email,
             companyName: parentRequest.company_name,
             trackingNumber: parentRequest.tracking_number,
             uploadLink: uploadLink,
             validityFrom: validityFrom,
             validityUpto: validityUpto,
+            noOfPersons: parentRequest.no_of_persons,
+            noOfVehicles: parentRequest.no_of_vehicles,
+            maxSubmissions: toLimit(maxSubmissions),
+            maxTotalPersons: personBudget,
+            maxTotalVehicles: parentRequest.no_of_vehicles,
+            perBatchMaxPersons: 30,
+            perBatchMaxVehicles: 30,
             remarks: remarks || ""
           },
           {
@@ -457,7 +529,7 @@ exports.approveRequest = async (req, res) => {
     return res.status(200).json({
       success: true,
       message: "Request approved successfully",
-      shared_token: shared_token,
+      shared_token: linkToken,
       upload_link: uploadLink,
       request: {
         id: updatedRequest.id,
@@ -465,7 +537,9 @@ exports.approveRequest = async (req, res) => {
         status: updatedRequest.status,
         approved_at: updatedRequest.approved_at,
         approved_time_from: updatedRequest.approved_time_from,
-        approved_time_upto: updatedRequest.approved_time_upto
+        approved_time_upto: updatedRequest.approved_time_upto,
+        max_submissions: updatedRequest.max_submissions ?? null,
+        max_total_persons: updatedRequest.max_total_persons ?? null
       }
     });
 
@@ -476,15 +550,13 @@ exports.approveRequest = async (req, res) => {
     if (error.message && error.message.includes("ENCRYPTION_KEY")) {
       return res.status(500).json({
         success: false,
-        message: "Token encryption configuration error",
-        errorDetails: error.message
+        message: "Token encryption configuration error"
       });
     }
 
     return res.status(500).json({
       success: false,
-      message: `Failed to approve request: ${error.message}`,
-      errorDetails: error.message
+      message: "Failed to approve request"
     });
   }
 };

@@ -1,5 +1,12 @@
 const { z } = require("zod");
 const sanitizeHtml = require("sanitize-html");
+const { BULK_PASS_LIMITS, BULK_VISITOR_TYPES } = require("../constants/constants");
+
+// The public form offers the same visitor types as the department forms.
+// Codes from the earlier public form are still accepted so nothing in flight
+// breaks.
+const LEGACY_VISITOR_TYPES = ["VENDOR", "CONTRACTOR", "VISITOR", "TEMPORARY_STAFF"];
+const ACCEPTED_VISITOR_TYPES = [...BULK_VISITOR_TYPES, ...LEGACY_VISITOR_TYPES];
 
 /**
  * Sanitizes text input to prevent XSS attacks
@@ -49,8 +56,10 @@ const publicRequestSchema = z.object({
                 .min(3, "Company name must be at least 3 characters.")
                 .max(255, "Company name cannot exceed 255 characters.")
                 .regex(
-                    /^[a-zA-Z0-9\s\.\-,&()]+$/,
-                    "Company name contains invalid characters. Only alphanumeric characters and basic punctuation (.,&-()) are allowed."
+                    // Allow apostrophe and slash too — "M/s. ABC" and "O'Brien & Co"
+                    // are legitimate, common company names.
+                    /^[a-zA-Z0-9\s\.\-,&()'\/]+$/,
+                    "Company name contains invalid characters. Only alphanumeric characters and basic punctuation (.,&-()'/ ) are allowed."
                 )
         ),
 
@@ -80,37 +89,39 @@ const publicRequestSchema = z.object({
 
     // Validates: Requirement 21.3 - Visitor type validation
     visitorType: z
-        .enum(['VENDOR', 'CONTRACTOR', 'VISITOR', 'TEMPORARY_STAFF'], {
-            errorMap: () => ({ message: "Invalid visitor type. Must be one of: VENDOR, CONTRACTOR, VISITOR, TEMPORARY_STAFF." })
+        .enum(ACCEPTED_VISITOR_TYPES, {
+            errorMap: () => ({ message: `Invalid visitor type. Must be one of: ${BULK_VISITOR_TYPES.join(", ")}.` })
         }),
 
-    // Validates: Requirement 21.6 - Number of persons validation (0-30)
+    // Max No. of Persons is the total across every batch of the pass; each
+    // batch is capped separately at MAX_PERSONS_PER_BATCH.
     noOfPersons: z
         .number({
-            required_error: "Number of persons is required.",
-            invalid_type_error: "Number of persons must be a number.",
+            required_error: "Max No. of Persons is required.",
+            invalid_type_error: "Max No. of Persons must be a number.",
         })
-        .int("Number of persons must be a whole number.")
-        .min(0, "Number of persons cannot be negative.")
-        .max(30, "Number of persons cannot exceed 30."),
+        .int("Max No. of Persons must be a whole number.")
+        .min(1, "Max No. of Persons must be at least 1.")
+        .max(BULK_PASS_LIMITS.MAX_TOTAL_PERSONS, `Max No. of Persons cannot exceed ${BULK_PASS_LIMITS.MAX_TOTAL_PERSONS}.`),
 
-    // Validates: Requirement 21.7 - Number of vehicles validation (0-20)
+    // Total vehicles across every batch; each batch is capped separately.
     noOfVehicles: z
         .number({
-            required_error: "Number of vehicles is required.",
-            invalid_type_error: "Number of vehicles must be a number.",
+            required_error: "Max No. of Vehicles is required.",
+            invalid_type_error: "Max No. of Vehicles must be a number.",
         })
-        .int("Number of vehicles must be a whole number.")
-        .min(0, "Number of vehicles cannot be negative.")
-        .max(20, "Number of vehicles cannot exceed 20."),
+        .int("Max No. of Vehicles must be a whole number.")
+        .min(0, "Max No. of Vehicles cannot be negative.")
+        .max(BULK_PASS_LIMITS.MAX_TOTAL_VEHICLES, `Max No. of Vehicles cannot exceed ${BULK_PASS_LIMITS.MAX_TOTAL_VEHICLES}.`),
 
     // Validates: Requirement 21.5 - Validity from date (optional for public form)
+    // Accepts an ISO string from the form or a Date from server-side callers.
     validityFrom: z
-        .string()
+        .union([z.string(), z.date()])
         .optional()
         .transform((val) => {
             if (!val || val === "") return undefined;
-            const d = new Date(val);
+            const d = val instanceof Date ? val : new Date(val);
             return isNaN(d.getTime()) ? undefined : d;
         }),
 

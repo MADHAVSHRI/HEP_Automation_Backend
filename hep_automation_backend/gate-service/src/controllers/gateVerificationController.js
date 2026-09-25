@@ -67,7 +67,7 @@ exports.simulateEvent = async (req, res) => {
     const allowed = await gateAccessService.canAccessGate(
       req.user.userId,
       gateId,
-    );
+    );  
     if (!allowed) {
       return res.status(403).json({
         success: false,

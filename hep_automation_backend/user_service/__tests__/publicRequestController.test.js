@@ -7,6 +7,10 @@ const { generateOTP, hashOTP } = require("../src/utils/otpUtils");
 jest.mock("axios");
 jest.mock("../src/models/EmailVerification");
 jest.mock("../src/utils/otpUtils");
+// The security code is verified server-side when the OTP is requested.
+jest.mock("../src/services/captchaService", () => ({
+  verifyCaptcha: jest.fn().mockResolvedValue(true),
+}));
 
 describe("Public Request Controller - requestOTP", () => {
   let req, res;
@@ -14,10 +18,12 @@ describe("Public Request Controller - requestOTP", () => {
   beforeEach(() => {
     // Reset all mocks
     jest.clearAllMocks();
+    require("../src/services/captchaService").verifyCaptcha.mockResolvedValue(true);
 
-    // Setup request and response objects
+    // Setup request and response objects — every OTP request carries the
+    // security code the applicant solved.
     req = {
-      body: {}
+      body: { captchaToken: "11111111-1111-4111-8111-111111111111", captchaAnswer: "7" }
     };
 
     res = {
@@ -78,7 +84,7 @@ describe("Public Request Controller - requestOTP", () => {
         attempts: 0
       });
       expect(axios.post).toHaveBeenCalledWith(
-        "http://localhost:3003/api/email/sendOTPEmail",
+        "http://localhost:3003/api/email/sendOTP",
         {
           email: email,
           otp: otp
@@ -513,7 +519,7 @@ describe("Public Request Controller - requestOTP", () => {
 
       // Assert - email service should be called
       expect(axios.post).toHaveBeenCalledWith(
-        expect.stringContaining("/api/email/sendOTPEmail"),
+        expect.stringContaining("/api/email/sendOTP"),
         expect.objectContaining({
           email: "test@example.com",
           otp: "123456"
@@ -1271,5 +1277,33 @@ describe("Public Request Controller - verifyOTP", () => {
       await publicRequestController.verifyOTP(req, res);
       expect(res.status).toHaveBeenCalledWith(429);
     });
+  });
+});
+
+describe("Public Request Controller - requestOTP security code", () => {
+  const { verifyCaptcha } = require("../src/services/captchaService");
+  let res;
+  beforeEach(() => {
+    jest.clearAllMocks();
+    res = { status: jest.fn().mockReturnThis(), json: jest.fn().mockReturnThis() };
+    EmailVerification.validateEmailFormat = jest.fn().mockReturnValue(true);
+  });
+
+  it("refuses an OTP request without a security code", async () => {
+    await publicRequestController.requestOTP({ body: { email: "a@b.com" } }, res);
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ code: "CAPTCHA_REQUIRED" }));
+    expect(EmailVerification.create).not.toHaveBeenCalled();
+  });
+
+  it("refuses an OTP request with a wrong security code", async () => {
+    verifyCaptcha.mockResolvedValue(false);
+    await publicRequestController.requestOTP(
+      { body: { email: "a@b.com", captchaToken: "11111111-1111-4111-8111-111111111111", captchaAnswer: "9" } },
+      res
+    );
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ code: "CAPTCHA_INVALID" }));
+    expect(EmailVerification.create).not.toHaveBeenCalled();
   });
 });

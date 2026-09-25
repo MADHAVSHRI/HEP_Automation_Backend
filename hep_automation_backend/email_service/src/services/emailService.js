@@ -14,6 +14,7 @@ const vendorPassApprovedTemplate = require("../emailTemplates/vendorPassApproved
 const forgotPasswordOTPTemplate = require("../emailTemplates/forgotPasswordOTPTemplate");
 const bulkPassInvitationTemplate = require("../emailTemplates/bulkPassInvitationTemplate");
 const bulkPassSubmittedTemplate = require("../emailTemplates/bulkPassSubmittedTemplate");
+const bulkPassExpiringTemplate = require("../emailTemplates/bulkPassExpiringTemplate");
 const bulkPassUnderReviewTemplate = require("../emailTemplates/bulkPassUnderReviewTemplate");
 const bulkPassReturnedTemplate = require("../emailTemplates/bulkPassReturnedTemplate");
 const bulkPassApprovedTemplate = require("../emailTemplates/bulkPassApprovedTemplate");
@@ -320,6 +321,17 @@ const sendBulkPassSubmittedEmail = async (payload) => {
   return transporter.sendMail(mailOptions);
 };
 
+const sendBulkPassExpiringEmail = async (payload) => {
+  const html = bulkPassExpiringTemplate(payload);
+  const mailOptions = {
+    from: process.env.EMAIL_USER,
+    to: payload.email,
+    subject: `Chennai Port — Bulk Pass Closing Soon (${payload.refNo})`,
+    html,
+  };
+  return transporter.sendMail(mailOptions);
+};
+
 const sendBulkPassUnderReviewEmail = async (payload) => {
   const html = bulkPassUnderReviewTemplate(payload);
   const mailOptions = {
@@ -560,9 +572,19 @@ const sendAdminNotification = async (payload) => {
       submissionTimestamp: payload.submissionTimestamp,
     });
 
+    // user_service sends every General Administration address it knows about;
+    // an explicit ADMIN_EMAIL is the fallback.
+    const recipients = Array.isArray(payload.adminEmails) && payload.adminEmails.length
+      ? payload.adminEmails.join(", ")
+      : payload.adminEmail || process.env.ADMIN_EMAIL;
+    if (!recipients) {
+      console.warn("[EMAIL-SVC] Admin notification skipped: no recipient configured (adminEmails/ADMIN_EMAIL)");
+      return null;
+    }
+
     const mailOptions = {
       from: process.env.EMAIL_USER,
-      to: payload.adminEmail || process.env.ADMIN_EMAIL,
+      to: recipients,
       subject: `🔔 New Public Bulk Pass Request — ${payload.companyName} (${payload.trackingNumber})`,
       html,
     };
@@ -589,6 +611,11 @@ const sendApprovalNotification = async (payload) => {
       validityUpto: payload.validityUpto,
       noOfPersons: payload.noOfPersons,
       noOfVehicles: payload.noOfVehicles,
+      maxSubmissions: payload.maxSubmissions,
+      maxTotalPersons: payload.maxTotalPersons,
+      maxTotalVehicles: payload.maxTotalVehicles,
+      perBatchMaxPersons: payload.perBatchMaxPersons,
+      perBatchMaxVehicles: payload.perBatchMaxVehicles,
       remarks: payload.remarks,
     });
 
@@ -689,7 +716,7 @@ module.exports = {
   sendVendorPassLinkEmail, sendPassRevertedEmail, sendVendorPassApprovedEmail,
   sendVendorPassSubmittedEmail, sendOverstayReminderEmail, sendOverstayLeviedEmail,
   sendForgotPasswordOTPEmail, sendForgotPasswordOtpEmail,
-  sendBulkPassInvitationEmail, sendBulkPassSubmittedEmail, sendBulkPassUnderReviewEmail,
+  sendBulkPassInvitationEmail, sendBulkPassSubmittedEmail, sendBulkPassExpiringEmail, sendBulkPassUnderReviewEmail,
   sendBulkPassReturnedEmail, sendBulkPassApprovedEmail, sendBulkPassRejectedEmail,
   sendBulkPassRejectedPersonsEmail,
   sendProfileUpdateSubmittedEmail, sendProfileUpdateApprovedEmail,

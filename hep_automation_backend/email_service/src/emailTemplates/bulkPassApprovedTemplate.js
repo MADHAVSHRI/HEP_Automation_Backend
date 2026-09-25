@@ -1,3 +1,5 @@
+const { formatValidityDate } = require("../utils/formatDate");
+
 const bulkPassApprovedTemplate = ({
   companyName,
   refNo,
@@ -6,6 +8,8 @@ const bulkPassApprovedTemplate = ({
   departmentName,
   qrLink,
 }) => {
+  const validFrom = formatValidityDate(validityFrom);
+  const validUpto = formatValidityDate(validityUpto);
   return `
   <div style="font-family: Arial, sans-serif; color:#1f2937; max-width:600px; margin:0 auto;">
     <div style="background: linear-gradient(90deg,#16a34a,#22c55e); color:#fff; padding:20px 24px; border-radius:8px 8px 0 0;">
@@ -51,11 +55,11 @@ const bulkPassApprovedTemplate = ({
         </tr>
         <tr>
           <td style="padding:12px; color:#64748b; border-bottom:1px solid #e2e8f0;">Valid From</td>
-          <td style="padding:12px; font-weight:600; border-bottom:1px solid #e2e8f0;">${validityFrom || "—"}</td>
+          <td style="padding:12px; font-weight:600; border-bottom:1px solid #e2e8f0;">${validFrom}</td>
         </tr>
         <tr>
           <td style="padding:12px; color:#64748b;">Valid Until</td>
-          <td style="padding:12px; font-weight:600;">${validityUpto || "—"}</td>
+          <td style="padding:12px; font-weight:600;">${validUpto}</td>
         </tr>
       </table>
 

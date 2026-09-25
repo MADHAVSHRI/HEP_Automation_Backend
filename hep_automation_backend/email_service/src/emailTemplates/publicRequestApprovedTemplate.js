@@ -7,7 +7,13 @@ const publicRequestApprovedTemplate = ({
   noOfPersons,
   noOfVehicles,
   remarks,
+  maxSubmissions,
+  maxTotalPersons,
+  maxTotalVehicles,
+  perBatchMaxPersons = 30,
+  perBatchMaxVehicles = 30,
 }) => {
+  const hasLimit = (v) => v !== undefined && v !== null && v !== "" && Number(v) > 0;
   return `
   <div style="font-family: Arial, sans-serif; color:#1f2937; max-width:600px; margin:0 auto;">
     <div style="background: linear-gradient(90deg,#16a34a,#22c55e); color:#fff; padding:20px 24px; border-radius:8px 8px 0 0;">
@@ -34,13 +40,22 @@ const publicRequestApprovedTemplate = ({
           <td style="padding:6px 0; font-weight:600; color:#16a34a;">✓ APPROVED</td>
         </tr>
         <tr>
-          <td style="padding:6px 0; color:#64748b;">Approved Persons</td>
-          <td style="padding:6px 0; font-weight:600;">${noOfPersons || 0}</td>
+          <td style="padding:6px 0; color:#64748b;">Total Persons Allowed</td>
+          <td style="padding:6px 0; font-weight:600;">${Number(maxTotalPersons) || noOfPersons || 0} across all batches</td>
         </tr>
         <tr>
-          <td style="padding:6px 0; color:#64748b;">Approved Vehicles</td>
-          <td style="padding:6px 0; font-weight:600;">${noOfVehicles || 0}</td>
+          <td style="padding:6px 0; color:#64748b;">Total Vehicles Allowed</td>
+          <td style="padding:6px 0; font-weight:600;">${Number(maxTotalVehicles ?? noOfVehicles) || 0} across all batches</td>
         </tr>
+        <tr>
+          <td style="padding:6px 0; color:#64748b;">Per Batch</td>
+          <td style="padding:6px 0; font-weight:600;">up to ${perBatchMaxPersons} persons and ${perBatchMaxVehicles} vehicles in each submission</td>
+        </tr>
+        ${hasLimit(maxSubmissions) ? `
+        <tr>
+          <td style="padding:6px 0; color:#64748b;">Total Batches Allowed</td>
+          <td style="padding:6px 0; font-weight:600;">${Number(maxSubmissions)}</td>
+        </tr>` : ""}
         <tr>
           <td style="padding:6px 0; color:#64748b;">Valid From</td>
           <td style="padding:6px 0; font-weight:600;">${validityFrom}</td>
@@ -87,6 +102,7 @@ const publicRequestApprovedTemplate = ({
         </p>
         <p style="margin:0; font-size:13px; color:#92400e;">
           Your upload link can be used <strong>multiple times</strong> until <strong>${validityUpto}</strong>. Each submission will be reviewed independently by the Traffic Department.
+          <br/><br/>Your allowance counts only persons and vehicles that are approved or still awaiting review. Anyone the Traffic Department rejects does not use up your allowance and can be sent again in a later batch.
         </p>
       </div>
 
@@ -96,7 +112,7 @@ const publicRequestApprovedTemplate = ({
         </p>
         <ol style="margin:8px 0 0; padding-left:20px; font-size:13px; color:#166534; line-height:1.6;">
           <li style="margin-bottom:8px;">
-            <strong>Upload Excel File:</strong> Download the template from the upload page, fill in person and vehicle details (maximum 30 persons per submission), and upload the completed Excel file.
+            <strong>Upload Excel File:</strong> Download the template from the upload page, fill in person and vehicle details (maximum ${perBatchMaxPersons} persons and ${perBatchMaxVehicles} vehicles per submission), and upload the completed Excel file.
           </li>
           <li style="margin-bottom:8px;">
             <strong>Upload Documents:</strong> For each person, upload a passport-size photo (JPG/PNG, max 2MB) and Aadhaar document (PDF, max 5MB). For vehicles, upload RC and insurance documents (PDF, max 5MB each).

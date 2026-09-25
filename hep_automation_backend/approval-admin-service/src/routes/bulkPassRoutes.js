@@ -19,6 +19,7 @@
 const express = require("express");
 const router = express.Router();
 const verifyToken = require("../middlewares/verifyToken");
+const authorizeTrafficApprover = require("../middlewares/authorizeTrafficApprover");
 const bulkPassApprovalController = require("../controllers/bulkPassApprovalController");
 
 // GET  /api/bulk-pass/queue       — list UNDER_REVIEW batches (Req 8.1)
@@ -32,29 +33,33 @@ router.get("/:id/pdf", verifyToken, bulkPassApprovalController.downloadPdf);
 router.get("/:id", verifyToken, bulkPassApprovalController.getBatchDetail);
 
 // POST /api/bulk-pass/:id/resend-pass — resend the approved-pass email to applicant
-router.post("/:id/resend-pass", verifyToken, bulkPassApprovalController.resendPass);
+router.post("/:id/resend-pass", verifyToken, authorizeTrafficApprover, bulkPassApprovalController.resendPass);
 
 // ── Individual person approval (new) ─────────────────────────────────────────
 // MUST be declared before /:id routes to prevent "persons" being parsed as an id
 
+// POST /api/bulk-pass/:batchId/persons/approve-all — approve everything pending.
+// Declared first so "approve-all" is not parsed as a :personId.
+router.post("/:batchId/persons/approve-all", verifyToken, authorizeTrafficApprover, bulkPassApprovalController.approveAllPendingInBatch);
+
 // POST /api/bulk-pass/:batchId/persons/:personId/approve
-router.post("/:batchId/persons/:personId/approve", verifyToken, bulkPassApprovalController.approvePersonInBatch);
+router.post("/:batchId/persons/:personId/approve", verifyToken, authorizeTrafficApprover, bulkPassApprovalController.approvePersonInBatch);
 
 // POST /api/bulk-pass/:batchId/persons/:personId/reject
-router.post("/:batchId/persons/:personId/reject",  verifyToken, bulkPassApprovalController.rejectPersonInBatch);
+router.post("/:batchId/persons/:personId/reject",  verifyToken, authorizeTrafficApprover, bulkPassApprovalController.rejectPersonInBatch);
 
 // POST /api/bulk-pass/:batchId/persons/:personId/undo — reset approved/rejected → PENDING
-router.post("/:batchId/persons/:personId/undo",    verifyToken, bulkPassApprovalController.undoPersonInBatch);
+router.post("/:batchId/persons/:personId/undo",    verifyToken, authorizeTrafficApprover, bulkPassApprovalController.undoPersonInBatch);
 
 // POST /api/bulk-pass/:id/finalize — generate QR (approved only) + mark COMPLETED
-router.post("/:id/finalize", verifyToken, bulkPassApprovalController.finalizeBatch);
+router.post("/:id/finalize", verifyToken, authorizeTrafficApprover, bulkPassApprovalController.finalizeBatch);
 
 // ── Batch-level operations ────────────────────────────────────────────────────
 
 // POST /api/bulk-pass/:id/reject  — reject entire batch (Req 8.3)
-router.post("/:id/reject", verifyToken, bulkPassApprovalController.rejectBatch);
+router.post("/:id/reject", verifyToken, authorizeTrafficApprover, bulkPassApprovalController.rejectBatch);
 
 // POST /api/bulk-pass/:id/return  — return to applicant for revision (Req 8.4)
-router.post("/:id/return", verifyToken, bulkPassApprovalController.returnBatch);
+router.post("/:id/return", verifyToken, authorizeTrafficApprover, bulkPassApprovalController.returnBatch);
 
 module.exports = router;

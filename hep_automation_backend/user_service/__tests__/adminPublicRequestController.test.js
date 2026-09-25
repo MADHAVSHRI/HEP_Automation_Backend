@@ -11,7 +11,9 @@ const adminPublicRequestController = require("../src/controllers/adminPublicRequ
 const BulkPassParentRequest = require("../src/models/BulkPassParentRequest");
 const { pool } = require("../src/dbconfig/db");
 const axios = require("axios");
-const { generateUploadToken, encryptToken } = require("../src/utils/tokenUtils");
+const { generateUploadToken } = require("../src/utils/tokenUtils");
+// Portal links are encrypted with cryptoUtils — the scheme the portal decrypts.
+const { encryptToken } = require("../src/utils/cryptoUtils");
 
 // Mock the BulkPassParentRequest model
 jest.mock("../src/models/BulkPassParentRequest");
@@ -27,6 +29,10 @@ jest.mock("../src/dbconfig/db", () => ({
 jest.mock("axios");
 
 // Mock tokenUtils
+jest.mock("../src/utils/cryptoUtils", () => ({
+  encryptToken: jest.fn(),
+  decryptToken: jest.fn(),
+}));
 jest.mock("../src/utils/tokenUtils", () => ({
   generateUploadToken: jest.fn(),
   encryptToken: jest.fn()
@@ -242,7 +248,7 @@ describe("Admin Public Request Controller", () => {
       expect(res.status).toHaveBeenCalledWith(400);
       expect(res.json).toHaveBeenCalledWith({
         success: false,
-        message: "Page number must be at least 1"
+        message: "Page number must be a positive integer"
       });
     });
 
@@ -257,7 +263,7 @@ describe("Admin Public Request Controller", () => {
       expect(res.status).toHaveBeenCalledWith(400);
       expect(res.json).toHaveBeenCalledWith({
         success: false,
-        message: "Limit must be between 1 and 100"
+        message: "Limit must be an integer between 1 and 100"
       });
     });
 
@@ -763,17 +769,20 @@ describe("Admin Public Request Controller", () => {
         approved_time_from: "2026-01-01",
         approved_time_upto: "2026-12-31",
         approved_by_user_id: 1,
-        shared_token: "mock_encrypted_token",
+        shared_token: "mock_jwt_token",
         remarks: "Approved for testing"
       }));
 
+      // The approval template lives behind sendApprovalNotification in
+      // email_service and reads its recipient from applicantEmail.
       expect(axios.post).toHaveBeenCalledWith(
-        "http://localhost:5002/api/email/sendPublicRequestApproved",
+        "http://localhost:5002/api/email/sendApprovalNotification",
         expect.objectContaining({
+          applicantEmail: "test@example.com",
           email: "test@example.com",
           companyName: "Test Company",
           trackingNumber: "TEMP-1234567890-ABC123",
-          uploadLink: "http://localhost:3000/bulk-upload/mock_encrypted_token",
+          uploadLink: "http://localhost:3000/bulk_pass/mock_encrypted_token",
           validityFrom: "2026-01-01",
           validityUpto: "2026-12-31",
           remarks: "Approved for testing"
@@ -789,7 +798,7 @@ describe("Admin Public Request Controller", () => {
         success: true,
         message: "Request approved successfully",
         shared_token: "mock_encrypted_token",
-        upload_link: "http://localhost:3000/bulk-upload/mock_encrypted_token",
+        upload_link: "http://localhost:3000/bulk_pass/mock_encrypted_token",
         request: expect.objectContaining({
           id: 123,
           tracking_number: "TEMP-1234567890-ABC123",

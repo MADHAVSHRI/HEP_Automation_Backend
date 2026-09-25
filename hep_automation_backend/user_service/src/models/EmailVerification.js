@@ -24,7 +24,7 @@ const EmailVerification = {
     const query = `
       INSERT INTO email_verifications (
         email,
-        otp,
+        otp_hash,
         expires_at,
         verified,
         attempts,
@@ -56,13 +56,13 @@ const EmailVerification = {
       SELECT
         id,
         email,
-        otp as otp_hash,
+        otp_hash,
         expires_at,
         verified,
         attempts,
         created_at
       FROM email_verifications
-      WHERE email = $1
+      WHERE LOWER(email) = LOWER($1)
       ORDER BY created_at DESC
       LIMIT 1
     `;
@@ -82,7 +82,7 @@ const EmailVerification = {
       SELECT
         id,
         email,
-        otp as otp_hash,
+        otp_hash,
         expires_at,
         verified,
         attempts,
@@ -153,6 +153,22 @@ const EmailVerification = {
    * 
    * @returns {Promise<number>} Number of deleted records
    */
+  /**
+   * Remove every verification record for an email once a request has been
+   * submitted with it. A verified OTP is proof for one submission, not a
+   * standing pass — the next request has to verify the address again.
+   *
+   * @param {string} email
+   * @returns {Promise<number>} rows removed
+   */
+  async consumeForEmail(email) {
+    const result = await pool.query(
+      `DELETE FROM email_verifications WHERE LOWER(email) = LOWER($1)`,
+      [email]
+    );
+    return result.rowCount;
+  },
+
   async cleanupExpired() {
     const query = `
       DELETE FROM email_verifications
@@ -237,7 +253,7 @@ const EmailVerification = {
     const query = `
       SELECT COUNT(*) as count
       FROM email_verifications
-      WHERE email = $1
+      WHERE LOWER(email) = LOWER($1)
         AND created_at > NOW() - INTERVAL '${minutes} minutes'
     `;
 
