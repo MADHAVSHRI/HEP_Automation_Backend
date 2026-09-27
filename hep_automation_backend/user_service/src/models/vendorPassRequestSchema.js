@@ -798,7 +798,13 @@ const VendorPassRequest = {
     }
   },
 
-  async approveVendorPerson(vendorPassId, personIndex) {
+  async approveVendorPerson(
+    vendorPassId,
+    personIndex,
+    approvedByUserId = null,
+    approvedByRoleId = null,
+    approvedByDepartmentId = null,
+  ) {
     const personRes = await pool.query(
       `SELECT id FROM "vendor_pass_persons" WHERE "vendorPassRequestId" = $1 ORDER BY id ASC`,
       [vendorPassId],
@@ -835,6 +841,62 @@ const VendorPassRequest = {
     );
 
     const approvedPerson = personUpdateRes.rows[0];
+    // ==========================================================
+    // PASS SECTION AUDIT HISTORY
+    //
+    // Normal Vendor person:
+    // Pass Section -> FINAL APPROVAL
+    //
+    // This history entry is required so the Processed tab
+    // can identify which individual person was processed.
+    // ==========================================================
+    if (
+      Number(approvedByDepartmentId) === 9 &&
+      Number(approvedByRoleId) === 4
+    ) {
+      let actedByUserName = null;
+
+      if (approvedByUserId) {
+        const userRes = await pool.query(
+          `
+      SELECT "userName"
+      FROM "users"
+      WHERE id = $1
+      `,
+          [approvedByUserId],
+        );
+
+        actedByUserName = userRes.rows[0]?.userName || null;
+      }
+
+      await pool.query(
+        `
+    INSERT INTO "vendor_oil_jetty_workflow_history"
+    (
+      "vendorPassRequestId",
+      "stage",
+      "departmentId",
+      "roleId",
+      "action",
+      "actedByUserId",
+      "actedByUserName",
+      "remarks",
+      "createdAt",
+      "updatedAt"
+    )
+    VALUES
+    ($1, 'PASS_SECTION', $2, $3, 'APPROVED', $4, $5, $6, NOW(), NOW())
+    `,
+        [
+          Number(vendorPassId),
+          Number(approvedByDepartmentId),
+          Number(approvedByRoleId),
+          approvedByUserId,
+          actedByUserName,
+          `PERSON ID: ${approvedPerson.id}`,
+        ],
+      );
+    }
 
     const emailUrl = process.env.EMAIL_SERVICE_URL;
 
@@ -860,6 +922,33 @@ const VendorPassRequest = {
         const vendorRequest = requestRes.rows[0];
 
         if (vendorRequest?.vendorEmail) {
+          const approvedCountsRes = await pool.query(
+            `
+  SELECT
+    (
+      SELECT COUNT(*)
+      FROM "vendor_pass_persons"
+      WHERE "vendorPassRequestId" = $1
+        AND status::TEXT = 'approved'
+    ) AS "approvedPersonsCount",
+
+    (
+      SELECT COUNT(*)
+      FROM "vendor_pass_vehicles"
+      WHERE "vendorPassRequestId" = $1
+        AND status::TEXT = 'approved'
+    ) AS "approvedVehiclesCount"
+  `,
+            [Number(vendorPassId)],
+          );
+
+          const approvedPersonsCount = Number(
+            approvedCountsRes.rows[0]?.approvedPersonsCount || 0,
+          );
+
+          const approvedVehiclesCount = Number(
+            approvedCountsRes.rows[0]?.approvedVehiclesCount || 0,
+          );
           const encryptedToken = encryptToken(vendorRequest.token);
 
           const qrLink =
@@ -873,8 +962,8 @@ const VendorPassRequest = {
               companyName: vendorRequest.companyName,
               referenceNo: vendorRequest.referenceNo,
               qrLink,
-              approvedPersonsCount: 1,
-              approvedVehiclesCount: 0,
+              approvedPersonsCount,
+              approvedVehiclesCount,
               validUpto: vendorRequest.validUpto,
               departmentName: vendorRequest.departmentName,
               finalStatus: "ENTITY_APPROVED",
@@ -1252,6 +1341,33 @@ const VendorPassRequest = {
           const vendorRequest = requestRes.rows[0];
 
           if (vendorRequest?.vendorEmail) {
+            const approvedCountsRes = await pool.query(
+              `
+  SELECT
+    (
+      SELECT COUNT(*)
+      FROM "vendor_pass_persons"
+      WHERE "vendorPassRequestId" = $1
+        AND status::TEXT = 'approved'
+    ) AS "approvedPersonsCount",
+
+    (
+      SELECT COUNT(*)
+      FROM "vendor_pass_vehicles"
+      WHERE "vendorPassRequestId" = $1
+        AND status::TEXT = 'approved'
+    ) AS "approvedVehiclesCount"
+  `,
+              [Number(vendorPassId)],
+            );
+
+            const approvedPersonsCount = Number(
+              approvedCountsRes.rows[0]?.approvedPersonsCount || 0,
+            );
+
+            const approvedVehiclesCount = Number(
+              approvedCountsRes.rows[0]?.approvedVehiclesCount || 0,
+            );
             const { encryptToken } = require("../utils/cryptoUtils");
 
             const encryptedToken = encryptToken(vendorRequest.token);
@@ -1267,8 +1383,8 @@ const VendorPassRequest = {
                 companyName: vendorRequest.companyName,
                 referenceNo: vendorRequest.referenceNo,
                 qrLink,
-                approvedPersonsCount: 0,
-                approvedVehiclesCount: 1,
+                approvedPersonsCount,
+                approvedVehiclesCount,
                 validUpto: vendorRequest.validUpto,
                 departmentName: vendorRequest.departmentName,
                 finalStatus: "ENTITY_APPROVED",
@@ -3260,7 +3376,7 @@ const VendorPassRequest = {
         FROM "vendor_pass_vehicles"
         WHERE "vendorPassRequestId" = $1
         `,
-        [Number(id)],
+        [normalizedVendorPassId],
       );
 
       const entityStates = entityStateRes.rows.map((row) =>
@@ -3322,6 +3438,33 @@ const VendorPassRequest = {
         request.vendorEmail
       ) {
         try {
+          const approvedCountsRes = await client.query(
+            `
+  SELECT
+    (
+      SELECT COUNT(*)
+      FROM "vendor_pass_persons"
+      WHERE "vendorPassRequestId" = $1
+        AND status::TEXT = 'approved'
+    ) AS "approvedPersonsCount",
+
+    (
+      SELECT COUNT(*)
+      FROM "vendor_pass_vehicles"
+      WHERE "vendorPassRequestId" = $1
+        AND status::TEXT = 'approved'
+    ) AS "approvedVehiclesCount"
+  `,
+            [normalizedVendorPassId],
+          );
+
+          const approvedPersonsCount = Number(
+            approvedCountsRes.rows[0]?.approvedPersonsCount || 0,
+          );
+
+          const approvedVehiclesCount = Number(
+            approvedCountsRes.rows[0]?.approvedVehiclesCount || 0,
+          );
           const { encryptToken } = require("../utils/cryptoUtils");
 
           const encryptedToken = encryptToken(request.token);
@@ -3340,8 +3483,10 @@ const VendorPassRequest = {
               companyName: request.companyName,
               referenceNo: request.referenceNo,
               qrLink,
-              approvedPersonsCount: normalizedEntityType === "PERSON" ? 1 : 0,
-              approvedVehiclesCount: normalizedEntityType === "VEHICLE" ? 1 : 0,
+              approvedPersonsCount,
+              approvedVehiclesCount,
+              // approvedPersonsCount: normalizedEntityType === "PERSON" ? 1 : 0,
+              // approvedVehiclesCount: normalizedEntityType === "VEHICLE" ? 1 : 0,
               validUpto: request.validUpto,
               departmentName: request.departmentName,
               finalStatus: "ENTITY_APPROVED",
