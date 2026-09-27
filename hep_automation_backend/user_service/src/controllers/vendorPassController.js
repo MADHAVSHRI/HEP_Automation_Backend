@@ -953,6 +953,9 @@ exports.approveVendorPerson = async (req, res) => {
       const result = await VendorPassRequest.approveVendorPerson(
         Number(id),
         Number(personIndex),
+        req.user?.userId,
+        req.user?.roleId,
+        req.user?.departmentId,
       );
       if (!result) {
         return res

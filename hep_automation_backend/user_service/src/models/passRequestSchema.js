@@ -7543,12 +7543,30 @@ const getAgentPassRequestsDetails = {
 
       (
         COALESCE(v."isOilDock", false) = false
-        AND EXISTS (
-          SELECT 1
-          FROM "vendor_pass_vehicles" vpv
-          WHERE vpv."vendorPassRequestId" = v.id
-            AND vpv."workflowState" = 'PENDING_PASS_SECTION'
-            AND vpv.status IN ('pending', 'reverted')
+        AND
+        (
+          EXISTS (
+            SELECT 1
+            FROM "vendor_pass_vehicles" vpv
+            WHERE vpv."vendorPassRequestId" = v.id
+              AND vpv."workflowState" = 'PENDING_PASS_SECTION'
+              AND vpv.status IN ('pending', 'reverted')
+          )
+
+          OR
+
+          EXISTS (
+            SELECT 1
+            FROM "vendor_pass_persons" vpp
+            WHERE vpp."vendorPassRequestId" = v.id
+              AND vpp."workflowState" = 'PENDING_PASS_SECTION'
+              AND vpp.status IN ('pending', 'reverted')
+              AND (
+                vpp."accessAreaId"::TEXT NOT IN ('1')
+                AND vpp."accessAreaId"::TEXT NOT ILIKE '%OIL%JETTY%'
+                AND vpp."accessAreaId"::TEXT NOT ILIKE '%OIL_JETTY%'
+              )
+          )
         )
       )
     )
@@ -8635,7 +8653,9 @@ const getAgentPassRequestsDetails = {
           // Traffic
           if (isVendorTrafficApprover) {
             return (
-              ["PERSON_TRAFFIC", "TRAFFIC"].includes(history.stage) &&
+              ["PERSON_TRAFFIC", "TRAFFIC", "PASS_SECTION"].includes(
+                history.stage,
+              ) &&
               historyDepartmentId === 9 &&
               historyRoleId === 4
             );
