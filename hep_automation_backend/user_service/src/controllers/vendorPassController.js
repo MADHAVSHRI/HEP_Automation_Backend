@@ -1216,16 +1216,17 @@ exports.approveVendorVehicle = async (req, res) => {
       }
       const workflowCheckRes = await pool.query(
         `
-  SELECT
-    pv."passType",
-    pv."vehicleTypeId",
-    pv."workflowState",
-    vpr."isOilDock"
-  FROM "vendor_pass_vehicles" pv
-  JOIN "vendor_pass_requests" vpr
-    ON vpr.id = pv."vendorPassRequestId"
-  WHERE pv.id = $1
-  `,
+        SELECT
+        pv."passType",
+        pv."vehicleTypeId",
+        pv."accessAreaId",
+        pv."workflowState",
+        vpr."isOilDock"
+      FROM "vendor_pass_vehicles" pv
+      JOIN "vendor_pass_requests" vpr
+        ON vpr.id = pv."vendorPassRequestId"
+      WHERE pv.id = $1
+        `,
         [vehicleEntry.id],
       );
 
@@ -1248,11 +1249,17 @@ exports.approveVendorVehicle = async (req, res) => {
         .trim()
         .toUpperCase();
 
+      const vehicleAccessArea = String(workflowCheck?.accessAreaId || "")
+        .trim()
+        .toUpperCase();
+
       const isNormalAnnualTrailerSafetyFlow =
-        workflowCheck?.isOilDock !== true &&
+        !isOilDockArea(vehicleAccessArea) &&
         workflowCheck?.workflowState === "PENDING_SAFETY" &&
         ["YEARLY", "ANNUAL"].includes(vehiclePassType) &&
-        ["TRAILORS", "TRAILER LORRY"].includes(vehicleTypeName);
+        ["TRAILORS", "TRAILER LORRY", "TRACTOR TRAILER"].includes(
+          vehicleTypeName,
+        );
 
       if (isNormalAnnualTrailerSafetyFlow) {
         // ------------------------------------------------------------
@@ -1262,33 +1269,150 @@ exports.approveVendorVehicle = async (req, res) => {
         // 1. Complete the vehicle
         await pool.query(
           `
-    UPDATE "vendor_pass_vehicles"
-    SET
-      "twistLockCertified" = true,
-      "twistLockRemarks" = $2,
-      "status" = 'approved',
-      "workflowState" = 'COMPLETED',
-      "workflowActionStage" = NULL,
-      "workflowActionRemarks" = NULL,
-      "updatedAt" = NOW()
-    WHERE id = $1
-    `,
-          [vehicleEntry.id, remarks || null],
+          UPDATE "vendor_pass_vehicles"
+          SET
+            "twistLockCertified" = true,
+            "twistLockRemarks" = $2,
+            "status" = 'approved',
+            "workflowState" = 'COMPLETED',
+            "workflowActionStage" = NULL,
+            "workflowActionRemarks" = NULL,
+            "approvedByUserId" = $3,
+            "updatedAt" = NOW()
+          WHERE id = $1
+          `,
+          [vehicleEntry.id, remarks || null, Number(req.user?.userId) || null],
         );
+        // ------------------------------------------------------------
+        // FINAL ENTITY APPROVAL EMAIL
+        // Safety Officer independently completes the normal annual
+        // Trailer/Lorry/Tractor Trailer vehicle.
+        // Send the vehicle QR immediately and do not wait for
+        // unrelated person/vehicle entities.
+        // ------------------------------------------------------------
+        const emailUrl = process.env.EMAIL_SERVICE_URL;
+
+        if (emailUrl) {
+          try {
+            const requestRes = await pool.query(
+              `
+      SELECT
+        "vendorEmail",
+        "companyName",
+        "referenceNo",
+        "token",
+        "validUpto",
+        "departmentName"
+      FROM "vendor_pass_requests"
+      WHERE id = $1
+      `,
+              [Number(id)],
+            );
+
+            const vendorRequest = requestRes.rows[0];
+
+            if (vendorRequest?.vendorEmail) {
+              const encryptedToken = encryptToken(vendorRequest.token);
+
+              const frontendUrl =
+                process.env.FRONTEND_BASE_URL ||
+                process.env.FRONTEND_URL ||
+                "http://localhost:3000";
+
+              const qrLink =
+                `${frontendUrl}/vendor_pass_approved/${encryptedToken}` +
+                `?type=vehicle&entityId=${vehicleEntry.id}`;
+
+              const approvedCountsRes = await pool.query(
+                `
+                  SELECT
+                    (
+                      SELECT COUNT(*)
+                      FROM "vendor_pass_persons"
+                      WHERE "vendorPassRequestId" = $1
+                        AND status::TEXT = 'approved'
+                    ) AS "approvedPersonsCount",
+
+                    (
+                      SELECT COUNT(*)
+                      FROM "vendor_pass_vehicles"
+                      WHERE "vendorPassRequestId" = $1
+                        AND status::TEXT = 'approved'
+                    ) AS "approvedVehiclesCount"
+                  `,
+                [Number(id)],
+              );
+
+              const approvedPersonsCount = Number(
+                approvedCountsRes.rows[0]?.approvedPersonsCount || 0,
+              );
+
+              const approvedVehiclesCount = Number(
+                approvedCountsRes.rows[0]?.approvedVehiclesCount || 0,
+              );
+
+              await axios.post(
+                `${emailUrl}/api/email/sendVendorPassApproved`,
+                {
+                  email: vendorRequest.vendorEmail,
+                  companyName: vendorRequest.companyName,
+                  referenceNo: vendorRequest.referenceNo,
+
+                  qrLink,
+
+                  // This email is for the specific Safety-approved vehicle.
+                  approvedPersonsCount,
+                  approvedVehiclesCount,
+
+                  validUpto: vendorRequest.validUpto,
+                  departmentName: vendorRequest.departmentName,
+
+                  finalStatus: "ENTITY_APPROVED",
+
+                  entityType: "VEHICLE",
+                  entityId: vehicleEntry.id,
+                },
+                {
+                  headers: {
+                    "x-service-name": "USER-SERVICE",
+                  },
+                  timeout: 8000,
+                },
+              );
+
+              console.log(
+                `[VENDOR-PASS] Annual trailer vehicle approval email sent for ${vendorRequest.referenceNo}, vehicleId=${vehicleEntry.id}`,
+              );
+            } else {
+              console.warn(
+                `[VENDOR-PASS] Approval email skipped: vendor email not found for request ${id}`,
+              );
+            }
+          } catch (emailError) {
+            console.error(
+              `[VENDOR-PASS] Annual trailer approval email failed for request ${id}:`,
+              emailError.response?.data || emailError.message,
+            );
+          }
+        } else {
+          console.warn(
+            "[VENDOR-PASS] EMAIL_SERVICE_URL is not configured; annual trailer approval email was not sent.",
+          );
+        }
 
         // 2. Complete the parent request as well
         //    Parent and child MUST remain in the same final state.
-        await pool.query(
-          `
-    UPDATE "vendor_pass_requests"
-    SET
-      "status" = 'COMPLETED',
-      "workflowState" = 'COMPLETED',
-      "updatedAt" = NOW()
-    WHERE id = $1
-    `,
-          [Number(id)],
-        );
+        //     await pool.query(
+        //       `
+        // UPDATE "vendor_pass_requests"
+        // SET
+        //   "status" = 'COMPLETED',
+        //   "workflowState" = 'COMPLETED',
+        //   "updatedAt" = NOW()
+        // WHERE id = $1
+        // `,
+        //       [Number(id)],
+        //     );
       } else {
         await pool.query(
           `UPDATE "vendor_pass_vehicles"
@@ -1324,7 +1448,7 @@ exports.approveVendorVehicle = async (req, res) => {
         (v) => v.twistLockCertified,
       );
 
-      if (allCertified) {
+      if (allCertified && !isNormalAnnualTrailerSafetyFlow) {
         const prRes = await pool.query(
           `SELECT "isOilDock" FROM "vendor_pass_requests" WHERE id = $1`,
           [Number(id)],
@@ -1366,6 +1490,68 @@ exports.approveVendorVehicle = async (req, res) => {
           await pool.query(
             `UPDATE "vendor_pass_requests" SET "workflowState" = $2, "updatedAt" = NOW() WHERE id = $1`,
             [Number(id), nextState],
+          );
+        }
+      }
+      if (isNormalAnnualTrailerSafetyFlow) {
+        const entityStateRes = await pool.query(
+          `
+          SELECT
+            status::TEXT AS status,
+            "workflowState"::TEXT AS "workflowState"
+          FROM "vendor_pass_persons"
+          WHERE "vendorPassRequestId" = $1
+
+          UNION ALL
+
+          SELECT
+            status::TEXT AS status,
+            "workflowState"::TEXT AS "workflowState"
+          FROM "vendor_pass_vehicles"
+          WHERE "vendorPassRequestId" = $1
+          `,
+          [Number(id)],
+        );
+
+        const entityStates = entityStateRes.rows.map((row) => ({
+          status: String(row.status || "")
+            .trim()
+            .toLowerCase(),
+
+          workflowState: String(row.workflowState || "")
+            .trim()
+            .toUpperCase(),
+        }));
+
+        const allEntitiesFinished =
+          entityStates.length > 0 &&
+          entityStates.every(
+            (entity) =>
+              ["COMPLETED", "REJECTED"].includes(entity.workflowState) ||
+              (!entity.workflowState &&
+                ["approved", "rejected"].includes(entity.status)),
+          );
+
+        const anyEntityRejected = entityStates.some(
+          (entity) =>
+            entity.workflowState === "REJECTED" || entity.status === "rejected",
+        );
+
+        if (allEntitiesFinished) {
+          const finalParentStatus = anyEntityRejected
+            ? "REJECTED"
+            : "COMPLETED";
+
+          await pool.query(
+            `
+      UPDATE "vendor_pass_requests"
+      SET
+        "status" = $2,
+        "workflowState" = $3,
+        "updatedAt" = NOW()
+      WHERE id = $1
+      `,
+            [Number(id), finalParentStatus, finalParentStatus],
           );
         }
       }
@@ -1509,6 +1695,7 @@ exports.approveVendorVehicle = async (req, res) => {
       const result = await VendorPassRequest.approveVendorVehicle(
         Number(id),
         Number(vehicleIndex),
+        req.user?.userId,
       );
       if (!result) {
         return res

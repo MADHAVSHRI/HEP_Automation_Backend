@@ -21,7 +21,7 @@ exports.generatePassQR = async (req, res) => {
       passRequestId,
       token,
       type,
-      entityId
+      entityId,
     );
 
     res.setHeader("Content-Type", "application/pdf");
@@ -42,10 +42,7 @@ exports.generatePassQR = async (req, res) => {
   }
 };
 
-exports.validateQr = async (
-  req,
-  res
-) => {
+exports.validateQr = async (req, res) => {
   try {
     const { qrToken } = req.body;
 
@@ -56,15 +53,9 @@ exports.validateQr = async (
       });
     }
 
-    const result =
-      await passQrService.validateQr(
-        qrToken
-      );
+    const result = await passQrService.validateQr(qrToken);
 
-    return res.status(200).json(
-      result
-    );
-
+    return res.status(200).json(result);
   } catch (error) {
     return res.status(500).json({
       success: false,
@@ -87,33 +78,30 @@ exports.generateMaterialPassQr = async (req, res) => {
 
     const token = req.headers.authorization;
 
-    const pdfBuffer =
-      await passQrService.generateMaterialPass(
-        passRequestId,
-        token,
-        type,
-        passId
-      );
+    const pdfBuffer = await passQrService.generateMaterialPass(
+      passRequestId,
+      token,
+      type,
+      passId,
+    );
 
     res.setHeader("Content-Type", "application/pdf");
 
     return res.send(pdfBuffer);
   } catch (error) {
-
     if (error.message === "Approved material pass not found") {
       return res.status(404).json({
-        success:false,
-        message:error.message,
+        success: false,
+        message: error.message,
       });
     }
 
     return res.status(500).json({
-      success:false,
-      message:error.message,
+      success: false,
+      message: error.message,
     });
   }
 };
-
 
 // const passQrService = require("../services/passQrService");
 
@@ -162,7 +150,7 @@ exports.generateVendorQr = async (req, res) => {
     if (!vendorPassId) {
       return res.status(400).json({
         success: false,
-        message: "vendorPassId required"
+        message: "vendorPassId required",
       });
     }
     const pdfBuffer = await passQrService.generateVendorPass(vendorPassId);
@@ -172,12 +160,12 @@ exports.generateVendorQr = async (req, res) => {
     if (error.message === "No approved vendor passes found") {
       return res.status(404).json({
         success: false,
-        message: error.message
+        message: error.message,
       });
     }
     return res.status(500).json({
       success: false,
-      message: error.message
+      message: error.message,
     });
   }
 };
@@ -188,27 +176,76 @@ exports.generateVendorSingleQr = async (req, res) => {
     if (!vendorPassId || !entityType || entityIndex === undefined) {
       return res.status(400).json({
         success: false,
-        message: "vendorPassId, entityType, and entityIndex are required"
+        message: "vendorPassId, entityType, and entityIndex are required",
       });
     }
-    const pdfBuffer = await passQrService.generateVendorSinglePass(vendorPassId, entityType, entityIndex);
+    const pdfBuffer = await passQrService.generateVendorSinglePass(
+      vendorPassId,
+      entityType,
+      entityIndex,
+    );
     res.setHeader("Content-Type", "application/pdf");
-    res.setHeader("Content-Disposition", `inline; filename="VendorPass_${entityType}_${entityIndex}.pdf"`);
+    res.setHeader(
+      "Content-Disposition",
+      `inline; filename="VendorPass_${entityType}_${entityIndex}.pdf"`,
+    );
     return res.send(pdfBuffer);
   } catch (error) {
-    if (error.message === "Person not found" || error.message === "Vehicle not found") {
+    if (
+      error.message === "Person not found" ||
+      error.message === "Vehicle not found"
+    ) {
       return res.status(404).json({
         success: false,
-        message: error.message
+        message: error.message,
       });
     }
     return res.status(500).json({
       success: false,
-      message: error.message
+      message: error.message,
     });
   }
 };
 
+exports.generateVendorQrToken = async (req, res) => {
+  try {
+    const { vendorPassId, entityType, entityId } = req.params;
+
+    if (!vendorPassId || !entityType || !entityId) {
+      return res.status(400).json({
+        success: false,
+        message: "vendorPassId, entityType and entityId are required",
+      });
+    }
+
+    const token = await passQrService.generateVendorQrToken(
+      vendorPassId,
+      entityType,
+      entityId,
+    );
+
+    return res.status(200).json({
+      success: true,
+      token,
+    });
+  } catch (error) {
+    console.error("VENDOR QR TOKEN ERROR:", error);
+
+    const message = error.message || "Failed to generate vendor QR token";
+
+    if (message === "Person not found" || message === "Vehicle not found") {
+      return res.status(404).json({
+        success: false,
+        message,
+      });
+    }
+
+    return res.status(500).json({
+      success: false,
+      message,
+    });
+  }
+};
 
 /*
 ============================================
@@ -224,10 +261,13 @@ exports.generateBulkQr = async (req, res) => {
   try {
     const { batchId } = req.params;
     if (!batchId) {
-      return res.status(400).json({ success: false, message: "batchId required" });
+      return res
+        .status(400)
+        .json({ success: false, message: "batchId required" });
     }
 
-    const { pdfBuffer, filePath } = await passQrService.generateBulkPass(batchId);
+    const { pdfBuffer, filePath } =
+      await passQrService.generateBulkPass(batchId);
 
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("X-Pdf-Path", filePath);
@@ -247,7 +287,9 @@ exports.viewBulkPass = async (req, res) => {
   try {
     const { batchId } = req.params;
     if (!batchId) {
-      return res.status(400).json({ success: false, message: "batchId required" });
+      return res
+        .status(400)
+        .json({ success: false, message: "batchId required" });
     }
 
     const { pdfBuffer } = await passQrService.generateBulkPass(batchId, {
@@ -255,14 +297,21 @@ exports.viewBulkPass = async (req, res) => {
     });
 
     res.setHeader("Content-Type", "application/pdf");
-    res.setHeader("Content-Disposition", `inline; filename="BulkPass_${batchId}.pdf"`);
+    res.setHeader(
+      "Content-Disposition",
+      `inline; filename="BulkPass_${batchId}.pdf"`,
+    );
     return res.send(pdfBuffer);
   } catch (error) {
     if (error.message === "Batch not approved") {
-      return res.status(403).json({ success: false, message: "This pass is not yet approved" });
+      return res
+        .status(403)
+        .json({ success: false, message: "This pass is not yet approved" });
     }
     if (error.message === "Batch not found") {
-      return res.status(404).json({ success: false, message: "Pass not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "Pass not found" });
     }
     return res.status(500).json({ success: false, message: error.message });
   }
@@ -274,10 +323,13 @@ exports.generateVvipQr = async (req, res) => {
   try {
     const { requestId } = req.params;
     if (!requestId) {
-      return res.status(400).json({ success: false, message: "requestId required" });
+      return res
+        .status(400)
+        .json({ success: false, message: "requestId required" });
     }
 
-    const { pdfBuffer, filePath } = await passQrService.generateVvipPass(requestId);
+    const { pdfBuffer, filePath } =
+      await passQrService.generateVvipPass(requestId);
 
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("X-Pdf-Path", filePath);

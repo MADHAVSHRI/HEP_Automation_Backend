@@ -13,7 +13,7 @@ router.post("/login",verifyService, adminController.getAdminUser);
 
 router.get("/roles", verifyToken, authorizeToken("Admin"), adminController.getRoles);
 
-router.get("/departments", verifyToken, adminController.getDepartments);
+router.get("/departments", adminController.getDepartments);
 
 router.get("/dept-admin-users", verifyToken, authorizeToken("Admin", "Administrator"), adminController.getDeptAdminUsers);
 

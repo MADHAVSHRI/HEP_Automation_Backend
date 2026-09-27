@@ -1332,13 +1332,20 @@ const PassRequest = {
 
       // Fetch request details
       const requestRes = await client.query(
-        `SELECT id, status, "isOilDock" FROM "pass_requests" WHERE id = $1`,
+        `SELECT
+     id,
+     status,
+     "isOilDock",
+     "approvedBy"
+   FROM "pass_requests"
+   WHERE id = $1`,
         [passRequestId],
       );
       const request = requestRes.rows[0];
       if (!request) {
         throw new Error("Pass request not found");
       }
+      const isSafetyReviewer = roleId === 26 || role === "Safety Officer";
 
       // Fetch entities
       const [personsRes, vehiclesRes] = await Promise.all([
@@ -1392,6 +1399,9 @@ const PassRequest = {
           console.error("Error looking up approver user details:", userErr);
         }
       }
+      const effectiveParentApprovedBy = isSafetyReviewer
+        ? request.approvedBy
+        : approvedBy;
 
       if (isReverted) {
         const result = await client.query(
@@ -1404,7 +1414,7 @@ const PassRequest = {
                "updatedAt" = NOW()
            WHERE id = $1
            RETURNING *`,
-          [passRequestId, approvedBy],
+          [passRequestId, effectiveParentApprovedBy],
         );
         await client.query("COMMIT");
         client.release();
@@ -1416,7 +1426,7 @@ const PassRequest = {
         };
       }
 
-      const isSafety = roleId === 26 || role === "Safety Officer";
+      const isSafety = isSafetyReviewer;
       const isFireSafety = roleId === 27 || role === "Fire Safety Officer";
       const isSrDtm = roleId === 28 || role === "Senior Deputy Traffic Manager";
 
@@ -1446,13 +1456,12 @@ const PassRequest = {
 
           const result = await client.query(
             `UPDATE pass_requests
-              SET status = 'COMPLETED',
-                  "workflowState" = 'COMPLETED',
-                  "approvedBy" = $2,
-                  "updatedAt" = NOW()
-              WHERE id = $1
-              RETURNING *`,
-            [passRequestId, approvedBy],
+    SET status = 'COMPLETED',
+        "workflowState" = 'COMPLETED',
+        "updatedAt" = NOW()
+    WHERE id = $1
+    RETURNING *`,
+            [passRequestId],
           );
           await client.query("COMMIT");
           client.release();
@@ -1638,7 +1647,12 @@ const PassRequest = {
             "updatedAt" = NOW()
           WHERE id=$2
           RETURNING *`,
-        [finalStatus, passRequestId, approvedBy, nextWorkflowState],
+        [
+          finalStatus,
+          passRequestId,
+          effectiveParentApprovedBy,
+          nextWorkflowState,
+        ],
       );
       await client.query("COMMIT");
       client.release();
@@ -6640,10 +6654,20 @@ const getAgentPassRequestsDetails = {
         !isCisf &&
         role === "Approval");
     const normalizedRole = String(role || "").trim();
+
     const isVendorNormalAnnualTrailerSafetyApprover =
       Number(departmentId) === 9 &&
-      Number(roleId) === 26 &&
-      normalizedRole === "Safety Officer";
+      (Number(roleId) === 26 || normalizedRole === "Safety Officer");
+
+    const isVendorOilDockArea = (val) => {
+      if (!val) return false;
+
+      const str = String(val).toUpperCase();
+
+      return (
+        str === "1" || str.includes("OIL JETTY") || str.includes("OIL_JETTY")
+      );
+    };
 
     const isVendorMarineApprover =
       Number(departmentId) === 7 &&
@@ -6895,22 +6919,29 @@ const getAgentPassRequestsDetails = {
          NORMAL VENDOR PASS SECTION
          ========================================================= */
       (
-        COALESCE(v."isOilDock", false) = false
-        AND (
-          EXISTS (
-            SELECT 1
-            FROM "vendor_pass_vehicles" vpv
-            WHERE vpv."vendorPassRequestId" = v.id
-              AND vpv."workflowState" = 'PENDING_PASS_SECTION'
-              AND vpv.status IN ('pending', 'reverted')
-          )
-          OR EXISTS (
-            SELECT 1
-            FROM "vendor_pass_persons" vpp
-            WHERE vpp."vendorPassRequestId" = v.id
-              AND vpp."workflowState" = 'PENDING_PASS_SECTION'
-              AND vpp.status IN ('pending', 'reverted')
-          )
+        EXISTS (
+          SELECT 1
+          FROM "vendor_pass_vehicles" vpv
+          WHERE vpv."vendorPassRequestId" = v.id
+            AND vpv."workflowState" = 'PENDING_PASS_SECTION'
+            AND vpv.status IN ('pending', 'reverted')
+            AND (
+              vpv."accessAreaId"::TEXT NOT IN ('1')
+              AND vpv."accessAreaId"::TEXT NOT ILIKE '%OIL%JETTY%'
+              AND vpv."accessAreaId"::TEXT NOT ILIKE '%OIL_JETTY%'
+            )
+        )
+        OR EXISTS (
+          SELECT 1
+          FROM "vendor_pass_persons" vpp
+          WHERE vpp."vendorPassRequestId" = v.id
+            AND vpp."workflowState" = 'PENDING_PASS_SECTION'
+            AND vpp.status IN ('pending', 'reverted')
+            AND (
+              vpp."accessAreaId"::TEXT NOT IN ('1')
+              AND vpp."accessAreaId"::TEXT NOT ILIKE '%OIL%JETTY%'
+              AND vpp."accessAreaId"::TEXT NOT ILIKE '%OIL_JETTY%'
+            )
         )
       )
     )
@@ -6975,41 +7006,59 @@ const getAgentPassRequestsDetails = {
 
     if (isVendorNormalAnnualTrailerSafetyApprover) {
       vendorNormalAnnualTrailerSafetyPendingCond = `
-  v."isOilDock" = false
-  AND EXISTS (
-      SELECT 1
-      FROM "vendor_pass_vehicles" vpv
-      INNER JOIN vehicle_types vt
-        ON vt.id = vpv."vehicleTypeId"
-      WHERE vpv."vendorPassRequestId" = v.id
-        AND vpv.status IN ('pending', 'approved', 'reverted')
-        AND UPPER(TRIM(vpv."passType"::TEXT))
-            IN ('YEARLY', 'ANNUAL')
-        AND UPPER(TRIM(vt.name))
-            IN ('TRAILORS', 'TRAILER LORRY')
-        AND vpv."workflowState" = 'PENDING_SAFETY'
-    )
-  `;
+        EXISTS (
+          SELECT 1
+          FROM "vendor_pass_vehicles" vpv
+          INNER JOIN vehicle_types vt
+            ON vt.id = vpv."vehicleTypeId"
+          WHERE vpv."vendorPassRequestId" = v.id
+            AND vpv.status IN ('pending', 'approved', 'reverted')
+
+            AND UPPER(TRIM(vpv."passType"::TEXT))
+                IN ('YEARLY', 'ANNUAL')
+
+            AND UPPER(TRIM(vt.name))
+                IN (
+                  'TRAILORS',
+                  'TRAILER LORRY',
+                  'TRACTOR TRAILER'
+                )
+
+            AND vpv."workflowState" = 'PENDING_SAFETY'
+
+            AND (
+              vpv."accessAreaId"::TEXT NOT IN ('1')
+              AND vpv."accessAreaId"::TEXT NOT ILIKE '%OIL%JETTY%'
+              AND vpv."accessAreaId"::TEXT NOT ILIKE '%OIL_JETTY%'
+            )
+        )
+      `;
 
       vendorNormalAnnualTrailerSafetyProcessedCond = `
-    v."isOilDock" = false
-    AND v."status" = 'COMPLETED'
-    AND v."workflowState" = 'COMPLETED'
-    AND EXISTS (
-      SELECT 1
-      FROM "vendor_pass_vehicles" vpv
-      INNER JOIN vehicle_types vt
-        ON vt.id = vpv."vehicleTypeId"
-      WHERE vpv."vendorPassRequestId" = v.id
-        AND vpv.status = 'approved'
-        AND vpv."workflowState" = 'COMPLETED'
-        AND vpv."twistLockCertified" = true
-        AND UPPER(TRIM(vpv."passType"::TEXT))
-            IN ('YEARLY', 'ANNUAL')
-        AND UPPER(TRIM(vt.name))
-            IN ('TRAILORS', 'TRAILER LORRY')
-    )
-  `;
+        EXISTS (
+          SELECT 1
+          FROM "vendor_pass_vehicles" vpv
+          INNER JOIN vehicle_types vt
+            ON vt.id = vpv."vehicleTypeId"
+          WHERE vpv."vendorPassRequestId" = v.id
+            AND vpv.status = 'approved'
+            AND vpv."workflowState" = 'COMPLETED'
+            AND vpv."twistLockCertified" = true
+            AND UPPER(TRIM(vpv."passType"::TEXT))
+                IN ('YEARLY', 'ANNUAL')
+            AND UPPER(TRIM(vt.name))
+                IN (
+                  'TRAILORS',
+                  'TRAILER LORRY',
+                  'TRACTOR TRAILER'
+                )
+            AND (
+              vpv."accessAreaId"::TEXT NOT IN ('1')
+              AND vpv."accessAreaId"::TEXT NOT ILIKE '%OIL%JETTY%'
+              AND vpv."accessAreaId"::TEXT NOT ILIKE '%OIL_JETTY%'
+            )
+        )
+      `;
     }
     // ============================================================
     // NORMAL VENDOR ANNUAL TRAILER SAFETY OFFICER
@@ -7825,6 +7874,11 @@ const getAgentPassRequestsDetails = {
               JOIN pass_persons pp ON pp.id = ph."passPersonId"
               WHERE pp."passRequestId" = pr.id
                 AND ph.action IN ('APPROVED', 'REJECTED', 'REVERTED')
+                ${
+                  isPassSection && Number(departmentId) === 9
+                    ? `AND ph."actorDepartmentId" = 9 AND ph."actorRoleId" = 4`
+                    : ""
+                }
                 ${isCivil ? "AND (ph.stage = 'PENDING_CIVIL_PERSON_ESSENTIAL' OR ph.\"actorDepartmentId\" = 3)" : ""}
                 ${isMechanical ? "AND (ph.stage = 'PENDING_MECHANICAL_PERSON_ESSENTIAL' OR ph.\"actorDepartmentId\" = 4)" : ""}
                 ${isCisf ? "AND (ph.stage = 'PENDING_CISF_PERSON_ESSENTIAL' OR ph.stage LIKE '%CISF%' OR ph.\"actorDepartmentId\" = 1)" : ""}
@@ -7838,6 +7892,11 @@ const getAgentPassRequestsDetails = {
               JOIN pass_vehicles pv ON pv.id = vh."passVehicleId"
               WHERE pv."passRequestId" = pr.id
                 AND vh.action IN ('APPROVED', 'REJECTED', 'REVERTED')
+                ${
+                  isPassSection && Number(departmentId) === 9
+                    ? `AND vh."actorDepartmentId" = 9 AND vh."actorRoleId" = 4`
+                    : ""
+                }
                 ${isCivil ? "AND (vh.stage = 'PENDING_CIVIL_ESSENTIAL' OR vh.\"actorDepartmentId\" = 3)" : ""}
                 ${isMechanical ? "AND (vh.stage = 'PENDING_MECHANICAL_ESSENTIAL' OR vh.\"actorDepartmentId\" = 4)" : ""}
                 ${isCisf ? "AND (vh.stage = 'PENDING_CISF_ESSENTIAL' OR vh.stage LIKE '%CISF%' OR vh.\"actorDepartmentId\" = 1)" : ""}
@@ -8228,21 +8287,27 @@ const getAgentPassRequestsDetails = {
   `;
       } else if (isVendorTrafficApprover) {
         vendorApprovedByExpression = `
-    COALESCE(
-      (
-        SELECT h."actedByUserName"
-        FROM vendor_oil_jetty_workflow_history h
-        WHERE h."vendorPassRequestId" = v.id
-          AND h."stage" IN (
-            'TRAFFIC',
-            'PERSON_TRAFFIC'
-          )
-          AND h."action" IN ('APPROVE', 'APPROVED')
-        ORDER BY h."createdAt" DESC, h.id DESC
-        LIMIT 1
-      ),
-      v."approvedBy"
-    )
+    CASE
+      WHEN COALESCE(v."isOilDock", false) = false
+        THEN v."approvedBy"
+
+      ELSE
+        COALESCE(
+          (
+            SELECT h."actedByUserName"
+            FROM vendor_oil_jetty_workflow_history h
+            WHERE h."vendorPassRequestId" = v.id
+              AND h."stage" IN (
+                'TRAFFIC',
+                'PERSON_TRAFFIC'
+              )
+              AND h."action" IN ('APPROVE', 'APPROVED')
+            ORDER BY h."createdAt" DESC, h.id DESC
+            LIMIT 1
+          ),
+          v."approvedBy"
+        )
+    END
   `;
       }
       const vendorDetailQuery = `
@@ -8333,6 +8398,8 @@ const getAgentPassRequestsDetails = {
                   'workflowState', vpv."workflowState",
                   'workflowActionStage', vpv."workflowActionStage",
                   'workflowActionRemarks', vpv."workflowActionRemarks",
+                  'approvedByUserId', vpv."approvedByUserId",
+                  'approvedBy', approver."userName",
                   'concernDepartmentId', vpv."concernDepartmentId",
                   'rejectedReason', vpv."rejectedReason",
                   'revertReason', vpv."revertReason",
@@ -8392,7 +8459,10 @@ const getAgentPassRequestsDetails = {
               ) ORDER BY vpv.id ASC
             ) AS vehicles
           FROM vendor_pass_vehicles vpv
-          LEFT JOIN vehicle_types vt ON vt.id = vpv."vehicleTypeId"
+          LEFT JOIN vehicle_types vt
+            ON vt.id = vpv."vehicleTypeId"
+          LEFT JOIN "users" approver
+            ON approver.id = vpv."approvedByUserId"
           GROUP BY vpv."vendorPassRequestId"
         ) veh ON veh."vendorPassRequestId" = v.id
         WHERE v.id IN (${placeholders})
@@ -8777,19 +8847,19 @@ const getAgentPassRequestsDetails = {
 
                 const isAnnualTrailer =
                   ["YEARLY", "ANNUAL"].includes(passType) &&
-                  ["TRAILORS", "TRAILER LORRY"].includes(vehicleType);
+                  ["TRAILORS", "TRAILER LORRY", "TRACTOR TRAILER"].includes(
+                    vehicleType,
+                  );
 
-                /*
-                 * Pass Section has processed this vehicle when:
-                 * 1. It moved the annual Trailer/Trailer Lorry to Safety, OR
-                 * 2. Pass Section itself rejected/reverted it.
-                 *
-                 * Once Safety completes it, workflowState becomes COMPLETED,
-                 * so it will not appear as Pass Section processed.
-                 */
+                const isNormalCompletedVehicle =
+                  !isAnnualTrailer &&
+                  vehicleStatus === "approved" &&
+                  vehicleWorkflowState === "COMPLETED";
+
                 return (
                   (isAnnualTrailer &&
                     vehicleWorkflowState === "PENDING_SAFETY") ||
+                  isNormalCompletedVehicle ||
                   ["rejected", "reverted"].includes(vehicleStatus)
                 );
               });
@@ -8826,6 +8896,93 @@ const getAgentPassRequestsDetails = {
           (request) =>
             request.persons.length > 0 || request.vehicles.length > 0,
         );
+    }
+    if (isVendorNormalAnnualTrailerSafetyApprover && vendorRows.length > 0) {
+      const isPendingVendorRequest =
+        String(status || "")
+          .trim()
+          .toLowerCase() === "pending";
+
+      const isProcessedVendorRequest =
+        String(status || "")
+          .trim()
+          .toLowerCase() === "processed";
+
+      vendorRows = vendorRows
+        .map((request) => {
+          let scopedVehicles = [];
+
+          if (isPendingVendorRequest) {
+            scopedVehicles = (request.vehicles || []).filter((vehicle) => {
+              const workflowState = String(vehicle.workflowState || "")
+                .trim()
+                .toUpperCase();
+
+              const vehicleStatus = String(vehicle.status || "")
+                .trim()
+                .toLowerCase();
+
+              const passType = String(vehicle.passType || "")
+                .trim()
+                .toUpperCase();
+
+              const vehicleType = String(vehicle.vehicleTypeName || "")
+                .trim()
+                .toUpperCase();
+
+              return (
+                workflowState === "PENDING_SAFETY" &&
+                ["pending", "reverted"].includes(vehicleStatus) &&
+                ["YEARLY", "ANNUAL"].includes(passType) &&
+                ["TRAILORS", "TRAILER LORRY", "TRACTOR TRAILER"].includes(
+                  vehicleType,
+                ) &&
+                !isVendorOilDockArea(vehicle.accessAreaId || vehicle.accessArea)
+              );
+            });
+          }
+
+          if (isProcessedVendorRequest) {
+            scopedVehicles = (request.vehicles || []).filter((vehicle) => {
+              const workflowState = String(vehicle.workflowState || "")
+                .trim()
+                .toUpperCase();
+
+              const vehicleStatus = String(vehicle.status || "")
+                .trim()
+                .toLowerCase();
+
+              const passType = String(vehicle.passType || "")
+                .trim()
+                .toUpperCase();
+
+              const vehicleType = String(vehicle.vehicleTypeName || "")
+                .trim()
+                .toUpperCase();
+
+              return (
+                workflowState === "COMPLETED" &&
+                vehicleStatus === "approved" &&
+                vehicle.twistLockCertified === true &&
+                ["YEARLY", "ANNUAL"].includes(passType) &&
+                ["TRAILORS", "TRAILER LORRY", "TRACTOR TRAILER"].includes(
+                  vehicleType,
+                ) &&
+                !isVendorOilDockArea(vehicle.accessAreaId || vehicle.accessArea)
+              );
+            });
+          }
+
+          return {
+            ...request,
+
+            // Safety Officer normal annual Trailer workflow
+            // contains vehicles only.
+            persons: [],
+            vehicles: scopedVehicles,
+          };
+        })
+        .filter((request) => request.vehicles && request.vehicles.length > 0);
     }
 
     // Merge and re-sort to match the UNION ALL order

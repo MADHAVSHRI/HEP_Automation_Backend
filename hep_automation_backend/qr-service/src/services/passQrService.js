@@ -5,7 +5,7 @@ const fs = require("fs");
 const puppeteer = require("puppeteer");
 const path = require("path");
 const jwt = require("jsonwebtoken");
-const redisClient =require("../../config/redisClient");
+const redisClient = require("../../config/redisClient");
 const {
   getPdfPath,
   ensureDirectory,
@@ -13,9 +13,12 @@ const {
   getMaterialPdfPath,
 } = require("../utils/pdfStorage");
 const { encryptToken } = require("../utils/cryptoUtils");
-const LOGO_PATH       = path.join(__dirname, "../assets/PortTrustLogo.jpeg");
-const FONT_REGULAR    = path.join(__dirname, "../assets/NotoSansDevanagari-Regular.ttf");
-const FONT_BOLD       = path.join(__dirname, "../assets/NotoSansDevanagari-Bold.ttf");
+const LOGO_PATH = path.join(__dirname, "../assets/PortTrustLogo.jpeg");
+const FONT_REGULAR = path.join(
+  __dirname,
+  "../assets/NotoSansDevanagari-Regular.ttf",
+);
+const FONT_BOLD = path.join(__dirname, "../assets/NotoSansDevanagari-Bold.ttf");
 
 const USER_SERVICE = process.env.USER_SERVICE_URL;
 const FRONTEND_BASE_URL = process.env.FRONTEND_BASE_URL || "";
@@ -29,9 +32,8 @@ exports.generatePass = async (
   passRequestId,
   token,
   type = null,
-  entityId = null
+  entityId = null,
 ) => {
-
   let url = `${USER_SERVICE}/api/pass-request/qr-data/${passRequestId}`;
 
   // NEW LOGIC
@@ -66,52 +68,37 @@ exports.generatePass = async (
   }
 
   // return await generatePDF(data);
-  const pdfBuffer = await handlePdfStorage(
-  data,
-  type,
-  entityId
-);
+  const pdfBuffer = await handlePdfStorage(data, type, entityId);
 
-return pdfBuffer;
+  return pdfBuffer;
 };
 
-exports.generateMaterialPass = async (
-    passRequestId,
-    token,
-    type,
-    passId
-) => {
-
-    const response = await axios.get(
-        `${USER_SERVICE}/api/material-pass/qr-data/${passRequestId}`,
-        {
-            params:{
-                type,
-                passId,
-            },
-            headers:{
-                Authorization:token,
-                "x-service-name":"QR Service",
-            },
-        }
-    );
-
-    const data = response.data;
-
-    if(!data.pass){
-        throw new Error("Approved material pass not found");
-    }
-
-    if (!data.pass.qrUuid) {
-        throw new Error("Approved material pass is missing a QR identifier");
-    }
-
-    return await handleMaterialPdfStorage(
-        data,
-        token,
+exports.generateMaterialPass = async (passRequestId, token, type, passId) => {
+  const response = await axios.get(
+    `${USER_SERVICE}/api/material-pass/qr-data/${passRequestId}`,
+    {
+      params: {
         type,
-        passId
-    );
+        passId,
+      },
+      headers: {
+        Authorization: token,
+        "x-service-name": "QR Service",
+      },
+    },
+  );
+
+  const data = response.data;
+
+  if (!data.pass) {
+    throw new Error("Approved material pass not found");
+  }
+
+  if (!data.pass.qrUuid) {
+    throw new Error("Approved material pass is missing a QR identifier");
+  }
+
+  return await handleMaterialPdfStorage(data, token, type, passId);
 };
 
 // exports.generatePass = async (passRequestId, token) => {
@@ -137,76 +124,115 @@ exports.generateVendorPass = async (vendorPassId) => {
     `${USER_SERVICE}/api/pass-request/vendor-qr-data/${vendorPassId}`,
     {
       headers: {
-        "x-service-name": "QR Service"
-      }
-    }
+        "x-service-name": "QR Service",
+      },
+    },
   );
-  const data = response.data;
-  
-  // Filter only approved entities
-  data.persons = (data.persons || []).filter(p => p.status === 'approved');
-  data.vehicles = (data.vehicles || []).filter(v => v.status === 'approved');
+
+  // Support both:
+  //   { persons, vehicles, ... }
+  // and:
+  //   { success: true, data: { persons, vehicles, ... } }
+  const body = response.data;
+  const data = body?.data ?? body;
+
+  data.persons = (data.persons || []).filter(
+    (p) => String(p.status || "").toLowerCase() === "approved",
+  );
+
+  data.vehicles = (data.vehicles || []).filter(
+    (v) => String(v.status || "").toLowerCase() === "approved",
+  );
 
   if (data.persons.length === 0 && data.vehicles.length === 0) {
     throw new Error("No approved vendor passes found");
   }
-  return await generatePDF(data);
+
+  return await handleVendorAllPdfStorage(data);
 };
 
 /**
  * Generate PDF for a single vendor pass entity (person or vehicle)
  * Reuses the same generatePDF template but filters to one entity
  */
-exports.generateVendorSinglePass = async (vendorPassId, entityType, entityIndex) => {
-  const response = await axios.get(
-    `${USER_SERVICE}/api/pass-request/vendor-qr-data/${vendorPassId}`,
-    {
-      headers: {
-        "x-service-name": "QR Service"
-      }
-    }
-  );
-  const data = response.data;
+exports.generateVendorSinglePass = async (
+  vendorPassId,
+  entityType,
+  entityId,
+) => {
+  const normalizedType = String(entityType || "")
+    .trim()
+    .toLowerCase();
 
-  // Filter only approved entities (since frontend maps over approved arrays)
-  const approvedPersons = (data.persons || []).filter(p => p.status === 'approved');
-  const approvedVehicles = (data.vehicles || []).filter(v => v.status === 'approved');
+  const normalizedId = Number(entityId);
 
-  // Filter to single entity
-  let filteredData;
-  if (entityType === "person") {
-    const idx = parseInt(entityIndex, 10);
-    if (!approvedPersons[idx]) {
-      throw new Error("Person not found");
-    }
-    filteredData = { persons: [approvedPersons[idx]], vehicles: [], referenceNo: data.referenceNo };
-  } else if (entityType === "vehicle") {
-    const idx = parseInt(entityIndex, 10);
-    if (!approvedVehicles[idx]) {
-      throw new Error("Vehicle not found");
-    }
-    filteredData = { persons: [], vehicles: [approvedVehicles[idx]], referenceNo: data.referenceNo };
-  } else {
+  if (!["person", "vehicle"].includes(normalizedType)) {
     throw new Error("Invalid entity type. Use 'person' or 'vehicle'");
   }
 
-  return await generatePDF(filteredData);
+  if (!Number.isInteger(normalizedId) || normalizedId <= 0) {
+    throw new Error("Invalid vendor entity id");
+  }
+
+  const response = await axios.get(
+    `${USER_SERVICE}/api/pass-request/vendor-qr-data/${vendorPassId}`,
+    {
+      params: {
+        type: normalizedType,
+        entityId: normalizedId,
+      },
+      headers: {
+        "x-service-name": "QR Service",
+      },
+    },
+  );
+
+  const body = response.data;
+  const data = body?.data ?? body;
+
+  const source =
+    normalizedType === "person" ? data.persons || [] : data.vehicles || [];
+
+  const entity = source.find(
+    (item) =>
+      Number(item.id) === normalizedId &&
+      String(item.status || "").toLowerCase() === "approved",
+  );
+
+  if (!entity) {
+    throw new Error(
+      normalizedType === "person" ? "Person not found" : "Vehicle not found",
+    );
+  }
+
+  // Secure QR requires a real DB QR UUID.
+  if (!entity.qrUuid) {
+    throw new Error(`Approved vendor ${normalizedType} is missing qrUuid`);
+  }
+
+  const filteredData = {
+    ...data,
+    persons: normalizedType === "person" ? [entity] : [],
+    vehicles: normalizedType === "vehicle" ? [entity] : [],
+  };
+
+  return await handleVendorEntityPdfStorage(
+    filteredData,
+    normalizedType,
+    normalizedId,
+  );
 };
 
-async function generateQR(data){
+async function generateQR(data) {
   return await QRCode.toDataURL(data);
-
 }
 
-function generateSecureQrToken({
-  entityId,
-  passRequestId,
-  qrUuid,
-  type,
-}) {
+function generateSecureQrToken({ entityId, passRequestId, qrUuid, type }) {
   const secret = process.env.QR_SECRET;
   if (!secret) {
-    throw new Error("Environment variable QR_SECRET is required to sign tokens");
+    throw new Error(
+      "Environment variable QR_SECRET is required to sign tokens",
+    );
   }
 
   return jwt.sign(
@@ -220,143 +246,269 @@ function generateSecureQrToken({
     {
       expiresIn: "36500d",
       issuer: "hep-qr-service",
-    }
+    },
   );
 }
 
-async function handlePdfStorage(
-  data,
-  type,
-  entityId
-) {
+async function handlePdfStorage(data, type, entityId) {
   let pass;
 
   if (type === "person") {
-    pass = data.persons?.find(
-      (p) => p.id === Number(entityId)
-    );
+    pass = data.persons?.find((p) => p.id === Number(entityId));
   } else {
-    pass = data.vehicles?.find(
-      (v) => v.id === Number(entityId)
-    );
+    pass = data.vehicles?.find((v) => v.id === Number(entityId));
   }
 
   if (!pass) {
     throw new Error("Pass not found");
   }
 
-  const passNo =
-    type === "person"
-      ? pass.personPassNo
-      : pass.vehiclePassNo;
+  const passNo = type === "person" ? pass.personPassNo : pass.vehiclePassNo;
 
-  const { filePath, folderPath } =
-    getPdfPath({
-      passReferenceNo: pass.referenceNo,
-      type,
-      passNo,
-    });
+  const { filePath, folderPath } = getPdfPath({
+    passReferenceNo: pass.referenceNo,
+    type,
+    passNo,
+  });
 
   // FAST PATH → file exists (only if not active essential conversion, so conversions always regenerate fresh PDF)
   const exists = !pass.isEssentialActive && (await fileExists(filePath));
 
   if (exists) {
-    console.log(
-      `Serving cached PDF: ${filePath}`
-    );
+    console.log(`Serving cached PDF: ${filePath}`);
 
     return fs.promises.readFile(filePath);
   }
 
   // GENERATE PATH
-  console.log(
-    `Generating PDF: ${filePath}`
-  );
+  console.log(`Generating PDF: ${filePath}`);
 
   await ensureDirectory(folderPath);
 
   const pdfBuffer = await generatePDF(data);
 
-  await fs.promises.writeFile(
-    filePath,
-    pdfBuffer
-  );
+  await fs.promises.writeFile(filePath, pdfBuffer);
 
-  await axios.post(
-  `${USER_SERVICE}/api/pass-request/save-qr-pdf-path`,
-  {
+  await axios.post(`${USER_SERVICE}/api/pass-request/save-qr-pdf-path`, {
     type,
     entityId,
     qrPdfPath: filePath,
-  }
-);
+  });
 
   return pdfBuffer;
 }
 
-async function handleMaterialPdfStorage(
-    data,
-    token,
+async function handleMaterialPdfStorage(data, token, type, passId) {
+  const pass = data.pass;
+
+  if (!pass) {
+    throw new Error("Approved material pass not found");
+  }
+
+  const { folderPath, filePath } = getMaterialPdfPath({
+    passReferenceNo: data.referenceNo,
     type,
-    passId
-){
+    passNo: pass.materialPassNo,
+  });
 
-    const pass = data.pass;
+  const exists = await fileExists(filePath);
 
-    if(!pass){
-        throw new Error("Approved material pass not found");
-    }
+  if (exists) {
+    return fs.promises.readFile(filePath);
+  }
 
-    const {
-        folderPath,
-        filePath,
-    } = getMaterialPdfPath({
-        passReferenceNo:data.referenceNo,
-        type,
-        passNo:pass.materialPassNo,
-    });
+  await ensureDirectory(folderPath);
 
-    const exists = await fileExists(filePath);
+  const pdfBuffer = await generateMaterialPdf(data);
 
-    if(exists){
-        return fs.promises.readFile(filePath);
-    }
+  await fs.promises.writeFile(filePath, pdfBuffer);
 
-    await ensureDirectory(folderPath);
+  await axios.post(
+    `${USER_SERVICE}/api/material-pass/save-qr-pdf-path`,
+    {
+      passId,
+      qrPdfPath: filePath,
+    },
+    {
+      headers: {
+        Authorization: token,
+        "x-service-name": "QR Service",
+      },
+    },
+  );
 
-    const pdfBuffer =
-        await generateMaterialPdf(data);
-
-    await fs.promises.writeFile(
-        filePath,
-        pdfBuffer
-    );
-
-    await axios.post(
-        `${USER_SERVICE}/api/material-pass/save-qr-pdf-path`,
-        {
-            passId,
-            qrPdfPath:filePath,
-        },
-        {
-           headers:{
-                Authorization:token,
-                "x-service-name":"QR Service",
-            },
-        }
-    );
-
-    return pdfBuffer;
+  return pdfBuffer;
 }
 
-async function generatePDF(data) {
-  const PAGE_W   = 595;
-  const PAGE_H   = 230;  // ← reduced from 310, tight like reference
+async function handleVendorEntityPdfStorage(data, type, entityId) {
+  const pass =
+    type === "person"
+      ? data.persons?.find((p) => Number(p.id) === Number(entityId))
+      : data.vehicles?.find((v) => Number(v.id) === Number(entityId));
+
+  if (!pass) {
+    throw new Error("Vendor pass entity not found");
+  }
+
+  const passNo = type === "person" ? pass.personPassNo : pass.vehiclePassNo;
+
+  if (!passNo) {
+    throw new Error("Vendor pass number is missing");
+  }
+
+    const referenceNo =
+    data.referenceNo ||
+    pass.referenceNo;
+
+  if (!referenceNo) {
+    throw new Error(
+      "Vendor reference number is missing for PDF generation",
+    );
+  }
+
+  const { filePath, folderPath } = getPdfPath({
+    passReferenceNo: referenceNo,
+    type,
+    passNo,
+  });
+
+  const exists = await fileExists(filePath);
+
+  if (exists) {
+    console.log(`[VENDOR-PASS] Serving cached PDF: ${filePath}`);
+    return fs.promises.readFile(filePath);
+  }
+
+  console.log(`[VENDOR-PASS] Generating PDF: ${filePath}`);
+
+  await ensureDirectory(folderPath);
+
+  const pdfBuffer = await generatePDF(data, {
+    isVendor: true,
+  });
+
+  await fs.promises.writeFile(filePath, pdfBuffer);
+
+  // Save vendor entity PDF path.
+  await axios.post(
+    `${USER_SERVICE}/api/pass-request/save-qr-pdf-path`,
+    {
+      type: `vendor-${type}`,
+      entityId: Number(entityId),
+      qrPdfPath: filePath,
+    },
+    {
+      headers: {
+        "x-service-name": "QR Service",
+      },
+    },
+  );
+
+  return pdfBuffer;
+}
+
+async function handleVendorAllPdfStorage(data) {
+  const referenceNo = data.referenceNo;
+
+  if (!referenceNo) {
+    throw new Error("Vendor reference number is missing");
+  }
+
+  const folderPath = path.join(
+    process.cwd(),
+    "uploads",
+    "qr-passes",
+    referenceNo,
+    "vendor",
+  );
+
+  const filePath = path.join(folderPath, `VendorPass_${referenceNo}.pdf`);
+
+  if (await fileExists(filePath)) {
+    console.log(`[VENDOR-PASS] Serving cached all-pass PDF: ${filePath}`);
+
+    return fs.promises.readFile(filePath);
+  }
+
+  await ensureDirectory(folderPath);
+
+  const pdfBuffer = await generatePDF(data, {
+    isVendor: true,
+  });
+
+  await fs.promises.writeFile(filePath, pdfBuffer);
+
+  return pdfBuffer;
+}
+
+exports.generateVendorQrToken = async (vendorPassId, entityType, entityId) => {
+  const normalizedType = String(entityType || "")
+    .trim()
+    .toLowerCase();
+
+  const normalizedId = Number(entityId);
+
+  if (!["person", "vehicle"].includes(normalizedType)) {
+    throw new Error("Invalid entity type");
+  }
+
+  if (!Number.isInteger(normalizedId) || normalizedId <= 0) {
+    throw new Error("Invalid vendor entity id");
+  }
+
+  const response = await axios.get(
+    `${USER_SERVICE}/api/pass-request/vendor-qr-data/${vendorPassId}`,
+    {
+      params: {
+        type: normalizedType,
+        entityId: normalizedId,
+      },
+      headers: {
+        "x-service-name": "QR Service",
+      },
+    },
+  );
+
+  const body = response.data;
+  const data = body?.data ?? body;
+
+  const entities =
+    normalizedType === "person" ? data.persons || [] : data.vehicles || [];
+
+  const entity = entities.find(
+    (item) =>
+      Number(item.id) === normalizedId &&
+      String(item.status || "").toLowerCase() === "approved",
+  );
+
+  if (!entity) {
+    throw new Error(
+      normalizedType === "person" ? "Person not found" : "Vehicle not found",
+    );
+  }
+
+  if (!entity.qrUuid) {
+    throw new Error(`Approved vendor ${normalizedType} is missing qrUuid`);
+  }
+
+  return generateSecureQrToken({
+    entityId: entity.id,
+    passRequestId: entity.passRequestId,
+    qrUuid: entity.qrUuid,
+    type: normalizedType,
+  });
+};
+
+async function generatePDF(data, options = {}) {
+  const isVendor = options.isVendor === true;
+  const cardTitle = isVendor ? "VENDOR PASS" : "USER IDENTITY CARD";
+  const PAGE_W = 595;
+  const PAGE_H = 230; // ← reduced from 310, tight like reference
   const HEADER_H = 62;
 
   const doc = new PDFDocument({
     size: [PAGE_W, PAGE_H],
-    margins: { top: 0, bottom: 0, left: 0, right: 0 }
+    margins: { top: 0, bottom: 0, left: 0, right: 0 },
   });
 
   doc.registerFont("Noto", FONT_REGULAR);
@@ -364,27 +516,42 @@ async function generatePDF(data) {
   const buffers = [];
   doc.on("data", buffers.push.bind(buffers));
 
-  const persons  = data.persons  || [];
+  const persons = data.persons || [];
   const vehicles = data.vehicles || [];
 
   const drawHeader = () => {
     doc.rect(0, 0, PAGE_W, HEADER_H).fill("#E87722");
 
-    const LOGO_SIZE = 48, LOGO_X = 10;
+    const LOGO_SIZE = 48,
+      LOGO_X = 10;
     const LOGO_Y = (HEADER_H - LOGO_SIZE) / 2;
     doc.save();
-    doc.circle(LOGO_X + LOGO_SIZE / 2, LOGO_Y + LOGO_SIZE / 2, LOGO_SIZE / 2).clip();
-    doc.image(LOGO_PATH, LOGO_X, LOGO_Y, { width: LOGO_SIZE, height: LOGO_SIZE });
+    doc
+      .circle(LOGO_X + LOGO_SIZE / 2, LOGO_Y + LOGO_SIZE / 2, LOGO_SIZE / 2)
+      .clip();
+    doc.image(LOGO_PATH, LOGO_X, LOGO_Y, {
+      width: LOGO_SIZE,
+      height: LOGO_SIZE,
+    });
     doc.restore();
 
     const TX = LOGO_X + LOGO_SIZE + 6;
     const TW = PAGE_W - TX - 10;
-    doc.fillColor("white").font("Noto").fontSize(9)
+    doc
+      .fillColor("white")
+      .font("Noto")
+      .fontSize(9)
       .text("चेन्नई पत्तन न्यास", TX, 10, { width: TW, align: "center" });
-    doc.fillColor("white").font("Helvetica-Bold").fontSize(14)
+    doc
+      .fillColor("white")
+      .font("Helvetica-Bold")
+      .fontSize(14)
       .text("CHENNAI PORT AUTHORITY", TX, 24, { width: TW, align: "center" });
-    doc.fillColor("white").font("Helvetica").fontSize(9)
-      .text("USER IDENTITY CARD", TX, 44, { width: TW, align: "center" });
+    doc
+      .fillColor("white")
+      .font("Helvetica")
+      .fontSize(9)
+      .text(cardTitle, TX, 44, { width: TW, align: "center" });
   };
 
   // ── PERSON PAGES ──────────────────────────────────────────
@@ -402,7 +569,7 @@ async function generatePDF(data) {
 
     drawHeader();
 
-    const BODY_Y  = HEADER_H + 8;
+    const BODY_Y = HEADER_H + 8;
     const PHOTO_X = 12;
     const PHOTO_W = 115;
     const PHOTO_H = PAGE_H - HEADER_H - 16; // ← tight to page height
@@ -411,51 +578,78 @@ async function generatePDF(data) {
     // In generatePDF, replace the photo block with:
     if (person.photoBase64) {
       const photoBuffer = Buffer.from(person.photoBase64, "base64");
-      doc.image(photoBuffer, PHOTO_X, BODY_Y, { width: PHOTO_W, height: PHOTO_H });
+      doc.image(photoBuffer, PHOTO_X, BODY_Y, {
+        width: PHOTO_W,
+        height: PHOTO_H,
+      });
     } else {
-      doc.rect(PHOTO_X, BODY_Y, PHOTO_W, PHOTO_H)
-        .lineWidth(0.5).strokeColor("#aaaaaa").stroke();
-      doc.fillColor("#aaaaaa").font("Helvetica").fontSize(9)
-        .text("PHOTO", PHOTO_X, BODY_Y + PHOTO_H / 2 - 6,
-              { width: PHOTO_W, align: "center" });
+      doc
+        .rect(PHOTO_X, BODY_Y, PHOTO_W, PHOTO_H)
+        .lineWidth(0.5)
+        .strokeColor("#aaaaaa")
+        .stroke();
+      doc
+        .fillColor("#aaaaaa")
+        .font("Helvetica")
+        .fontSize(9)
+        .text("PHOTO", PHOTO_X, BODY_Y + PHOTO_H / 2 - 6, {
+          width: PHOTO_W,
+          align: "center",
+        });
     }
 
     // Details (middle)
-    const QR_W  = 85;
+    const QR_W = 85;
     const MID_X = PHOTO_X + PHOTO_W + 14;
     const MID_W = PAGE_W - MID_X - QR_W - 24;
     let y = BODY_Y;
 
-    doc.fillColor("black").font("Helvetica-Bold").fontSize(16)
+    doc
+      .fillColor("black")
+      .font("Helvetica-Bold")
+      .fontSize(16)
       .text(person.name || "-", MID_X, y, { width: MID_W });
     y += 20;
 
     const field = (label, value, bold = false) => {
-      doc.font("Helvetica-Bold").fontSize(7).fillColor("#555555")
+      doc
+        .font("Helvetica-Bold")
+        .fontSize(7)
+        .fillColor("#555555")
         .text(label, MID_X, y, { continued: true, width: MID_W });
-      doc.font(bold ? "Helvetica-Bold" : "Helvetica")
-        .fillColor("black").fontSize(8)
+      doc
+        .font(bold ? "Helvetica-Bold" : "Helvetica")
+        .fillColor("black")
+        .fontSize(8)
         .text(` ${value || "-"}`);
       y += 13;
     };
 
-    field("Pass No.:",    person.personPassNo, true);
-    field("COMPANY:",     person.company);
+    field("Pass No.:", person.personPassNo, true);
+    field("COMPANY:", person.company);
     field("TYPE OF HEP:", person.hepType || "Personal");
-    field("CONTACT NO:",  person.mobile);
-    field("AADHAR NO.:",  person.aadharNo);
+    field("CONTACT NO:", person.mobile);
+    field("AADHAR NO.:", person.aadharNo);
 
     // Valid Till
     y += 2;
-    doc.font("Helvetica-Bold").fontSize(7).fillColor("#555555")
-      .text("VALID", MID_X,     y)
-      .text("TILL",  MID_X,     y + 8)
-      .text(":",     MID_X,     y + 16);
+    doc
+      .font("Helvetica-Bold")
+      .fontSize(7)
+      .fillColor("#555555")
+      .text("VALID", MID_X, y)
+      .text("TILL", MID_X, y + 8)
+      .text(":", MID_X, y + 16);
 
     const VX = MID_X + 28;
-    doc.fillColor("black").font("Helvetica-Bold").fontSize(8.5)
+    doc
+      .fillColor("black")
+      .font("Helvetica-Bold")
+      .fontSize(8.5)
       .text(`From:  ${person.validFrom || "-"}`, VX, y + 2);
-    doc.font("Helvetica").fontSize(8.5)
+    doc
+      .font("Helvetica")
+      .fontSize(8.5)
       .text(`To:  ${person.validTo || "-"}`, VX + 8, y + 14);
 
     // QR + Authorized (right)
@@ -463,13 +657,26 @@ async function generatePDF(data) {
     const QR_Y = BODY_Y + 2;
 
     doc.image(qr, QR_X, QR_Y, { fit: [QR_W, QR_W] });
-    doc.fillColor("black").font("Helvetica").fontSize(7)
-      .text("AUTHORIZED BY",   QR_X - 4, QR_Y + QR_W + 5,  { width: QR_W + 8, align: "center" })
-      .text("TRAFFIC MANAGER", QR_X - 4, QR_Y + QR_W + 15, { width: QR_W + 8, align: "center" });
+    doc
+      .fillColor("black")
+      .font("Helvetica")
+      .fontSize(7)
+      .text("AUTHORIZED BY", QR_X - 4, QR_Y + QR_W + 5, {
+        width: QR_W + 8,
+        align: "center",
+      })
+      .text("TRAFFIC MANAGER", QR_X - 4, QR_Y + QR_W + 15, {
+        width: QR_W + 8,
+        align: "center",
+      });
 
     // Bottom divider
-    doc.moveTo(12, PAGE_H - 6).lineTo(PAGE_W - 12, PAGE_H - 6)
-      .strokeColor("#dddddd").lineWidth(0.5).stroke();
+    doc
+      .moveTo(12, PAGE_H - 6)
+      .lineTo(PAGE_W - 12, PAGE_H - 6)
+      .strokeColor("#dddddd")
+      .lineWidth(0.5)
+      .stroke();
 
     if (i < persons.length - 1) doc.addPage();
   }
@@ -492,41 +699,62 @@ async function generatePDF(data) {
     drawHeader();
 
     const BODY_Y = HEADER_H + 10;
-    const QR_W   = 85;
-    const QR_X   = PAGE_W - QR_W - 14;
-    const MID_W  = PAGE_W - 30 - QR_W - 20;
+    const QR_W = 85;
+    const QR_X = PAGE_W - QR_W - 14;
+    const MID_W = PAGE_W - 30 - QR_W - 20;
     let y = BODY_Y;
 
-    doc.fillColor("black").font("Helvetica-Bold").fontSize(15)
+    doc
+      .fillColor("black")
+      .font("Helvetica-Bold")
+      .fontSize(15)
       .text(vehicle.registrationNo || "-", 16, y, { width: MID_W });
     y += 20;
 
     const vfield = (label, value, bold = false) => {
-      doc.font("Helvetica-Bold").fontSize(7).fillColor("#555555")
+      doc
+        .font("Helvetica-Bold")
+        .fontSize(7)
+        .fillColor("#555555")
         .text(label, 16, y, { continued: true });
-      doc.font(bold ? "Helvetica-Bold" : "Helvetica")
-        .fillColor("black").fontSize(8)
+      doc
+        .font(bold ? "Helvetica-Bold" : "Helvetica")
+        .fillColor("black")
+        .fontSize(8)
         .text(` ${value || "-"}`);
       y += 13;
     };
 
-    vfield("Pass No.:",     vehicle.vehiclePassNo, true);
+    vfield("Pass No.:", vehicle.vehiclePassNo, true);
     vfield("VEHICLE TYPE:", vehicle.vehicleType);
-    vfield("VALID FROM:",   vehicle.validFrom);
-    vfield("VALID TO:",     vehicle.validTo);
+    vfield("VALID FROM:", vehicle.validFrom);
+    vfield("VALID TO:", vehicle.validTo);
 
     doc.image(qr, QR_X, BODY_Y, { fit: [QR_W, QR_W] });
-    doc.fillColor("black").font("Helvetica").fontSize(7)
-      .text("AUTHORIZED BY",   QR_X - 4, BODY_Y + QR_W + 5,  { width: QR_W + 8, align: "center" })
-      .text("TRAFFIC MANAGER", QR_X - 4, BODY_Y + QR_W + 15, { width: QR_W + 8, align: "center" });
+    doc
+      .fillColor("black")
+      .font("Helvetica")
+      .fontSize(7)
+      .text("AUTHORIZED BY", QR_X - 4, BODY_Y + QR_W + 5, {
+        width: QR_W + 8,
+        align: "center",
+      })
+      .text("TRAFFIC MANAGER", QR_X - 4, BODY_Y + QR_W + 15, {
+        width: QR_W + 8,
+        align: "center",
+      });
 
-    doc.moveTo(12, PAGE_H - 6).lineTo(PAGE_W - 12, PAGE_H - 6)
-      .strokeColor("#dddddd").lineWidth(0.5).stroke();
+    doc
+      .moveTo(12, PAGE_H - 6)
+      .lineTo(PAGE_W - 12, PAGE_H - 6)
+      .strokeColor("#dddddd")
+      .lineWidth(0.5)
+      .stroke();
   }
 
   doc.end();
 
-  return new Promise(resolve => {
+  return new Promise((resolve) => {
     doc.on("end", () => resolve(Buffer.concat(buffers)));
   });
 }
@@ -569,20 +797,35 @@ async function generateMaterialPdf(data) {
   const drawHeader = () => {
     doc.rect(0, 0, PAGE_W, HEADER_H).fill("#E87722");
 
-    const LOGO_SIZE = 48, LOGO_X = 10;
+    const LOGO_SIZE = 48,
+      LOGO_X = 10;
     const LOGO_Y = (HEADER_H - LOGO_SIZE) / 2;
     doc.save();
-    doc.circle(LOGO_X + LOGO_SIZE / 2, LOGO_Y + LOGO_SIZE / 2, LOGO_SIZE / 2).clip();
-    doc.image(LOGO_PATH, LOGO_X, LOGO_Y, { width: LOGO_SIZE, height: LOGO_SIZE });
+    doc
+      .circle(LOGO_X + LOGO_SIZE / 2, LOGO_Y + LOGO_SIZE / 2, LOGO_SIZE / 2)
+      .clip();
+    doc.image(LOGO_PATH, LOGO_X, LOGO_Y, {
+      width: LOGO_SIZE,
+      height: LOGO_SIZE,
+    });
     doc.restore();
 
     const TX = LOGO_X + LOGO_SIZE + 6;
     const TW = PAGE_W - TX - 10;
-    doc.fillColor("white").font("Noto").fontSize(10)
+    doc
+      .fillColor("white")
+      .font("Noto")
+      .fontSize(10)
       .text("चेन्नई पत्तन न्यास", TX, 8, { width: TW, align: "center" });
-    doc.fillColor("white").font("Helvetica-Bold").fontSize(15)
+    doc
+      .fillColor("white")
+      .font("Helvetica-Bold")
+      .fontSize(15)
       .text("CHENNAI PORT AUTHORITY", TX, 23, { width: TW, align: "center" });
-    doc.fillColor("white").font("Helvetica").fontSize(10)
+    doc
+      .fillColor("white")
+      .font("Helvetica")
+      .fontSize(10)
       .text(passTypeLabel, TX, 44, { width: TW, align: "center" });
   };
 
@@ -605,14 +848,25 @@ async function generateMaterialPdf(data) {
   let y = HEADER_H + 16;
 
   // ── Basic info block ──
-  doc.fillColor("black").font("Helvetica-Bold").fontSize(17)
-    .text(`Pass No: ${pass.materialPassNo || "-"}`, LEFT_X, y, { width: INFO_W });
+  doc
+    .fillColor("black")
+    .font("Helvetica-Bold")
+    .fontSize(17)
+    .text(`Pass No: ${pass.materialPassNo || "-"}`, LEFT_X, y, {
+      width: INFO_W,
+    });
   y += 24;
 
   const field = (label, value) => {
-    doc.font("Helvetica-Bold").fontSize(9).fillColor("#555555")
+    doc
+      .font("Helvetica-Bold")
+      .fontSize(9)
+      .fillColor("#555555")
       .text(label, LEFT_X, y, { continued: true, width: INFO_W });
-    doc.font("Helvetica").fillColor("black").fontSize(10)
+    doc
+      .font("Helvetica")
+      .fillColor("black")
+      .fontSize(10)
       .text(` ${value ?? "-"}`);
     y += 16;
   };
@@ -623,7 +877,7 @@ async function generateMaterialPdf(data) {
   field("DEPARTMENT:", data.concernedDepartment || pass.concernedDepartment);
   field(
     "LOCATION:",
-    data.locationOther || data.locationFrom || data.locationTo
+    data.locationOther || data.locationFrom || data.locationTo,
   );
   field("VALID FROM:", pass.validFrom || data.entryDate);
   field("VALID TO:", pass.validTo || data.expiryDate);
@@ -632,9 +886,18 @@ async function generateMaterialPdf(data) {
   // ── QR block (right side, aligned with info block) ──
   const QR_Y = HEADER_H + 16;
   doc.image(qr, QR_X, QR_Y, { fit: [QR_W, QR_W] });
-  doc.fillColor("black").font("Helvetica").fontSize(8)
-    .text("AUTHORIZED BY", QR_X - 4, QR_Y + QR_W + 5, { width: QR_W + 8, align: "center" })
-    .text("TRAFFIC MANAGER", QR_X - 4, QR_Y + QR_W + 16, { width: QR_W + 8, align: "center" });
+  doc
+    .fillColor("black")
+    .font("Helvetica")
+    .fontSize(8)
+    .text("AUTHORIZED BY", QR_X - 4, QR_Y + QR_W + 5, {
+      width: QR_W + 8,
+      align: "center",
+    })
+    .text("TRAFFIC MANAGER", QR_X - 4, QR_Y + QR_W + 16, {
+      width: QR_W + 8,
+      align: "center",
+    });
 
   y = Math.max(y, QR_Y + QR_W + 32) + 10;
 
@@ -645,10 +908,10 @@ async function generateMaterialPdf(data) {
   // checkbox drawn per row. Widths were rebalanced so everything still
   // fits inside TABLE_W (535pt) at the larger font size.
   const COL = {
-    sno: LEFT_X + 4,     // ~35pt wide
-    item: LEFT_X + 40,   // ~210pt wide
-    qty: LEFT_X + 260,   // ~80pt wide
-    unit: LEFT_X + 345,  // ~65pt wide
+    sno: LEFT_X + 4, // ~35pt wide
+    item: LEFT_X + 40, // ~210pt wide
+    qty: LEFT_X + 260, // ~80pt wide
+    unit: LEFT_X + 345, // ~65pt wide
     action: LEFT_X + 415, // remaining ~120pt, checkbox centered in it
   };
   const ACTION_COL_W = TABLE_W - (COL.action - LEFT_X);
@@ -661,7 +924,10 @@ async function generateMaterialPdf(data) {
     doc.text("ITEM", COL.item, yPos + 7);
     doc.text("QUANTITY", COL.qty, yPos + 7);
     doc.text("UNIT", COL.unit, yPos + 7);
-    doc.text("ACTION", COL.action, yPos + 7, { width: ACTION_COL_W, align: "center" });
+    doc.text("ACTION", COL.action, yPos + 7, {
+      width: ACTION_COL_W,
+      align: "center",
+    });
     return yPos + 24;
   };
 
@@ -670,7 +936,8 @@ async function generateMaterialPdf(data) {
   const drawCheckbox = (rowY) => {
     const boxX = COL.action + (ACTION_COL_W - CHECKBOX_SIZE) / 2;
     const boxY = rowY + (ROW_H - CHECKBOX_SIZE) / 2;
-    doc.rect(boxX, boxY, CHECKBOX_SIZE, CHECKBOX_SIZE)
+    doc
+      .rect(boxX, boxY, CHECKBOX_SIZE, CHECKBOX_SIZE)
       .lineWidth(1)
       .strokeColor("#333333")
       .stroke();
@@ -680,8 +947,14 @@ async function generateMaterialPdf(data) {
 
   if (materials.length === 0) {
     doc.rect(LEFT_X, y, TABLE_W, ROW_H).fill("#ffffff");
-    doc.fillColor("#999999").font("Helvetica-Oblique").fontSize(9.5)
-      .text("No materials listed.", LEFT_X + 4, y + 6, { width: TABLE_W - 8, align: "center" });
+    doc
+      .fillColor("#999999")
+      .font("Helvetica-Oblique")
+      .fontSize(9.5)
+      .text("No materials listed.", LEFT_X + 4, y + 6, {
+        width: TABLE_W - 8,
+        align: "center",
+      });
     y += ROW_H;
   } else {
     materials.forEach((m, idx) => {
@@ -711,19 +984,29 @@ async function generateMaterialPdf(data) {
     y = HEADER_H + 16;
   }
   doc.rect(LEFT_X, y, TABLE_W, ROW_H).fill("#eef2f7");
-  doc.fillColor("black").font("Helvetica-Bold").fontSize(10)
+  doc
+    .fillColor("black")
+    .font("Helvetica-Bold")
+    .fontSize(10)
     .text(`TOTAL ITEMS: ${materials.length}`, LEFT_X + 4, y + 6);
   y += ROW_H;
 
   // ── Footer note on the last page ──
-  doc.moveTo(MARGIN, PAGE_H - 30).lineTo(PAGE_W - MARGIN, PAGE_H - 30)
-    .strokeColor("#dddddd").lineWidth(0.5).stroke();
-  doc.fillColor("#888888").font("Helvetica").fontSize(8)
+  doc
+    .moveTo(MARGIN, PAGE_H - 30)
+    .lineTo(PAGE_W - MARGIN, PAGE_H - 30)
+    .strokeColor("#dddddd")
+    .lineWidth(0.5)
+    .stroke();
+  doc
+    .fillColor("#888888")
+    .font("Helvetica")
+    .fontSize(8)
     .text(
       "This is a system generated material movement pass. Present this QR at the gate for verification.",
       MARGIN,
       PAGE_H - 24,
-      { width: PAGE_W - 2 * MARGIN, align: "center" }
+      { width: PAGE_W - 2 * MARGIN, align: "center" },
     );
 
   doc.end();
@@ -732,7 +1015,6 @@ async function generateMaterialPdf(data) {
     doc.on("end", () => resolve(Buffer.concat(buffers)));
   });
 }
-
 
 // exports.validateQr = async (
 //   qrToken
@@ -791,35 +1073,20 @@ async function generateMaterialPdf(data) {
 //   return response.data;
 // };
 
-
-exports.validateQr = async (
-  qrToken
-) => {
-
-  const secret =
-    process.env.QR_SECRET;
+exports.validateQr = async (qrToken) => {
+  const secret = process.env.QR_SECRET;
 
   if (!secret) {
-    throw new Error(
-      "Environment variable QR_SECRET is required"
-    );
+    throw new Error("Environment variable QR_SECRET is required");
   }
 
-  const payload = jwt.verify(
-    qrToken,
-    secret,
-    {
-      issuer: "hep-qr-service",
-    }
-  );
+  const payload = jwt.verify(qrToken, secret, {
+    issuer: "hep-qr-service",
+  });
 
   // TYPE GUARD
-  if (
-    typeof payload === "string"
-  ) {
-    throw new Error(
-      "Invalid QR payload"
-    );
+  if (typeof payload === "string") {
+    throw new Error("Invalid QR payload");
   }
 
   /*
@@ -828,22 +1095,14 @@ exports.validateQr = async (
   ============================================
   */
 
-  const cacheKey =
-    `qr-validation:${payload.qrUuid}`;
+  const cacheKey = `qr-validation:${payload.qrUuid}`;
 
-  const cachedData =
-    await redisClient.get(
-      cacheKey
-    );
+  const cachedData = await redisClient.get(cacheKey);
 
   if (cachedData) {
-    console.log(
-      "QR validation cache hit"
-    );
+    console.log("QR validation cache hit");
 
-    return JSON.parse(
-      cachedData
-    );
+    return JSON.parse(cachedData);
   }
 
   /*
@@ -852,29 +1111,23 @@ exports.validateQr = async (
   ============================================
   */
 
-  const response =
-    await axios.post(
-      `${USER_SERVICE}/api/pass-request/validate-qr`,
-      {
-        entityId:
-          payload.entityId,
+  const response = await axios.post(
+    `${USER_SERVICE}/api/pass-request/validate-qr`,
+    {
+      entityId: payload.entityId,
 
-        passRequestId:
-          payload.passRequestId,
+      passRequestId: payload.passRequestId,
 
-        qrUuid:
-          payload.qrUuid,
+      qrUuid: payload.qrUuid,
 
-        type:
-          payload.type,
+      type: payload.type,
+    },
+    {
+      headers: {
+        "x-service-name": "QR Service",
       },
-      {
-        headers: {
-          "x-service-name":
-            "QR Service",
-        },
-      }
-    );
+    },
+  );
 
   /*
   ============================================
@@ -882,61 +1135,23 @@ exports.validateQr = async (
   ============================================
   */
 
-  if (
-    response.data?.valid &&
-    response.data?.dateTo
-  ) {
+  if (response.data?.valid && response.data?.dateTo) {
+    const expiryDate = new Date(response.data.dateTo);
 
-    const expiryDate =
-      new Date(
-        response.data.dateTo
-      );
-
-    const ttlSeconds =
-      Math.max(
-        1,
-        Math.floor(
-          (
-            expiryDate.getTime() -
-            Date.now()
-          ) / 1000
-        )
-      );
-
-    await redisClient.set(
-      cacheKey,
-      JSON.stringify(
-        response.data
-      ),
-      {
-        EX: ttlSeconds,
-      }
+    const ttlSeconds = Math.max(
+      1,
+      Math.floor((expiryDate.getTime() - Date.now()) / 1000),
     );
 
-    console.log(
-      `QR validation cached (${ttlSeconds}s)`
-    );
+    await redisClient.set(cacheKey, JSON.stringify(response.data), {
+      EX: ttlSeconds,
+    });
+
+    console.log(`QR validation cached (${ttlSeconds}s)`);
   }
 
   return response.data;
 };
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 /*
 ============================================
@@ -958,7 +1173,7 @@ exports.generateBulkPass = async (batchId, options = {}) => {
         "x-service-name": "QR Service",
         "x-service-key": process.env.SERVICE_AUTH_KEY || "",
       },
-    }
+    },
   );
 
   const payload = response.data?.data || {};
@@ -1001,20 +1216,35 @@ async function generateBulkPassPDF(batch, persons) {
   const drawHeader = (subtitle) => {
     doc.rect(0, 0, PAGE_W, HEADER_H).fill("#E87722");
 
-    const LOGO_SIZE = 52, LOGO_X = 12;
+    const LOGO_SIZE = 52,
+      LOGO_X = 12;
     const LOGO_Y = (HEADER_H - LOGO_SIZE) / 2;
     doc.save();
-    doc.circle(LOGO_X + LOGO_SIZE / 2, LOGO_Y + LOGO_SIZE / 2, LOGO_SIZE / 2).clip();
-    doc.image(LOGO_PATH, LOGO_X, LOGO_Y, { width: LOGO_SIZE, height: LOGO_SIZE });
+    doc
+      .circle(LOGO_X + LOGO_SIZE / 2, LOGO_Y + LOGO_SIZE / 2, LOGO_SIZE / 2)
+      .clip();
+    doc.image(LOGO_PATH, LOGO_X, LOGO_Y, {
+      width: LOGO_SIZE,
+      height: LOGO_SIZE,
+    });
     doc.restore();
 
     const TX = LOGO_X + LOGO_SIZE + 8;
     const TW = PAGE_W - TX - 12;
-    doc.fillColor("white").font("Noto").fontSize(10)
+    doc
+      .fillColor("white")
+      .font("Noto")
+      .fontSize(10)
       .text("चेन्नई पत्तन न्यास", TX, 12, { width: TW, align: "center" });
-    doc.fillColor("white").font("Helvetica-Bold").fontSize(15)
+    doc
+      .fillColor("white")
+      .font("Helvetica-Bold")
+      .fontSize(15)
       .text("CHENNAI PORT AUTHORITY", TX, 28, { width: TW, align: "center" });
-    doc.fillColor("white").font("Helvetica").fontSize(9)
+    doc
+      .fillColor("white")
+      .font("Helvetica")
+      .fontSize(9)
       .text(subtitle, TX, 50, { width: TW, align: "center" });
   };
 
@@ -1027,19 +1257,30 @@ async function generateBulkPassPDF(batch, persons) {
   };
 
   const drawFooter = () => {
-    doc.moveTo(12, PAGE_H - 22).lineTo(PAGE_W - 12, PAGE_H - 22)
-      .strokeColor("#dddddd").lineWidth(0.5).stroke();
-    doc.fillColor("#999999").font("Helvetica").fontSize(7)
-      .text("Authorized by Traffic Manager — Chennai Port Authority",
-        12, PAGE_H - 16, { width: PAGE_W - 24, align: "center" });
+    doc
+      .moveTo(12, PAGE_H - 22)
+      .lineTo(PAGE_W - 12, PAGE_H - 22)
+      .strokeColor("#dddddd")
+      .lineWidth(0.5)
+      .stroke();
+    doc
+      .fillColor("#999999")
+      .font("Helvetica")
+      .fontSize(7)
+      .text(
+        "Authorized by Traffic Manager — Chennai Port Authority",
+        12,
+        PAGE_H - 16,
+        { width: PAGE_W - 24, align: "center" },
+      );
   };
 
   // Derive actual counts from submitted persons data
   const vehicles = (persons || []).filter(
-    (p) => p.vehicleNumber && String(p.vehicleNumber).trim() !== ""
+    (p) => p.vehicleNumber && String(p.vehicleNumber).trim() !== "",
   );
   const approvedPersonsOnly = (persons || []).filter(
-    (p) => !p.vehicleNumber || String(p.vehicleNumber).trim() === ""
+    (p) => !p.vehicleNumber || String(p.vehicleNumber).trim() === "",
   );
 
   // ── GROUP SUMMARY PAGE ─────────────────────────────────────
@@ -1051,16 +1292,31 @@ async function generateBulkPassPDF(batch, persons) {
   const BODY_Y = HEADER_H + 18;
   let y = BODY_Y;
 
-  doc.fillColor("black").font("Helvetica-Bold").fontSize(16)
-    .text(batch.companyName || "-", LEFT_X, y, { width: PAGE_W - LEFT_X - 160 });
+  doc
+    .fillColor("black")
+    .font("Helvetica-Bold")
+    .fontSize(16)
+    .text(batch.companyName || "-", LEFT_X, y, {
+      width: PAGE_W - LEFT_X - 160,
+    });
   y += 28;
 
   const row = (label, value) => {
-    doc.font("Helvetica-Bold").fontSize(9).fillColor("#555555")
+    doc
+      .font("Helvetica-Bold")
+      .fontSize(9)
+      .fillColor("#555555")
       .text(label, LEFT_X, y, { width: LABEL_W });
-    doc.font("Helvetica").fontSize(10).fillColor("black")
-      .text(value == null || value === "" ? "-" : String(value),
-        LEFT_X + LABEL_W, y, { width: PAGE_W - LEFT_X - LABEL_W - 150 });
+    doc
+      .font("Helvetica")
+      .fontSize(10)
+      .fillColor("black")
+      .text(
+        value == null || value === "" ? "-" : String(value),
+        LEFT_X + LABEL_W,
+        y,
+        { width: PAGE_W - LEFT_X - LABEL_W - 150 },
+      );
     y += 19;
   };
 
@@ -1076,8 +1332,14 @@ async function generateBulkPassPDF(batch, persons) {
   const QR_W = 120;
   const QR_X = PAGE_W - QR_W - 24;
   doc.image(groupQr, QR_X, BODY_Y, { fit: [QR_W, QR_W] });
-  doc.fillColor("#555555").font("Helvetica").fontSize(7)
-    .text("SCAN TO VIEW PASS", QR_X - 4, BODY_Y + QR_W + 4, { width: QR_W + 8, align: "center" });
+  doc
+    .fillColor("#555555")
+    .font("Helvetica")
+    .fontSize(7)
+    .text("SCAN TO VIEW PASS", QR_X - 4, BODY_Y + QR_W + 4, {
+      width: QR_W + 8,
+      align: "center",
+    });
 
   drawFooter();
 
@@ -1091,16 +1353,29 @@ async function generateBulkPassPDF(batch, persons) {
     const vQr = await generateQR(vUrl);
 
     let vy = HEADER_H + 18;
-    doc.fillColor("black").font("Helvetica-Bold").fontSize(18)
+    doc
+      .fillColor("black")
+      .font("Helvetica-Bold")
+      .fontSize(18)
       .text(v.vehicleNumber || "-", LEFT_X, vy);
     vy += 32;
 
     const vrow = (label, value) => {
-      doc.font("Helvetica-Bold").fontSize(9).fillColor("#555555")
+      doc
+        .font("Helvetica-Bold")
+        .fontSize(9)
+        .fillColor("#555555")
         .text(label, LEFT_X, vy, { width: LABEL_W });
-      doc.font("Helvetica").fontSize(10).fillColor("black")
-        .text(value == null || value === "" ? "-" : String(value),
-          LEFT_X + LABEL_W, vy, { width: PAGE_W - LEFT_X - LABEL_W - 150 });
+      doc
+        .font("Helvetica")
+        .fontSize(10)
+        .fillColor("black")
+        .text(
+          value == null || value === "" ? "-" : String(value),
+          LEFT_X + LABEL_W,
+          vy,
+          { width: PAGE_W - LEFT_X - LABEL_W - 150 },
+        );
       vy += 19;
     };
 
@@ -1113,8 +1388,14 @@ async function generateBulkPassPDF(batch, persons) {
 
     const VQR_Y = HEADER_H + 18;
     doc.image(vQr, QR_X, VQR_Y, { fit: [QR_W, QR_W] });
-    doc.fillColor("#555555").font("Helvetica").fontSize(7)
-      .text("SCAN TO VIEW VEHICLE", QR_X - 4, VQR_Y + QR_W + 4, { width: QR_W + 8, align: "center" });
+    doc
+      .fillColor("#555555")
+      .font("Helvetica")
+      .fontSize(7)
+      .text("SCAN TO VIEW VEHICLE", QR_X - 4, VQR_Y + QR_W + 4, {
+        width: QR_W + 8,
+        align: "center",
+      });
 
     drawFooter();
   }
@@ -1143,7 +1424,7 @@ function formatPassDate(value) {
 exports.generateVvipPass = async (requestId) => {
   const response = await axios.get(
     `${USER_SERVICE}/api/vvip-pass/${requestId}/qr-data`,
-    { headers: { "x-service-name": "QR Service" } }
+    { headers: { "x-service-name": "QR Service" } },
   );
 
   const request = response.data?.data;
@@ -1187,32 +1468,63 @@ async function generateVvipPassPDF(request) {
     const LOGO_X = 12;
     const LOGO_Y = (HEADER_H - LOGO_SIZE) / 2;
     doc.save();
-    doc.circle(LOGO_X + LOGO_SIZE / 2, LOGO_Y + LOGO_SIZE / 2, LOGO_SIZE / 2).clip();
-    doc.image(LOGO_PATH, LOGO_X, LOGO_Y, { width: LOGO_SIZE, height: LOGO_SIZE });
+    doc
+      .circle(LOGO_X + LOGO_SIZE / 2, LOGO_Y + LOGO_SIZE / 2, LOGO_SIZE / 2)
+      .clip();
+    doc.image(LOGO_PATH, LOGO_X, LOGO_Y, {
+      width: LOGO_SIZE,
+      height: LOGO_SIZE,
+    });
     doc.restore();
 
     const TX = LOGO_X + LOGO_SIZE + 8;
     const TW = PAGE_W - TX - 12;
-    doc.fillColor("white").font("Noto").fontSize(10)
+    doc
+      .fillColor("white")
+      .font("Noto")
+      .fontSize(10)
       .text("चेन्नई पत्तन न्यास", TX, 12, { width: TW, align: "center" });
-    doc.fillColor("white").font("Helvetica-Bold").fontSize(15)
+    doc
+      .fillColor("white")
+      .font("Helvetica-Bold")
+      .fontSize(15)
       .text("CHENNAI PORT AUTHORITY", TX, 28, { width: TW, align: "center" });
-    doc.fillColor("white").font("Helvetica").fontSize(9)
+    doc
+      .fillColor("white")
+      .font("Helvetica")
+      .fontSize(9)
       .text(subtitle, TX, 50, { width: TW, align: "center" });
   };
 
   const drawFooter = () => {
-    doc.moveTo(12, PAGE_H - 22).lineTo(PAGE_W - 12, PAGE_H - 22)
-      .strokeColor("#dddddd").lineWidth(0.5).stroke();
-    doc.fillColor("#999999").font("Helvetica").fontSize(7)
-      .text("Authorized by Traffic Manager — Chennai Port Authority",
-        12, PAGE_H - 16, { width: PAGE_W - 24, align: "center" });
+    doc
+      .moveTo(12, PAGE_H - 22)
+      .lineTo(PAGE_W - 12, PAGE_H - 22)
+      .strokeColor("#dddddd")
+      .lineWidth(0.5)
+      .stroke();
+    doc
+      .fillColor("#999999")
+      .font("Helvetica")
+      .fontSize(7)
+      .text(
+        "Authorized by Traffic Manager — Chennai Port Authority",
+        12,
+        PAGE_H - 16,
+        { width: PAGE_W - 24, align: "center" },
+      );
   };
 
   const row = (label, value, y) => {
-    doc.font("Helvetica-Bold").fontSize(9).fillColor("#555555")
+    doc
+      .font("Helvetica-Bold")
+      .fontSize(9)
+      .fillColor("#555555")
       .text(label, LEFT_X, y, { width: LABEL_W });
-    doc.font("Helvetica").fontSize(10).fillColor("black")
+    doc
+      .font("Helvetica")
+      .fontSize(10)
+      .fillColor("black")
       .text(String(value), LEFT_X + LABEL_W, y, {
         width: PAGE_W - LEFT_X - LABEL_W - 160,
       });
@@ -1229,7 +1541,10 @@ async function generateVvipPassPDF(request) {
     const QR_W = 120;
     const QR_X = PAGE_W - QR_W - 24;
     doc.image(qr, QR_X, y, { fit: [QR_W, QR_W] });
-    doc.fillColor("#555555").font("Helvetica").fontSize(7)
+    doc
+      .fillColor("#555555")
+      .font("Helvetica")
+      .fontSize(7)
       .text(label, QR_X - 4, y + QR_W + 4, {
         width: QR_W + 8,
         align: "center",
@@ -1241,7 +1556,10 @@ async function generateVvipPassPDF(request) {
 
   drawHeader("VVIP PASS — REQUEST SUMMARY");
   let y = HEADER_H + 18;
-  doc.fillColor("black").font("Helvetica-Bold").fontSize(17)
+  doc
+    .fillColor("black")
+    .font("Helvetica-Bold")
+    .fontSize(17)
     .text(request.referenceNo || "VVIP PASS", LEFT_X, y, {
       width: PAGE_W - LEFT_X - 160,
     });
@@ -1261,7 +1579,10 @@ async function generateVvipPassPDF(request) {
     doc.addPage();
     drawHeader("VVIP PASS — PERSON");
     let py = HEADER_H + 18;
-    doc.fillColor("black").font("Helvetica-Bold").fontSize(18)
+    doc
+      .fillColor("black")
+      .font("Helvetica-Bold")
+      .fontSize(18)
       .text(person.name || "VVIP Visitor", LEFT_X, py, {
         width: PAGE_W - LEFT_X - 160,
       });
@@ -1269,7 +1590,11 @@ async function generateVvipPassPDF(request) {
     py = optionalRow("Reference No.:", request.referenceNo, py);
     py = optionalRow("Designation:", person.designation, py);
     py = optionalRow("Mobile:", person.mobile, py);
-    py = optionalRow("ID Proof:", [person.idProofType, person.idProofNo].filter(Boolean).join(" - "), py);
+    py = optionalRow(
+      "ID Proof:",
+      [person.idProofType, person.idProofNo].filter(Boolean).join(" - "),
+      py,
+    );
     py = optionalRow("Department:", request.departmentName, py);
     py = optionalRow("Valid From:", validFrom, py);
     optionalRow("Valid Upto:", validTo, py);
@@ -1292,7 +1617,10 @@ async function generateVvipPassPDF(request) {
     doc.addPage();
     drawHeader("VVIP PASS — VEHICLE");
     let vy = HEADER_H + 18;
-    doc.fillColor("black").font("Helvetica-Bold").fontSize(18)
+    doc
+      .fillColor("black")
+      .font("Helvetica-Bold")
+      .fontSize(18)
       .text(vehicle.vehicleNo || "VVIP Vehicle", LEFT_X, vy, {
         width: PAGE_W - LEFT_X - 160,
       });

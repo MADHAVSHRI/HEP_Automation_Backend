@@ -206,21 +206,31 @@ exports.getQrData = async (passRequestId, type = "null", entityId = "null") => {
         }
       }
 
-      const convStart = person.conversionStartDate ? new Date(person.conversionStartDate) : null;
-      const convEnd = person.conversionEndDate ? new Date(person.conversionEndDate) : null;
+      const convStart = person.conversionStartDate
+        ? new Date(person.conversionStartDate)
+        : null;
+      const convEnd = person.conversionEndDate
+        ? new Date(person.conversionEndDate)
+        : null;
       const isEssentialActive = Boolean(
-        convStart && convEnd && now >= convStart && now <= convEnd
+        convStart && convEnd && now >= convStart && now <= convEnd,
       );
 
-      const effectiveFrom = isEssentialActive ? person.conversionStartDate : person.dateFrom;
-      const effectiveTo = isEssentialActive ? person.conversionEndDate : person.dateTo;
+      const effectiveFrom = isEssentialActive
+        ? person.conversionStartDate
+        : person.dateFrom;
+      const effectiveTo = isEssentialActive
+        ? person.conversionEndDate
+        : person.dateTo;
 
       return {
         ...person,
         isEssentialActive,
         passCategory: isEssentialActive
           ? "ESSENTIAL ENTRY PERMIT"
-          : (person.essentialDepartmentId ? "ESSENTIAL PASS" : "ORDINARY PASS"),
+          : person.essentialDepartmentId
+            ? "ESSENTIAL PASS"
+            : "ORDINARY PASS",
         validFrom: formatISTDateTime(effectiveFrom, false),
         validTo: formatISTDateTime(effectiveTo, false),
         photoBase64,
@@ -230,19 +240,29 @@ exports.getQrData = async (passRequestId, type = "null", entityId = "null") => {
   );
 
   const vehicles = vehiclesResult.rows.map((vehicle) => {
-    const convStart = vehicle.conversionStartDate ? new Date(vehicle.conversionStartDate) : null;
-    const convEnd = vehicle.conversionEndDate ? new Date(vehicle.conversionEndDate) : null;
+    const convStart = vehicle.conversionStartDate
+      ? new Date(vehicle.conversionStartDate)
+      : null;
+    const convEnd = vehicle.conversionEndDate
+      ? new Date(vehicle.conversionEndDate)
+      : null;
     const isEssentialActive = Boolean(
-      convStart && convEnd && now >= convStart && now <= convEnd
+      convStart && convEnd && now >= convStart && now <= convEnd,
     );
 
-    const effectiveFrom = isEssentialActive ? vehicle.conversionStartDate : vehicle.dateFrom;
-    const effectiveTo = isEssentialActive ? vehicle.conversionEndDate : vehicle.dateTo;
+    const effectiveFrom = isEssentialActive
+      ? vehicle.conversionStartDate
+      : vehicle.dateFrom;
+    const effectiveTo = isEssentialActive
+      ? vehicle.conversionEndDate
+      : vehicle.dateTo;
 
     return {
       ...vehicle,
       isEssentialActive,
-      passCategory: isEssentialActive ? "ESSENTIAL ENTRY PERMIT" : "ORDINARY PASS",
+      passCategory: isEssentialActive
+        ? "ESSENTIAL ENTRY PERMIT"
+        : "ORDINARY PASS",
       validFrom: formatISTDateTime(effectiveFrom, false),
       validTo: formatISTDateTime(effectiveTo, false),
     };
@@ -255,8 +275,8 @@ exports.getQrData = async (passRequestId, type = "null", entityId = "null") => {
  * Get QR data for vendor passes
  * Reads from vendor_pass_persons and vendor_pass_vehicles relational tables
  * so each person/vehicle retains its own dateFrom/dateTo.
- * 
- * 
+ *
+ *
  */
 
 exports.getVendorQrData = async (
@@ -380,6 +400,10 @@ exports.getVendorQrData = async (
           WHERE "vendorPassRequestId" = $1
             AND id = $2
             AND status = 'approved'
+            AND "qrUuid" IS NOT NULL
+            AND COALESCE("qrRevoked", false) = false
+            AND COALESCE("isActive", true) = true
+            AND COALESCE("isBlocked", false) = false
           ORDER BY id ASC
         `
       : `
@@ -406,6 +430,10 @@ exports.getVendorQrData = async (
           WHERE "vendorPassRequestId" = $1
             AND id = $2
             AND status = 'approved'
+            AND "qrUuid" IS NOT NULL
+            AND COALESCE("qrRevoked", false) = false
+            AND COALESCE("isActive", true) = true
+            AND COALESCE("isBlocked", false) = false
           ORDER BY id ASC
         `
       : `
@@ -458,6 +486,13 @@ exports.getVendorQrData = async (
 
       return {
         id: person.id,
+        passRequestId: resolvedId,
+        qrUuid: person.qrUuid,
+        qrIssuedAt: person.qrIssuedAt,
+        qrRevoked: person.qrRevoked,
+        qrPdfPath: person.qrPdfPath,
+        isActive: person.isActive,
+        isBlocked: person.isBlocked,
         personPassNo: person.personPassNo,
         name: person.name,
         mobile: person.mobile,
@@ -492,56 +527,31 @@ exports.getVendorQrData = async (
         photoFileName: person.photoFileName || "",
         aadharPDFFileName: person.aadharPDFFileName || "",
         passportName: person.passportName || "",
-        requisitionLetterName:
-          person.requisitionLetterName || "",
-        driverLicenseName:
-          person.driverLicenseName || "",
-        policeVerificationName:
-          person.policeVerificationName || "",
-        employmentProofName:
-          person.employmentProofName || "",
+        requisitionLetterName: person.requisitionLetterName || "",
+        driverLicenseName: person.driverLicenseName || "",
+        policeVerificationName: person.policeVerificationName || "",
+        employmentProofName: person.employmentProofName || "",
         chaLicenseName: person.chaLicenseName || "",
         idProofFileName: person.idProofFileName || "",
-        cdcDocumentName:
-          person.cdcDocumentName || "",
-        declarationFormName:
-          person.declarationFormName || "",
-        entryAuthorizationFileName:
-          person.entryAuthorizationFileName || "",
+        cdcDocumentName: person.cdcDocumentName || "",
+        declarationFormName: person.declarationFormName || "",
+        entryAuthorizationFileName: person.entryAuthorizationFileName || "",
 
-        aadharPDFFilePATH:
-          person.aadharPDFFilePATH || "",
-        idProofFilePath:
-          person.idProofFilePath || "",
-        photoFilePath:
-          person.photoFilePath || "",
-        passportPath:
-          person.passportPath || "",
-        requisitionLetterPath:
-          person.requisitionLetterPath || "",
-        driverLicensePath:
-          person.driverLicensePath || "",
-        policeVerificationPath:
-          person.policeVerificationPath || "",
-        employmentProofPath:
-          person.employmentProofPath || "",
-        chaLicensePath:
-          person.chaLicensePath || "",
-        cdcDocumentPath:
-          person.cdcDocumentPath || "",
-        declarationFormPath:
-          person.declarationFormPath || "",
-        entryAuthorizationFilePath:
-          person.entryAuthorizationFilePath || "",
+        aadharPDFFilePATH: person.aadharPDFFilePATH || "",
+        idProofFilePath: person.idProofFilePath || "",
+        photoFilePath: person.photoFilePath || "",
+        passportPath: person.passportPath || "",
+        requisitionLetterPath: person.requisitionLetterPath || "",
+        driverLicensePath: person.driverLicensePath || "",
+        policeVerificationPath: person.policeVerificationPath || "",
+        employmentProofPath: person.employmentProofPath || "",
+        chaLicensePath: person.chaLicensePath || "",
+        cdcDocumentPath: person.cdcDocumentPath || "",
+        declarationFormPath: person.declarationFormPath || "",
+        entryAuthorizationFilePath: person.entryAuthorizationFilePath || "",
 
-        validFrom: formatISTDateTime(
-          person.dateFrom,
-          false,
-        ),
-        validTo: formatISTDateTime(
-          person.dateTo,
-          false,
-        ),
+        validFrom: formatISTDateTime(person.dateFrom, false),
+        validTo: formatISTDateTime(person.dateTo, false),
 
         photoBase64,
         photoMimeType,
@@ -559,79 +569,53 @@ exports.getVendorQrData = async (
    */
   const vehicles = vehiclesResult.rows.map((vehicle) => ({
     id: vehicle.id,
+    passRequestId: resolvedId,
+    qrUuid: vehicle.qrUuid,
+    qrIssuedAt: vehicle.qrIssuedAt,
+    qrRevoked: vehicle.qrRevoked,
+    qrPdfPath: vehicle.qrPdfPath,
+    isActive: vehicle.isActive,
+    isBlocked: vehicle.isBlocked,
     vehiclePassNo: vehicle.vehiclePassNo,
-    registrationNo:
-      vehicle.vehicleRegistrationNo,
+    registrationNo: vehicle.vehicleRegistrationNo,
     dateFrom: vehicle.dateFrom,
     dateTo: vehicle.dateTo,
     passType: vehicle.passType || "",
     passPeriod: vehicle.passPeriod || 1,
     amount: vehicle.amount || "",
     status: vehicle.status,
-    rejectedReason:
-      vehicle.rejectedReason,
-    revertReason:
-      vehicle.revertReason,
+    rejectedReason: vehicle.rejectedReason,
+    revertReason: vehicle.revertReason,
 
-    vehicleTypeId:
-      vehicle.vehicleTypeId || "",
-    vehicleType:
-      vehicle.vehicleType || "",
-    fuelType:
-      vehicle.fuelType || "",
-    insuranceExpiry:
-      vehicle.insuranceExpiry || "",
-    rcValidity:
-      vehicle.rcValidity || "",
-    accessAreaId:
-      vehicle.accessAreaId || "",
+    vehicleTypeId: vehicle.vehicleTypeId || "",
+    vehicleType: vehicle.vehicleType || "",
+    fuelType: vehicle.fuelType || "",
+    insuranceExpiry: vehicle.insuranceExpiry || "",
+    rcValidity: vehicle.rcValidity || "",
+    accessAreaId: vehicle.accessAreaId || "",
 
-    scannedCopyFileName:
-      vehicle.scannedCopyFileName || "",
-    insuranceFileName:
-      vehicle.insuranceFileName || "",
-    permitFileName:
-      vehicle.permitFileName || "",
-    fitnessFileName:
-      vehicle.fitnessFileName || "",
-    requestLetterName:
-      vehicle.requestLetterName || "",
-    taxDocName:
-      vehicle.taxFileName || "",
-    emissionCertName:
-      vehicle.emissionFileName || "",
-    sparkArresterFileName:
-      vehicle.sparkArresterFileName || "",
-    twistLockFileName:
-      vehicle.twistLockFileName || "",
+    scannedCopyFileName: vehicle.scannedCopyFileName || "",
+    insuranceFileName: vehicle.insuranceFileName || "",
+    permitFileName: vehicle.permitFileName || "",
+    fitnessFileName: vehicle.fitnessFileName || "",
+    requestLetterName: vehicle.requestLetterName || "",
+    taxDocName: vehicle.taxFileName || "",
+    emissionCertName: vehicle.emissionFileName || "",
+    sparkArresterFileName: vehicle.sparkArresterFileName || "",
+    twistLockFileName: vehicle.twistLockFileName || "",
 
-    scannedCopyFilePath:
-      vehicle.scannedCopyFilePath || "",
-    insuranceFilePath:
-      vehicle.insuranceFilePath || "",
-    permitFilePath:
-      vehicle.permitFilePath || "",
-    fitnessFilePath:
-      vehicle.fitnessFilePath || "",
-    requestLetterPath:
-      vehicle.requestLetterPath || "",
-    taxFilePath:
-      vehicle.taxFilePath || "",
-    emissionFilePath:
-      vehicle.emissionFilePath || "",
-    sparkArresterFilePath:
-      vehicle.sparkArresterFilePath || "",
-    twistLockFilePath:
-      vehicle.twistLockFilePath || "",
+    scannedCopyFilePath: vehicle.scannedCopyFilePath || "",
+    insuranceFilePath: vehicle.insuranceFilePath || "",
+    permitFilePath: vehicle.permitFilePath || "",
+    fitnessFilePath: vehicle.fitnessFilePath || "",
+    requestLetterPath: vehicle.requestLetterPath || "",
+    taxFilePath: vehicle.taxFilePath || "",
+    emissionFilePath: vehicle.emissionFilePath || "",
+    sparkArresterFilePath: vehicle.sparkArresterFilePath || "",
+    twistLockFilePath: vehicle.twistLockFilePath || "",
 
-    validFrom: formatISTDateTime(
-      vehicle.dateFrom,
-      false,
-    ),
-    validTo: formatISTDateTime(
-      vehicle.dateTo,
-      false,
-    ),
+    validFrom: formatISTDateTime(vehicle.dateFrom, false),
+    validTo: formatISTDateTime(vehicle.dateTo, false),
 
     company: companyName,
   }));
@@ -648,7 +632,6 @@ exports.getVendorQrData = async (
     purposeOfVisitId,
   };
 };
-
 
 // exports.getVendorQrData = async (
 //   vendorPassId,
@@ -913,8 +896,19 @@ exports.getVendorQrData = async (
 //   };
 // };
 
-exports.saveQrPdfPath = async (type, entityId, qrPdfPath) => {
-  const table = type === "person" ? "pass_persons" : "pass_vehicles";
+exports.saveQrPdfPath = async (
+  type,
+  entityId,
+  qrPdfPath,
+  isVendor = false,
+) => {
+  const table = isVendor
+    ? type === "person"
+      ? "vendor_pass_persons"
+      : "vendor_pass_vehicles"
+    : type === "person"
+      ? "pass_persons"
+      : "pass_vehicles";
 
   const query = `
     UPDATE ${table}
@@ -1078,7 +1072,7 @@ exports.validateQr = async ({ entityId, passRequestId, qrUuid, type }) => {
      FROM essential_pass_conversions
      WHERE "entityType" = $1 AND "entityId" = $2 AND status = 'APPROVED'
      ORDER BY id DESC LIMIT 1`,
-    [type, entityId]
+    [type, entityId],
   );
 
   let isEssentialConverted = false;
@@ -1097,7 +1091,9 @@ exports.validateQr = async ({ entityId, passRequestId, qrUuid, type }) => {
       passNo: row.passNo,
       scanCount: Number(row.scanCount) + 1,
       isEssentialConverted,
-      passCategory: isEssentialConverted ? "ESSENTIAL ENTRY PERMIT" : "ORDINARY PASS",
+      passCategory: isEssentialConverted
+        ? "ESSENTIAL ENTRY PERMIT"
+        : "ORDINARY PASS",
     },
   };
 };

@@ -10,30 +10,32 @@ const passQrController = require("../controllers/passQrController");
 router.get(
   "/generate-pass/:passRequestId",
   verifyToken,
-  passQrController.generatePassQR
+  passQrController.generatePassQR,
 );
 
 router.get(
   "/generate-material-pass/:passRequestId",
   verifyToken,
-  passQrController.generateMaterialPassQr
+  passQrController.generateMaterialPassQr,
 );
 
 // QR validation — public (called from gate scanner app, no user session)
-router.post(
-  "/validate",
-  passQrController.validateQr
-);
+router.post("/validate", passQrController.validateQr);
 
 // ── Vendor pass QR generation ───────────────────────────────────────────────
 router.get(
   "/vendor-generate-qr/:vendorPassId",
-  passQrController.generateVendorQr
+  passQrController.generateVendorQr,
 );
 
 router.get(
   "/vendor-generate-single-qr/:vendorPassId/:entityType/:entityIndex",
-  passQrController.generateVendorSingleQr
+  passQrController.generateVendorSingleQr,
+);
+
+router.get(
+  "/vendor-generate-token/:vendorPassId/:entityType/:entityId",
+  passQrController.generateVendorQrToken,
 );
 
 // ── Bulk Pass QR routes ─────────────────────────────────────────────────────
@@ -41,7 +43,7 @@ router.get(
 router.post(
   "/bulk-pass/:batchId",
   verifyService,
-  passQrController.generateBulkQr
+  passQrController.generateBulkQr,
 );
 
 // Public: inline PDF viewer for an approved (COMPLETED) bulk pass.
@@ -52,7 +54,7 @@ router.get("/bulk-pass-view/:batchId", passQrController.viewBulkPass);
 router.post(
   "/vvip-pass/:requestId",
   verifyService,
-  passQrController.generateVvipQr
+  passQrController.generateVvipQr,
 );
 
 module.exports = router;
