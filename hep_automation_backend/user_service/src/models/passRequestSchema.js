@@ -576,10 +576,10 @@ const PassRequest = {
             }
             const desigStr = String(
               desigName ||
-                person.designation ||
-                person.designationOther ||
-                mpData?.designationOther ||
-                "",
+              person.designation ||
+              person.designationOther ||
+              mpData?.designationOther ||
+              "",
             )
               .trim()
               .toLowerCase();
@@ -845,9 +845,9 @@ const PassRequest = {
                 // rfidCardNumber is retained only as the legacy database column.
                 // New clients should send qrCode/qrPassReference.
                 vehicle.qrCode ||
-                  vehicle.qrPassReference ||
-                  vehicle.rfidCardNumber ||
-                  null,
+                vehicle.qrPassReference ||
+                vehicle.rfidCardNumber ||
+                null,
 
                 vehicleFile?.path || null,
                 vehicleFile?.originalname || null,
@@ -7744,10 +7744,10 @@ const getAgentPassRequestsDetails = {
     const vc = vendorCountRes
       ? vendorCountRes.rows[0]
       : {
-          total: "0",
-          pending: "0",
-          processed: "0",
-        };
+        total: "0",
+        pending: "0",
+        processed: "0",
+      };
 
     const counts = {
       pending: parseInt(nc.pending, 10) + parseInt(vc.pending, 10),
@@ -8705,7 +8705,7 @@ const getAgentPassRequestsDetails = {
                   String(person.workflowState || "")
                     .trim()
                     .toUpperCase() ===
-                    "PENDING_VENDOR_PERSON_CONCERN_DEPARTMENT" &&
+                  "PENDING_VENDOR_PERSON_CONCERN_DEPARTMENT" &&
                   ["pending", "reverted"].includes(
                     String(person.status || "").toLowerCase(),
                   ) &&
@@ -9181,6 +9181,187 @@ const getAgentPassRequestsDetails = {
     const result = await pool.query(query, [passRequestId]);
     const row = result.rows[0] || null;
     return row ? sanitizePassRequestRow(row, requesterRole) : null;
+  },
+
+  /**
+   * getDashboardStats — Lightweight SQL aggregation for dashboard KPIs.
+   *
+   * Returns all metrics the Traffic Manager / Traffic Approval dashboards need
+   * without fetching or serializing any pass-request detail rows.
+   *
+   * Replaces the old pattern of fetching 100 hydrated records and computing
+   * counts, revenue, and entity totals client-side from that incomplete slice.
+   */
+  async getDashboardStats() {
+    // 1. Pass status counts & Revenue aggregates in a single fast SQL query
+    const passStatsSql = `
+      SELECT
+        COUNT(*)::int AS total,
+        COUNT(CASE WHEN status::text IN ('SUBMITTED', 'PENDING', 'IN_REVIEW', 'UNDER_REVIEW') THEN 1 END)::int AS pending,
+        COUNT(CASE WHEN status::text IN ('APPROVED', 'PROCESSED', 'COMPLETED', 'ISSUED') THEN 1 END)::int AS processed,
+        COUNT(CASE WHEN status::text = 'REJECTED' THEN 1 END)::int AS rejected,
+        COUNT(CASE WHEN status::text = 'REVERTED' THEN 1 END)::int AS reverted,
+        
+        COALESCE(SUM("netAmount"), 0)::float AS "revenueTotal",
+        COALESCE(SUM(CASE WHEN UPPER(COALESCE("paymentMode"::text, '')) IN ('E-CASH', 'ECASH') THEN "netAmount" ELSE 0 END), 0)::float AS "revenueEcash",
+        COALESCE(SUM(CASE WHEN UPPER(COALESCE("paymentMode"::text, '')) NOT IN ('E-CASH', 'ECASH') THEN "netAmount" ELSE 0 END), 0)::float AS "revenueAccount",
+        COALESCE(SUM(CASE WHEN "createdAt" >= CURRENT_DATE THEN "netAmount" ELSE 0 END), 0)::float AS "revenueToday",
+        COALESCE(SUM(CASE WHEN "createdAt" >= date_trunc('month', CURRENT_DATE) THEN "netAmount" ELSE 0 END), 0)::float AS "revenueMonth",
+        COALESCE(SUM(CASE WHEN status::text IN ('APPROVED', 'PROCESSED', 'COMPLETED', 'ISSUED') THEN "netAmount" ELSE 0 END), 0)::float AS "revenueProcessed",
+        COALESCE(SUM(CASE WHEN status::text IN ('SUBMITTED', 'PENDING', 'IN_REVIEW', 'UNDER_REVIEW') THEN "netAmount" ELSE 0 END), 0)::float AS "revenuePending",
+
+        COUNT(CASE WHEN "createdAt" >= CURRENT_DATE THEN 1 END)::int AS "activityToday",
+        COUNT(CASE WHEN "createdAt" >= CURRENT_DATE - INTERVAL '6 days' THEN 1 END)::int AS "activityWeek",
+        COUNT(CASE WHEN "createdAt" >= date_trunc('month', CURRENT_DATE) THEN 1 END)::int AS "activityMonth",
+
+        COUNT(DISTINCT CASE WHEN status::text IN ('SUBMITTED', 'PENDING', 'IN_REVIEW', 'UNDER_REVIEW') THEN "agentId" END)::int AS "pendingCompanies"
+      FROM pass_requests
+      WHERE "isActive" = true
+    `;
+
+    // 2. Entity totals (persons & vehicles counts across all, pending, processed)
+    const entityStatsSql = `
+      SELECT
+        COUNT(pp.id)::int AS "totalPersons",
+        COUNT(CASE WHEN pr.status::text IN ('SUBMITTED', 'PENDING', 'IN_REVIEW', 'UNDER_REVIEW') THEN pp.id END)::int AS "pendingPersons",
+        COUNT(CASE WHEN pr.status::text IN ('APPROVED', 'PROCESSED', 'COMPLETED', 'ISSUED') THEN pp.id END)::int AS "processedPersons"
+      FROM pass_persons pp
+      JOIN pass_requests pr ON pr.id = pp."passRequestId"
+      WHERE pr."isActive" = true
+    `;
+
+    const vehicleStatsSql = `
+      SELECT
+        COUNT(pv.id)::int AS "totalVehicles",
+        COUNT(CASE WHEN pr.status::text IN ('SUBMITTED', 'PENDING', 'IN_REVIEW', 'UNDER_REVIEW') THEN pv.id END)::int AS "pendingVehicles",
+        COUNT(CASE WHEN pr.status::text IN ('APPROVED', 'PROCESSED', 'COMPLETED', 'ISSUED') THEN pv.id END)::int AS "processedVehicles"
+      FROM pass_vehicles pv
+      JOIN pass_requests pr ON pr.id = pv."passRequestId"
+      WHERE pr."isActive" = true
+    `;
+
+    // 3. Company breakdown (revenue & pass counts per company/agent)
+    const companyStatsSql = `
+      SELECT
+        COALESCE(NULLIF(TRIM(a."entityName"), ''), NULLIF(TRIM(a."firstName" || ' ' || COALESCE(a."lastName", '')), ''), 'Direct / Authorized Agent') AS name,
+        COALESCE(SUM(pr."netAmount"), 0)::float AS total,
+        COUNT(pr.id)::int AS "passCount",
+        COALESCE(SUM(sub_p.p_count), 0)::int AS persons,
+        COALESCE(SUM(sub_v.v_count), 0)::int AS vehicles,
+        MAX(pr."paymentMode"::text) AS "paymentMode"
+      FROM pass_requests pr
+      LEFT JOIN "Agents" a ON a.id = pr."agentId"
+      LEFT JOIN (
+        SELECT "passRequestId", COUNT(*)::int AS p_count FROM pass_persons GROUP BY "passRequestId"
+      ) sub_p ON sub_p."passRequestId" = pr.id
+      LEFT JOIN (
+        SELECT "passRequestId", COUNT(*)::int AS v_count FROM pass_vehicles GROUP BY "passRequestId"
+      ) sub_v ON sub_v."passRequestId" = pr.id
+      WHERE pr."isActive" = true
+      GROUP BY 1
+      ORDER BY total DESC
+      LIMIT 100
+    `;
+
+    // 4. Pending queue preview list (latest 15 pending requests with entity counts)
+    const pendingQueueSql = `
+      SELECT
+        pr.id,
+        pr."referenceNo",
+        pr.status::text AS status,
+        pr."createdAt",
+        pr."paymentMode"::text AS "paymentMode",
+        pr."netAmount"::float AS "netAmount",
+        COALESCE(NULLIF(TRIM(a."entityName"), ''), NULLIF(TRIM(a."firstName" || ' ' || COALESCE(a."lastName", '')), ''), 'Direct / Authorized Agent') AS "entityName",
+        a.email AS email,
+        COALESCE(sub_p.p_count, 0)::int AS "personCount",
+        COALESCE(sub_v.v_count, 0)::int AS "vehicleCount"
+      FROM pass_requests pr
+      LEFT JOIN "Agents" a ON a.id = pr."agentId"
+      LEFT JOIN (
+        SELECT "passRequestId", COUNT(*)::int AS p_count FROM pass_persons GROUP BY "passRequestId"
+      ) sub_p ON sub_p."passRequestId" = pr.id
+      LEFT JOIN (
+        SELECT "passRequestId", COUNT(*)::int AS v_count FROM pass_vehicles GROUP BY "passRequestId"
+      ) sub_v ON sub_v."passRequestId" = pr.id
+      WHERE pr."isActive" = true
+        AND pr.status::text IN ('SUBMITTED', 'PENDING', 'IN_REVIEW', 'UNDER_REVIEW')
+      ORDER BY pr."createdAt" DESC
+      LIMIT 15
+    `;
+
+    // 5. Average approval time in minutes for processed requests
+    const avgApprovalSql = `
+      SELECT COALESCE(ROUND(AVG(EXTRACT(EPOCH FROM ("updatedAt" - "createdAt")) / 60))::int, null) AS "avgApprovalMins"
+      FROM pass_requests
+      WHERE "isActive" = true
+        AND status::text IN ('APPROVED', 'PROCESSED', 'COMPLETED', 'ISSUED')
+    `;
+
+    const [passRes, personRes, vehicleRes, companyRes, pendingQueueRes, avgApprovalRes] = await Promise.all([
+      pool.query(passStatsSql),
+      pool.query(entityStatsSql),
+      pool.query(vehicleStatsSql),
+      pool.query(companyStatsSql),
+      pool.query(pendingQueueSql),
+      pool.query(avgApprovalSql),
+    ]);
+
+    const pRow = passRes.rows[0] || {};
+    const perRow = personRes.rows[0] || {};
+    const vehRow = vehicleRes.rows[0] || {};
+    const avgApprovalMins = avgApprovalRes.rows[0]?.avgApprovalMins ?? null;
+
+    const pendingList = (pendingQueueRes.rows || []).map((row) => ({
+      id: row.id,
+      referenceNo: row.referenceNo,
+      status: row.status,
+      createdAt: row.createdAt,
+      entityName: row.entityName,
+      email: row.email,
+      paymentMode: row.paymentMode,
+      netAmount: row.netAmount,
+      persons: Array(row.personCount).fill({}),
+      vehicles: Array(row.vehicleCount).fill({}),
+    }));
+
+    return {
+      pass: {
+        total: pRow.total || 0,
+        pending: pRow.pending || 0,
+        processed: pRow.processed || 0,
+        rejected: pRow.rejected || 0,
+        reverted: pRow.reverted || 0,
+      },
+      entities: {
+        totalPersons: perRow.totalPersons || 0,
+        totalVehicles: vehRow.totalVehicles || 0,
+        pendingPersons: perRow.pendingPersons || 0,
+        pendingVehicles: vehRow.pendingVehicles || 0,
+        processedPersons: perRow.processedPersons || 0,
+        processedVehicles: vehRow.processedVehicles || 0,
+      },
+      revenue: {
+        total: pRow.revenueTotal || 0,
+        account: pRow.revenueAccount || 0,
+        ecash: pRow.revenueEcash || 0,
+        today: pRow.revenueToday || 0,
+        month: pRow.revenueMonth || 0,
+        processed: pRow.revenueProcessed || 0,
+        pending: pRow.revenuePending || 0,
+      },
+      portActivity: {
+        today: pRow.activityToday || 0,
+        week: pRow.activityWeek || 0,
+        month: pRow.activityMonth || 0,
+      },
+      pendingQueue: {
+        companies: pRow.pendingCompanies || 0,
+        list: pendingList,
+      },
+      companyList: companyRes.rows || [],
+      avgApprovalMins,
+    };
   },
 };
 
@@ -9719,10 +9900,10 @@ const viewPassRequestsDocuments = {
           ) {
             const fmtFrom = passFromDate
               ? String(passFromDate)
-                  .split("T")[0]
-                  .split("-")
-                  .reverse()
-                  .join("/")
+                .split("T")[0]
+                .split("-")
+                .reverse()
+                .join("/")
               : passFromDate;
             const fmtTo = passToDate
               ? String(passToDate).split("T")[0].split("-").reverse().join("/")

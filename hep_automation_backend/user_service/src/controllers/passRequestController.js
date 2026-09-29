@@ -707,6 +707,26 @@ const viewMasterDocument = async (req, res) => {
   }
 };
 
+/**
+ * GET /api/pass-request/dashboard-stats
+ *
+ * Lightweight endpoint that returns all dashboard KPI metrics via SQL
+ * aggregation. Replaces the old pattern of fetching 100 hydrated records
+ * and computing counts, revenue, and entity totals client-side.
+ */
+const getDashboardStats = async (req, res) => {
+  try {
+    const stats = await getAgentPassRequestsDetails.getDashboardStats();
+    return res.json({ success: true, ...stats });
+  } catch (error) {
+    console.error("Dashboard stats error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch dashboard statistics",
+    });
+  }
+};
+
 const getAgentPassRequestsToApproverAdmin = async (req, res) => {
   try {
     const role = req.user.role;
@@ -3420,6 +3440,7 @@ module.exports = {
   getAgentPassRequests,
   getMasterDirectory,
   getAgentPassRequestsToApproverAdmin,
+  getDashboardStats,
   viewPassRequestsDocument,
   approvePerson,
   rejectPerson,

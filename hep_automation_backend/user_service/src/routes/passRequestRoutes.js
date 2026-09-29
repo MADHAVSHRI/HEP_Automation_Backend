@@ -35,6 +35,11 @@ router.get(
   passRequestController.getMasterDirectory,
 ); //coming from database
 router.get(
+  "/dashboard-stats",
+  verifyToken,
+  passRequestController.getDashboardStats,
+);
+router.get(
   "/get-agent-pass-requests",
   verifyToken,
   passRequestController.getAgentPassRequestsToApproverAdmin,
