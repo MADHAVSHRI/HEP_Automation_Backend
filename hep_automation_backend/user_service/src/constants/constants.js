@@ -86,7 +86,6 @@ const VISITOR_TYPES = [
 // Flat array of visitor type names used by the Bulk Pass module for validation.
 const BULK_VISITOR_TYPES = Object.freeze(VISITOR_TYPES.map((t) => t.name));
 
-<<<<<<< Updated upstream
 const VENDOR_OIL_JETTY_WORKFLOW_STATES = Object.freeze({
   MARINE: "PENDING_VENDOR_MARINE",
   CONCERN_DEPARTMENT: "PENDING_VENDOR_CONCERN_DEPARTMENT",
@@ -101,7 +100,8 @@ const VENDOR_OIL_JETTY_WORKFLOW_ACTIONS = Object.freeze({
   APPROVED: "APPROVED",
   REJECTED: "REJECTED",
   REVERTED: "REVERTED",
-=======
+});
+
 // Bulk Pass ceilings and defaults.
 //
 // A Bulk Pass declares how many persons and vehicles it allows IN TOTAL — any
@@ -121,7 +121,6 @@ const BULK_PASS_LIMITS = Object.freeze({
   // Sanity ceiling for a pass-level total; guards against typos, not policy.
   MAX_TOTAL_PERSONS: 10000,
   MAX_TOTAL_VEHICLES: 10000,
->>>>>>> Stashed changes
 });
 
 const DEPARTMENT_IDS = Object.freeze({
