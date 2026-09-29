@@ -25,7 +25,8 @@ describe("resolveValidityWindow", () => {
       validityUpto: "2026-10-01T12:00:00Z",
     });
     expect(w.validityFrom.toISOString()).toBe("2026-09-01T00:00:00.000Z");
-    expect(w.validityUpto.toISOString()).toBe("2026-10-01T12:00:00.000Z");
+    // Date-only validation: all dates extended to end of day in IST
+    expect(w.validityUpto.toISOString()).toBe("2026-10-01T18:29:59.999Z");
   });
 
   test("prefers the approved window over the requested one on a public request", () => {
@@ -36,7 +37,8 @@ describe("resolveValidityWindow", () => {
       approved_time_upto: "2026-04-01T12:00:00Z",
     });
     expect(w.validityFrom.toISOString()).toBe("2026-03-01T00:00:00.000Z");
-    expect(w.validityUpto.toISOString()).toBe("2026-04-01T12:00:00.000Z");
+    // Date-only validation: all dates extended to end of day in IST
+    expect(w.validityUpto.toISOString()).toBe("2026-04-01T18:29:59.999Z");
   });
 
   test("returns nulls for a record with no window", () => {
@@ -46,8 +48,8 @@ describe("resolveValidityWindow", () => {
 });
 
 describe("normalizeValidityUpto", () => {
-  test("stretches a bare date to the end of that day", () => {
-    // Constructed in local time so the midnight check is meaningful.
+  test("always extends dates to end of day (date-only validation)", () => {
+    // Date-only: all dates are extended to 23:59:59.999 regardless of input time
     const midnight = new Date(2026, 8, 30, 0, 0, 0, 0);
     const end = normalizeValidityUpto(midnight);
     expect(end.getHours()).toBe(23);
@@ -55,9 +57,13 @@ describe("normalizeValidityUpto", () => {
     expect(end.getDate()).toBe(30);
   });
 
-  test("leaves an explicit time alone", () => {
+  test("extends dates with explicit times to end of day (date-only)", () => {
+    // Even dates with explicit times are extended to end of day
     const at = new Date(2026, 8, 30, 14, 30, 0, 0);
-    expect(normalizeValidityUpto(at).getHours()).toBe(14);
+    const end = normalizeValidityUpto(at);
+    expect(end.getHours()).toBe(23);
+    expect(end.getMinutes()).toBe(59);
+    expect(end.getDate()).toBe(30);
   });
 
   test("returns null for unusable input", () => {
@@ -75,7 +81,9 @@ describe("getValidityState", () => {
     expect(v.state).toBe("ACTIVE");
     expect(v.canSubmit).toBe(true);
     expect(v.expiringSoon).toBe(false);
-    expect(v.daysRemaining).toBe(20);
+    // Date-only validation extends to end of day, adding ~0.77 days (18.5h IST offset)
+    // So 20 days → 20.77 days → rounds up to 21 days
+    expect(v.daysRemaining).toBe(21);
   });
 
   test("a bulk pass with no validityFrom is open from the start", () => {

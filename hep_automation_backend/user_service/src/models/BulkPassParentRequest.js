@@ -203,10 +203,9 @@ const BulkPassParentRequest = {
     // Enforce time-based validity: if the approved time window has elapsed,
     // treat the token as inactive
     if (row && row.approved_time_upto) {
+      // Normalize to end of day for date-only validation
       const uptoDate = new Date(row.approved_time_upto);
-      if (uptoDate.getHours() === 0 && uptoDate.getMinutes() === 0 && uptoDate.getSeconds() === 0) {
-        uptoDate.setHours(23, 59, 59, 999);
-      }
+      uptoDate.setHours(23, 59, 59, 999);
       if (uptoDate.getTime() < Date.now()) {
         row.token_active = false;
       }
@@ -524,10 +523,9 @@ const BulkPassParentRequest = {
       return true;
     }
 
+    // Normalize to end of day for date-only validation
     const uptoDate = new Date(parentRequest.approved_time_upto);
-    if (uptoDate.getHours() === 0 && uptoDate.getMinutes() === 0 && uptoDate.getSeconds() === 0) {
-      uptoDate.setHours(23, 59, 59, 999);
-    }
+    uptoDate.setHours(23, 59, 59, 999);
     return uptoDate.getTime() < Date.now();
   },
 
@@ -563,10 +561,9 @@ const BulkPassParentRequest = {
     }
 
     if (parentRequest.approved_time_upto) {
+      // Normalize to end of day for date-only validation
       const uptoDate = new Date(parentRequest.approved_time_upto);
-      if (uptoDate.getHours() === 0 && uptoDate.getMinutes() === 0 && uptoDate.getSeconds() === 0) {
-        uptoDate.setHours(23, 59, 59, 999);
-      }
+      uptoDate.setHours(23, 59, 59, 999);
       if (now > uptoDate.getTime()) {
         return false;
       }

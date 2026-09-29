@@ -16,7 +16,7 @@ const AdmZip = require("adm-zip");
 
 const BulkPassSchema = require("../models/bulkPassSchema");
 const ReferenceNumber = require("../models/referenceNumberSchema");
-const { BULK_VISITOR_TYPES, BULK_PASS_LIMITS } = require("../constants/constants");
+const { BULK_VISITOR_TYPES, BULK_PASS_LIMITS, isStudentVisitorType } = require("../constants/constants");
 const {
   getValidityState,
   getBlockedMessage,
@@ -119,10 +119,9 @@ const findBatchOrParentRequestByToken = async (token) => {
   if (parentRequest) {
     let expiredByTime = false;
     if (parentRequest.approved_time_upto) {
+      // Normalize to end of day for date-only validation
       const upto = new Date(parentRequest.approved_time_upto);
-      if (upto.getHours() === 0 && upto.getMinutes() === 0 && upto.getSeconds() === 0) {
-        upto.setHours(23, 59, 59, 999);
-      }
+      upto.setHours(23, 59, 59, 999);
       expiredByTime = upto.getTime() < Date.now();
     }
 
@@ -2319,6 +2318,19 @@ exports.uploadFiles = async (req, res) => {
  * Requirements: 5.1–5.10, 6.1
  * Expects JSON body: { filePaths: string[], fileNames: string[] }
  */
+/*
+==========================================
+Visitor type of the Bulk Pass a submission belongs to. A public-website pass
+keeps it on the parent request, a department pass on the batch itself.
+Drives the student mobile rule (see BULK_PASS_LIMITS.MIN_STUDENT_CONTACT_MOBILES).
+==========================================
+*/
+const resolvePassVisitorType = ({ parent, parentRequest, batch }) =>
+  (parent && (parent.visitor_type || parent.visitorType)) ||
+  (parentRequest && (parentRequest.visitor_type || parentRequest.visitorType)) ||
+  (batch && (batch.visitorType || batch.visitor_type)) ||
+  null;
+
 exports.previewParsed = async (req, res) => {
   try {
     const resolved = await findBatchOrParentRequestByToken(getResolvedToken(req.params.token));
@@ -2349,7 +2361,9 @@ exports.previewParsed = async (req, res) => {
       return res.status(400).json({ success: false, message: "Maximum 5 files allowed per upload session" });
     }
 
-    const result = await parseAndValidate(filePaths, fileNames || filePaths.map((p) => path.basename(p)));
+    const result = await parseAndValidate(filePaths, fileNames || filePaths.map((p) => path.basename(p)), {
+      mobileOptional: isStudentVisitorType(resolvePassVisitorType(resolved)),
+    });
     const canSubmit = result.rows.every((r) => r.validationStatus === "valid");
 
     // Strip photoBuffer from response (large binary — thumbnail already included)
@@ -2419,7 +2433,9 @@ exports.downloadErrorReport = async (req, res) => {
           : fileNamesRaw.split(",").map((s) => s.trim()))
       : filePaths.map((p) => path.basename(p));
 
-    const parseResult = await parseAndValidate(filePaths, fileNames);
+    const parseResult = await parseAndValidate(filePaths, fileNames, {
+      mobileOptional: isStudentVisitorType(resolvePassVisitorType(resolved)),
+    });
     const buffer = await buildErrorReport(parseResult.rows);
 
     res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
@@ -3214,59 +3230,23 @@ exports.submitRowsDirectly = async (req, res) => {
         if (budgetBlock) return res.status(budgetBlock.status).json(budgetBlock.body);
       }
 
-      // ── Cross-batch duplicate check ─────────────────────────────────────────
-      // Within-batch duplicates are caught during row validation below; this
-      // catches the same person being sent again in a *different* batch of the
-      // same Bulk Pass, which would otherwise earn them a second pass.
-      // Runs for a new batch and for a revision alike — a revision simply
-      // excludes its own rows from the comparison.
-      const dedupParentId = parent ? parent.id : batch.parent_request_id || null;
-
-      if (dedupParentId) {
-        const dedupSource = parentSource || batch.request_source || "DEPARTMENT";
-        const excludeBatchId = isMultiSubmission ? null : batch.id;
-
-        const submittedAadhaars = rows
-          .map((r) => String(r.aadhaar || "").replace(/\s+/g, "").toUpperCase())
-          .filter(Boolean);
-
-        const alreadyPresent = await BulkPassSchema.findExistingAadhaarsInBulkPass(
-          dedupParentId,
-          dedupSource,
-          submittedAadhaars,
-          excludeBatchId
-        );
-
-        if (alreadyPresent.length) {
-          const byAadhaar = new Map(alreadyPresent.map((p) => [p.aadhaar, p]));
-          const clashes = [];
-          rows.forEach((r, index) => {
-            const key = String(r.aadhaar || "").replace(/\s+/g, "").toUpperCase();
-            const prior = byAadhaar.get(key);
-            if (prior) {
-              clashes.push({
-                index,
-                message: `Row ${index + 1}: ${r.name || "This person"} was already submitted in batch #${prior.submissionNumber} (${prior.refNo}) on this bulk pass`,
-              });
-            }
-          });
-
-          if (clashes.length) {
-            return res.status(400).json({
-              success: false,
-              message: `${clashes.length} person(s) have already been submitted on this bulk pass`,
-              data: { blockReason: "DUPLICATE_ACROSS_BATCHES", errors: clashes },
-            });
-          }
-        }
-      }
-
       const {
         validateAadhaar, validateMobile, validateDOB,
       } = require("../utils/bulkPassValidators");
       const { validateEmbeddedPhoto } = require("../services/photoValidationService");
 
       // ── Validate persons ────────────────────────────────────────────────────
+      // A student group does not need a mobile number per head — only a couple
+      // of contact numbers for the whole batch (or one per person when the
+      // batch is smaller than that). Every other visitor type needs one each.
+      const mobileOptional = isStudentVisitorType(
+        resolvePassVisitorType({ parent, parentRequest, batch })
+      );
+      const minContactMobiles = mobileOptional
+        ? Math.min(BULK_PASS_LIMITS.MIN_STUDENT_CONTACT_MOBILES, rows.length)
+        : 0;
+      let rowsWithMobile = 0;
+
       const errors = [];
       const seenAadhaar = new Set();
 
@@ -3290,8 +3270,12 @@ exports.submitRowsDirectly = async (req, res) => {
         const dobRes = validateDOB(row.dob || "");
         if (!dobRes.valid) { errors.push({ index: i, message: `${rowLabel}: ${dobRes.error}` }); continue; }
 
-        const mobRes = validateMobile(String(row.mobile || ""));
-        if (!mobRes.valid) { errors.push({ index: i, message: `${rowLabel}: ${mobRes.error}` }); continue; }
+        const mobile = String(row.mobile || "").trim();
+        if (mobile || !mobileOptional) {
+          const mobRes = validateMobile(mobile);
+          if (!mobRes.valid) { errors.push({ index: i, message: `${rowLabel}: ${mobRes.error}` }); continue; }
+        }
+        if (mobile) rowsWithMobile++;
 
         // Photo: accept either a newly uploaded base64 data URL or a reused server-side path.
         const hasNewPhoto = !!row.photoDataUrl;
@@ -3327,6 +3311,18 @@ exports.submitRowsDirectly = async (req, res) => {
 
       if (errors.length) {
         return res.status(400).json({ success: false, message: "Validation errors", data: { errors } });
+      }
+
+      if (mobileOptional && rowsWithMobile < minContactMobiles) {
+        return res.status(400).json({
+          success: false,
+          message: `For a student group at least ${minContactMobiles} person(s) in the batch must have a mobile number — ${rowsWithMobile} given. Add a teacher's or escort's number to ${minContactMobiles - rowsWithMobile} more row(s).`,
+          data: {
+            blockReason: "STUDENT_CONTACT_MOBILES_REQUIRED",
+            required: minContactMobiles,
+            provided: rowsWithMobile,
+          },
+        });
       }
 
       // ── Blacklist checks ────────────────────────────────────────────────────
@@ -3498,7 +3494,7 @@ exports.submitRowsDirectly = async (req, res) => {
                 name: row.name.trim(),
                 aadhaar: String(row.aadhaar).replace(/\s+/g, ""),
                 dob: dobToISO(row.dob),
-                mobile: String(row.mobile),
+                mobile: String(row.mobile || "").trim() || null,
                 address: row.address || null,
                 vehicleNumber: null,
                 vehicleType: null,
@@ -3525,7 +3521,7 @@ exports.submitRowsDirectly = async (req, res) => {
           name: row.name.trim(),
           aadhaar: String(row.aadhaar).replace(/\s+/g, ""),
           dob: dobToISO(row.dob),
-          mobile: String(row.mobile),
+          mobile: String(row.mobile || "").trim() || null,
           address: row.address || null,
           vehicleNumber: null,
           vehicleType: null,

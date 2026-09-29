@@ -10,9 +10,9 @@
  *
  * Rules:
  *  - `validityFrom` is optional. When absent the window is open from creation.
- *  - `validityUpto` stored as a bare date (midnight) means "the whole of that
- *    day", so it is stretched to 23:59:59.999 — mirroring the behaviour that
- *    BulkPassParentRequest already applied to approved_time_upto.
+ *  - `validityUpto` is treated as date-only (no time component required).
+ *    Any validity date is automatically extended to 23:59:59.999 of that day
+ *    to ensure the pass remains valid throughout the entire day.
  *  - A pass is ACTIVE only between those two instants.
  */
 
@@ -37,37 +37,20 @@ function toDate(value) {
 }
 
 /**
- * Normalise the end of a validity window. A value stored at exactly midnight is
- * treated as "end of that day" so a pass valid "upto 30 Sep" stays usable all
- * of 30 Sep.
+ * Normalise the end of a validity window. All dates are treated as date-only
+ * (no time component) and automatically extended to end of day (23:59:59.999)
+ * so a pass valid "upto 30 Sep" stays usable throughout the entire day.
  */
-// True when `d` sits exactly on midnight in the given (UTC-based) wall clock.
-function isMidnight(d) {
-  return (
-    d.getUTCHours() === 0 &&
-    d.getUTCMinutes() === 0 &&
-    d.getUTCSeconds() === 0 &&
-    d.getUTCMilliseconds() === 0
-  );
-}
-
 function normalizeValidityUpto(value) {
   const d = toDate(value);
   if (!d) return null;
-  // A bare "valid upto <day>" carries no meaningful time-of-day and means "the
-  // whole day". Depending on the DB session timezone it lands on either UTC
-  // midnight (2026-09-30T00:00Z) or IST midnight (2026-09-29T18:30Z); the old
-  // local getHours() check caught neither reliably (on an IST server a UTC-
-  // midnight value reads 05:30 and was left un-stretched, expiring the pass ~18h
-  // early and disagreeing with browsers elsewhere). Treat either as a bare date
-  // and extend to the END of that day in IST, deterministically on every server.
+  
+  // Always treat as date-only and extend to END of that day in IST
+  // This ensures consistent behavior regardless of how the date was stored
   const ist = new Date(d.getTime() + IST_OFFSET_MS);
-  if (isMidnight(d) || isMidnight(ist)) {
-    const endUtcMs =
-      Date.UTC(ist.getUTCFullYear(), ist.getUTCMonth(), ist.getUTCDate(), 23, 59, 59, 999) - IST_OFFSET_MS;
-    return new Date(endUtcMs);
-  }
-  return d;
+  const endUtcMs =
+    Date.UTC(ist.getUTCFullYear(), ist.getUTCMonth(), ist.getUTCDate(), 23, 59, 59, 999) - IST_OFFSET_MS;
+  return new Date(endUtcMs);
 }
 
 /**

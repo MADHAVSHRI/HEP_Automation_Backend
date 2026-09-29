@@ -997,60 +997,6 @@ const BulkPassSchema = {
 
   /*
   ==========================================
-  Find Aadhaar numbers already accepted on this Bulk Pass.
-
-  Deduplication inside a single batch is not enough on a reusable link: the
-  same person could otherwise be sent again in a later batch and collect a
-  second pass. Rejected people are excluded on purpose — a rejection is exactly
-  the case where a corrected resubmission is legitimate.
-
-  @param {number} parentId
-  @param {string|null} source
-  @param {string[]} aadhaars - normalised (no spaces, upper case)
-  @param {number|null} excludeBatchId - batch being revised, if any
-  @returns {Array} [{ aadhaar, name, refNo, submissionNumber }]
-  ==========================================
-  */
-  async findExistingAadhaarsInBulkPass(parentId, source, aadhaars, excludeBatchId = null) {
-    if (!Array.isArray(aadhaars) || aadhaars.length === 0) return [];
-
-    const params = [parentId, aadhaars];
-    let i = 3;
-
-    let sourceFilter = "";
-    if (source) {
-      sourceFilter = `AND b."request_source" = $${i++}`;
-      params.push(source);
-    }
-
-    let excludeFilter = "";
-    if (excludeBatchId) {
-      excludeFilter = `AND b.id <> $${i++}`;
-      params.push(excludeBatchId);
-    }
-
-    const result = await pool.query(
-      `SELECT
-         UPPER(REPLACE(p."aadhaar", ' ', '')) AS aadhaar,
-         p."name",
-         b."refNo",
-         b."submission_number" AS "submissionNumber"
-       FROM "bulk_pass_persons" p
-       JOIN "bulk_pass_batches" b ON b.id = p."batchId"
-       WHERE b.parent_request_id = $1
-         AND UPPER(REPLACE(p."aadhaar", ' ', '')) = ANY($2)
-         AND COALESCE(p."approvalStatus", 'PENDING') <> 'REJECTED'
-         AND b.status <> 'REJECTED'
-         ${sourceFilter}
-         ${excludeFilter}
-       ORDER BY b."submission_number" ASC`,
-      params
-    );
-    return result.rows;
-  },
-
-  /*
-  ==========================================
   Bulk Passes whose validity window closes within `days` and which have not
   been sent an expiry reminder yet. Drives the daily reminder job.
   ==========================================

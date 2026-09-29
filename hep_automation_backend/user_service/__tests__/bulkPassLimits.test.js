@@ -2,7 +2,8 @@
  * Tests for the Bulk Pass safeguards added on top of the multi-submission flow:
  *
  *  - a cumulative budget (max batches / max people) across the whole pass,
- *  - duplicate detection spanning batches, not just within one,
+ *  - the same person being welcome in more than one batch of a pass,
+ *  - the relaxed mobile-number rule for student groups,
  *  - a returned batch resolving inside its Bulk Pass rather than alone.
  *
  * The per-batch ceiling and the validity window are covered separately in
@@ -102,7 +103,6 @@ beforeEach(() => {
   jest.clearAllMocks();
   pool.query.mockResolvedValue({ rows: [] });
   BulkPassParentRequest.findByToken.mockResolvedValue(null);
-  BulkPassSchema.findExistingAadhaarsInBulkPass.mockResolvedValue([]);
   // The correction payload is assembled from the batch's stored rows.
   BulkPassSchema.getPersonsByBatch.mockResolvedValue([]);
   BulkPassSchema.getChildBatches.mockResolvedValue([]);
@@ -282,65 +282,148 @@ describe("cumulative budget across the whole Bulk Pass", () => {
   });
 });
 
-describe("duplicate detection across batches", () => {
-  test("refuses a person already accepted in an earlier batch", async () => {
+describe("the same person across batches", () => {
+  // A reusable pass covers the same people coming back on different days —
+  // a person in batch #1 may be sent again in batch #2, #3, ... without being
+  // treated as a duplicate. Only the same Aadhaar twice *within* one batch is.
+  test("a person already in an earlier batch is accepted again", async () => {
     BulkPassSchema.getByToken.mockResolvedValue(reusablePass());
-    BulkPassSchema.findExistingAadhaarsInBulkPass.mockResolvedValue([
-      { aadhaar: "123456789012", name: "A Kumar", refNo: "BP/2026/00050", submissionNumber: 1 },
-    ]);
+    BulkPassSchema.getSubmissionSummary.mockResolvedValue(
+      summary({ totalSubmissions: 1, totalPersons: 1 })
+    );
 
     const res = await request(app)
       .post("/api/bulk-pass/public/t/submit-rows")
       .send({ rows: [row("123456789012", "A Kumar")] });
 
+    // Whatever else the pipeline says (Aadhaar document is missing here), it
+    // is never a duplicate complaint.
+    expect(res.body.data?.blockReason).toBeUndefined();
+    expect(JSON.stringify(res.body)).not.toMatch(/already (been )?submitted/i);
+    expect(BulkPassSchema.findExistingAadhaarsInBulkPass).toBeUndefined();
+  });
+
+  test("the same Aadhaar twice in one batch is still refused", async () => {
+    BulkPassSchema.getByToken.mockResolvedValue(reusablePass());
+
+    const res = await request(app)
+      .post("/api/bulk-pass/public/t/submit-rows")
+      .send({ rows: [row("123456789012", "A Kumar"), row("1234 5678 9012", "A Kumar again")] });
+
     expect(res.status).toBe(400);
-    expect(res.body.data.blockReason).toBe("DUPLICATE_ACROSS_BATCHES");
-    expect(res.body.data.errors[0].message).toMatch(/already submitted in batch #1/);
+    expect(res.body.data.errors).toEqual(
+      expect.arrayContaining([expect.objectContaining({ index: 1, message: expect.stringMatching(/Duplicate Aadhaar/) })])
+    );
+    expect(BulkPassSchema.createBatch).not.toHaveBeenCalled();
+  });
+});
+
+describe("mobile numbers on a student pass", () => {
+  // Rows carry a real Aadhaar document path so the only thing left to complain
+  // about is the mobile number.
+  const studentRow = (aadhaar, mobile) => ({
+    ...row(aadhaar),
+    mobile,
+    _keepAadhaarPath: __filename,
+  });
+  const studentPass = (overrides = {}) => reusablePass({ visitorType: "Students", ...overrides });
+
+  test("a blank mobile is not a row error for students", async () => {
+    BulkPassSchema.getByToken.mockResolvedValue(studentPass());
+
+    const res = await request(app)
+      .post("/api/bulk-pass/public/t/submit-rows")
+      .send({
+        rows: [
+          studentRow("123456789012", "9876543210"),
+          studentRow("223456789012", "9876543211"),
+          studentRow("323456789012", ""),
+          studentRow("423456789012", undefined),
+        ],
+      });
+
+    expect(res.body.message).not.toBe("Validation errors");
+    expect(res.body.data?.blockReason).not.toBe("STUDENT_CONTACT_MOBILES_REQUIRED");
+    expect(JSON.stringify(res.body)).not.toMatch(/mobile/i);
+  });
+
+  test("but the batch still needs two contact numbers", async () => {
+    BulkPassSchema.getByToken.mockResolvedValue(studentPass());
+
+    const res = await request(app)
+      .post("/api/bulk-pass/public/t/submit-rows")
+      .send({
+        rows: [
+          studentRow("123456789012", "9876543210"),
+          studentRow("223456789012", ""),
+          studentRow("323456789012", ""),
+        ],
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body.data.blockReason).toBe("STUDENT_CONTACT_MOBILES_REQUIRED");
+    expect(res.body.data.required).toBe(2);
+    expect(res.body.data.provided).toBe(1);
+    expect(res.body.message).toMatch(/at least 2 person/);
     expect(BulkPassSchema.createBatch).not.toHaveBeenCalled();
   });
 
-  test("scopes the lookup to this Bulk Pass", async () => {
-    BulkPassSchema.getByToken.mockResolvedValue(reusablePass());
+  test("a batch smaller than two needs a number for everyone in it", async () => {
+    BulkPassSchema.getByToken.mockResolvedValue(studentPass());
 
-    await request(app)
+    const res = await request(app)
       .post("/api/bulk-pass/public/t/submit-rows")
-      .send({ rows: [row("123456789012")] });
+      .send({ rows: [studentRow("123456789012", "")] });
 
-    expect(BulkPassSchema.findExistingAadhaarsInBulkPass).toHaveBeenCalledWith(
-      42,
-      "DEPARTMENT",
-      ["123456789012"],
-      null
-    );
+    expect(res.status).toBe(400);
+    expect(res.body.data.blockReason).toBe("STUDENT_CONTACT_MOBILES_REQUIRED");
+    expect(res.body.data.required).toBe(1);
   });
 
-  test("a revision excludes its own rows from the comparison", async () => {
-    // A returned child batch: not itself reusable, but part of a Bulk Pass.
-    BulkPassSchema.getByToken.mockResolvedValue({
-      id: 77,
-      refNo: "BP/2026/00077",
-      tokenActive: true,
-      tokenActiveRaw: true,
-      multipleSubmissionsEnabled: false,
-      status: "RETURNED_TO_APPLICANT",
-      parent_request_id: 42,
-      request_source: "DEPARTMENT",
-      validityUpto: FUTURE,
-      noOfPersons: 2,
-      noOfVehicles: 0,
-    });
-    BulkPassSchema.getById.mockResolvedValue(reusablePass());
+  test("a mobile that is given must still be a valid one", async () => {
+    BulkPassSchema.getByToken.mockResolvedValue(studentPass());
 
-    await request(app)
+    const res = await request(app)
       .post("/api/bulk-pass/public/t/submit-rows")
-      .send({ rows: [row("123456789012")] });
+      .send({ rows: [studentRow("123456789012", "12345"), studentRow("223456789012", "9876543210")] });
 
-    expect(BulkPassSchema.findExistingAadhaarsInBulkPass).toHaveBeenCalledWith(
-      42,
-      "DEPARTMENT",
-      ["123456789012"],
-      77 // its own rows must not count as duplicates of itself
-    );
+    expect(res.status).toBe(400);
+    expect(res.body.data.errors[0].message).toMatch(/Row 1: Invalid mobile number/);
+  });
+
+  test("every other visitor type still needs a mobile per person", async () => {
+    BulkPassSchema.getByToken.mockResolvedValue(reusablePass({ visitorType: "Vendors" }));
+
+    const res = await request(app)
+      .post("/api/bulk-pass/public/t/submit-rows")
+      .send({ rows: [studentRow("123456789012", "9876543210"), studentRow("223456789012", "")] });
+
+    expect(res.status).toBe(400);
+    expect(res.body.data.errors[0].message).toMatch(/Row 2: Invalid mobile number/);
+  });
+
+  test("a public-website student pass is recognised from the parent request", async () => {
+    BulkPassSchema.getByToken.mockResolvedValue(null);
+    BulkPassParentRequest.findByToken.mockResolvedValue({
+      id: 9,
+      tracking_number: "BPR-2026-000009",
+      status: "ACTIVE",
+      token_active: true,
+      visitor_type: "Students",
+      approved_time_from: PAST,
+      approved_time_upto: FUTURE,
+      validity_from: PAST,
+      validity_upto: FUTURE,
+      no_of_persons: 50,
+      no_of_vehicles: 0,
+      max_submissions: null,
+    });
+    const res = await request(app)
+      .post("/api/bulk-pass/public/t/submit-rows")
+      .send({ rows: [studentRow("123456789012", ""), studentRow("223456789012", "")] });
+
+    expect(res.status).toBe(400);
+    expect(res.body.data.blockReason).toBe("STUDENT_CONTACT_MOBILES_REQUIRED");
   });
 });
 

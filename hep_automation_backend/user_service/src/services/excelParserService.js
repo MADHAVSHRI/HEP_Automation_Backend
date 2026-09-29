@@ -110,7 +110,7 @@ function buildImageRowMap(worksheet, workbook) {
  * @param {number} rowNumber
  * @returns {Promise<{ validationStatus: string, errorMessage: string }>}
  */
-async function validateRow(rowData, photoBuffer, seenAadhaar, duplicateAadhaarSet, fileName, rowNumber) {
+async function validateRow(rowData, photoBuffer, seenAadhaar, duplicateAadhaarSet, fileName, rowNumber, options = {}) {
   // ── Aadhaar format ────────────────────────────────────────────────────
   const aadhaarResult = validateAadhaar(rowData.aadhaar || "");
   if (!aadhaarResult.valid) {
@@ -147,9 +147,15 @@ async function validateRow(rowData, photoBuffer, seenAadhaar, duplicateAadhaarSe
   }
 
   // ── Mobile ────────────────────────────────────────────────────────────
-  const mobileResult = validateMobile(rowData.mobile || "");
-  if (!mobileResult.valid) {
-    return { validationStatus: "invalid", errorMessage: mobileResult.error };
+  // Optional per person on a student pass (the batch as a whole still needs
+  // a couple of contact numbers — enforced at submit time). When a number is
+  // given it must still be a valid one.
+  const mobile = String(rowData.mobile || "").trim();
+  if (mobile || !options.mobileOptional) {
+    const mobileResult = validateMobile(mobile);
+    if (!mobileResult.valid) {
+      return { validationStatus: "invalid", errorMessage: mobileResult.error };
+    }
   }
 
   // ── Required text fields ──────────────────────────────────────────────
@@ -173,9 +179,11 @@ async function validateRow(rowData, photoBuffer, seenAadhaar, duplicateAadhaarSe
  *
  * @param {string[]} filePaths  - absolute/relative paths to xlsx files on disk
  * @param {string[]} fileNames  - display names corresponding to each filePath
+ * @param {{ mobileOptional?: boolean }} [options] - mobileOptional: a blank
+ *        mobile is not a row error (student passes)
  * @returns {Promise<{ rows: ParsedRow[], summary: { total, valid, invalid } }>}
  */
-async function parseAndValidate(filePaths, fileNames) {
+async function parseAndValidate(filePaths, fileNames, options = {}) {
   // ── Pass 1: extract raw rows from all files ──────────────────────────
   const extractedRows = []; // { fileName, rowNumber, rowData, photoBuffer, isBeyondLimit }
   const aadhaarCounts = new Map(); // aadhaar → count (for duplicate detection)
@@ -306,7 +314,8 @@ async function parseAndValidate(filePaths, fileNames) {
       seenAadhaar,
       duplicateAadhaarSet,
       extracted.fileName,
-      extracted.rowNumber
+      extracted.rowNumber,
+      options
     );
 
     let photoThumbnail = null;

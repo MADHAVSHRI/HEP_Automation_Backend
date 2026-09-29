@@ -86,6 +86,13 @@ const VISITOR_TYPES = [
 // Flat array of visitor type names used by the Bulk Pass module for validation.
 const BULK_VISITOR_TYPES = Object.freeze(VISITOR_TYPES.map((t) => t.name));
 
+// Student groups are mostly minors travelling together, so the Bulk Pass does
+// not need a mobile number for every head — a couple of contact numbers per
+// batch (teachers / escorts) is enough. See BULK_PASS_LIMITS.MIN_STUDENT_CONTACT_MOBILES.
+const STUDENT_VISITOR_TYPE = "Students";
+const isStudentVisitorType = (v) =>
+  String(v || "").trim().toLowerCase() === STUDENT_VISITOR_TYPE.toLowerCase();
+
 const VENDOR_OIL_JETTY_WORKFLOW_STATES = Object.freeze({
   MARINE: "PENDING_VENDOR_MARINE",
   CONCERN_DEPARTMENT: "PENDING_VENDOR_CONCERN_DEPARTMENT",
@@ -121,6 +128,9 @@ const BULK_PASS_LIMITS = Object.freeze({
   // Sanity ceiling for a pass-level total; guards against typos, not policy.
   MAX_TOTAL_PERSONS: 10000,
   MAX_TOTAL_VEHICLES: 10000,
+  // A student batch needs this many persons with a mobile number (or every
+  // person, when the batch is smaller). Other visitor types need one per head.
+  MIN_STUDENT_CONTACT_MOBILES: 2,
 });
 
 const DEPARTMENT_IDS = Object.freeze({
@@ -165,6 +175,8 @@ module.exports = {
   PASS_REQUEST_STATUS_LIST: Object.values(PASS_REQUEST_STATUS),
   VISITOR_TYPES,
   BULK_VISITOR_TYPES,
+  STUDENT_VISITOR_TYPE,
+  isStudentVisitorType,
   BULK_PASS_LIMITS,
   MONTH_CODES,
   VENDOR_OIL_JETTY_WORKFLOW_STATES,
