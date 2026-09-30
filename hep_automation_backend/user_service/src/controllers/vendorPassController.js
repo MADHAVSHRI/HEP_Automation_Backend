@@ -1323,8 +1323,7 @@ exports.approveVendorVehicle = async (req, res) => {
                 "http://localhost:3000";
 
               const qrLink =
-                `${frontendUrl}/vendor_pass_approved/${encryptedToken}` +
-                `?type=vehicle&entityId=${vehicleEntry.id}`;
+                `${frontendUrl}/vendor_pass_approved/${encryptedToken}`;
 
               const approvedCountsRes = await pool.query(
                 `
@@ -1699,6 +1698,8 @@ exports.approveVendorVehicle = async (req, res) => {
         Number(id),
         Number(vehicleIndex),
         req.user?.userId,
+        req.user?.roleId,
+        req.user?.departmentId,
       );
       if (!result) {
         return res

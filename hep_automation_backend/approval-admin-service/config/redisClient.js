@@ -9,6 +9,14 @@ client.on("error", (err) => {
   console.error("Redis error:", err);
 });
 
-client.connect();
+(async () => {
+  try {
+    await client.connect();
+    console.log("Redis connected.");
+  } catch (err) {
+    console.error("Redis connect failed:", err);
+  }
+})();
 
 module.exports = client;
+

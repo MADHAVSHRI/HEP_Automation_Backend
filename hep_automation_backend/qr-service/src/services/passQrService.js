@@ -422,20 +422,13 @@ async function handleVendorAllPdfStorage(data) {
     "vendor",
   );
 
-  const filePath = path.join(folderPath, `VendorPass_${referenceNo}.pdf`);
-
-  if (await fileExists(filePath)) {
-    console.log(`[VENDOR-PASS] Serving cached all-pass PDF: ${filePath}`);
-
-    return fs.promises.readFile(filePath);
-  }
-
   await ensureDirectory(folderPath);
 
   const pdfBuffer = await generatePDF(data, {
     isVendor: true,
   });
 
+  const filePath = path.join(folderPath, `VendorPass_${referenceNo}.pdf`);
   await fs.promises.writeFile(filePath, pdfBuffer);
 
   return pdfBuffer;

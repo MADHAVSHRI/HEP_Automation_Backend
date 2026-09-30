@@ -8,6 +8,12 @@ const FRONTEND_URL =
   process.env.FRONTEND_URL ||
   "http://localhost:3000";
 
+const isOilDockArea = (val) => {
+  if (!val) return false;
+  const str = String(val).toUpperCase();
+  return str === "1" || str.includes("OIL JETTY") || str.includes("OIL_JETTY");
+};
+
 /**
  * Raw-SQL data layer for vendor_pass_requests, mirroring the style used in
  * passRequestSchema.js / userCreationSchema.js (the rest of the codebase
@@ -1117,7 +1123,13 @@ const VendorPassRequest = {
   //   return result.rows[0] || null;
   // },
 
-  async approveVendorVehicle(vendorPassId, vehicleIndex, approvedByUserId) {
+  async approveVendorVehicle(
+    vendorPassId,
+    vehicleIndex,
+    approvedByUserId,
+    approvedByRoleId = null,
+    approvedByDepartmentId = null,
+  ) {
     const vehicleRes = await pool.query(
       `
     SELECT
@@ -1192,9 +1204,6 @@ const VendorPassRequest = {
 
     const isAtPassSection = vehicle.workflowState === "PENDING_PASS_SECTION";
 
-    // const requestAlreadyAtSafety =
-    //   vehicle.requestWorkflowState === "PENDING_SAFETY";
-
     if (isNormalAnnualTrailer && isAtPassSection) {
       console.log(
         `[VENDOR-PASS] Moving annual trailer vehicle ${vehicle.id} to Safety Officer`,
@@ -1230,18 +1239,65 @@ const VendorPassRequest = {
         passSectionApproverName = approverRes.rows[0]?.userName || null;
       }
 
-      await pool.query(
-        `
-  UPDATE "vendor_pass_requests"
-  SET
-    "status" = 'VENDOR_SUBMITTED',
-    "workflowState" = 'PENDING_SAFETY',
-    "approvedBy" = COALESCE($2, "approvedBy"),
-    "updatedAt" = NOW()
-  WHERE id = $1
-  `,
-        [vendorPassId, passSectionApproverName],
-      );
+      if (!vehicle.isOilDock) {
+        await pool.query(
+          `
+        UPDATE "vendor_pass_requests"
+        SET
+          "status" = 'VENDOR_SUBMITTED',
+          "workflowState" = 'PENDING_SAFETY',
+          "approvedBy" = COALESCE($2, "approvedBy"),
+          "updatedAt" = NOW()
+        WHERE id = $1
+        `,
+          [vendorPassId, passSectionApproverName],
+        );
+      } else {
+        await pool.query(
+          `
+        UPDATE "vendor_pass_requests"
+        SET
+          "approvedBy" = COALESCE("approvedBy", $2),
+          "updatedAt" = NOW()
+        WHERE id = $1
+        `,
+          [vendorPassId, passSectionApproverName],
+        );
+      }
+
+      // Record audit history in vendor_oil_jetty_workflow_history for Processed tab tracking
+      if (
+        (Number(approvedByDepartmentId) === 9 && Number(approvedByRoleId) === 4) ||
+        (!approvedByDepartmentId && approvedByUserId)
+      ) {
+        await pool.query(
+          `
+          INSERT INTO "vendor_oil_jetty_workflow_history"
+          (
+            "vendorPassRequestId",
+            "stage",
+            "departmentId",
+            "roleId",
+            "action",
+            "actedByUserId",
+            "actedByUserName",
+            "remarks",
+            "createdAt",
+            "updatedAt"
+          )
+          VALUES
+          ($1, 'PASS_SECTION', $2, $3, 'APPROVED', $4, $5, $6, NOW(), NOW())
+          `,
+          [
+            Number(vendorPassId),
+            Number(approvedByDepartmentId) || 9,
+            Number(approvedByRoleId) || 4,
+            approvedByUserId,
+            passSectionApproverName,
+            `VEHICLE ID: ${vehicle.id}`,
+          ],
+        );
+      }
 
       // PARENT: also keep request at Safety Officer stage
       // await pool.query(
@@ -1311,12 +1367,61 @@ const VendorPassRequest = {
     SET
       "status" = 'approved',
       "workflowState" = 'COMPLETED',
+      "qrUuid" = CASE
+        WHEN "qrUuid" IS NULL OR COALESCE("qrRevoked", false) = true
+        THEN gen_random_uuid()
+        ELSE "qrUuid"
+      END,
+      "qrIssuedAt" = CASE
+        WHEN "qrUuid" IS NULL OR COALESCE("qrRevoked", false) = true
+        THEN NOW()
+        ELSE "qrIssuedAt"
+      END,
+      "qrRevoked" = false,
       "workflowActionStage" = NULL,
       "workflowActionRemarks" = NULL,
       "updatedAt" = NOW()
     WHERE id = $1
     `,
         [vehicle.id],
+      );
+
+      // Record audit history in vendor_oil_jetty_workflow_history for Processed tab tracking
+      let passSectionApproverName = null;
+      if (approvedByUserId) {
+        const approverRes = await pool.query(
+          `SELECT "userName" FROM "users" WHERE id = $1`,
+          [approvedByUserId],
+        );
+        passSectionApproverName = approverRes.rows[0]?.userName || null;
+      }
+
+      await pool.query(
+        `
+        INSERT INTO "vendor_oil_jetty_workflow_history"
+        (
+          "vendorPassRequestId",
+          "stage",
+          "departmentId",
+          "roleId",
+          "action",
+          "actedByUserId",
+          "actedByUserName",
+          "remarks",
+          "createdAt",
+          "updatedAt"
+        )
+        VALUES
+        ($1, 'PASS_SECTION', $2, $3, 'APPROVED', $4, $5, $6, NOW(), NOW())
+        `,
+        [
+          Number(vendorPassId),
+          Number(approvedByDepartmentId) || 9,
+          Number(approvedByRoleId) || 4,
+          approvedByUserId,
+          passSectionApproverName,
+          `VEHICLE ID: ${vehicle.id}`,
+        ],
       );
 
       const emailUrl = process.env.EMAIL_SERVICE_URL;
@@ -1373,8 +1478,7 @@ const VendorPassRequest = {
             const encryptedToken = encryptToken(vendorRequest.token);
 
             const qrLink =
-              `${FRONTEND_URL}/vendor_pass_approved/${encryptedToken}` +
-              `?type=vehicle&entityId=${vehicle.id}`;
+              `${FRONTEND_URL}/vendor_pass_approved/${encryptedToken}`;
 
             await axios.post(
               `${emailUrl}/api/email/sendVendorPassApproved`,
@@ -2221,7 +2325,7 @@ const VendorPassRequest = {
           [vendorPassId],
         ),
         client.query(
-          `SELECT id, status, "srDtmApproved" FROM "vendor_pass_persons" WHERE "vendorPassRequestId" = $1`,
+          `SELECT id, status, "srDtmApproved", "accessAreaId", "workflowState", "concernDepartmentId" FROM "vendor_pass_persons" WHERE "vendorPassRequestId" = $1`,
           [vendorPassId],
         ),
         client.query(
@@ -2232,6 +2336,8 @@ const VendorPassRequest = {
               pv."twistLockCertified",
               pv."sparkArresterCertified",
               pv."vehicleTypeId",
+              pv."accessAreaId",
+              pv."workflowState",
               vt.name AS "vehicleTypeName"
           FROM "vendor_pass_vehicles" pv
           LEFT JOIN vehicle_types vt
@@ -2249,24 +2355,23 @@ const VendorPassRequest = {
       const persons = personsRes.rows;
       const vehicles = vehiclesRes.rows;
 
-      const isNormalAnnualTrailer =
-        row.isOilDock !== true &&
-        vehicles.some((v) => {
-          const passType = String(v.passType || "")
-            .trim()
-            .toUpperCase();
+      const isNormalAnnualTrailer = vehicles.some((v) => {
+        const passType = String(v.passType || "")
+          .trim()
+          .toUpperCase();
 
-          const vehicleType = String(v.vehicleTypeName || "")
-            .trim()
-            .toUpperCase();
+        const vehicleType = String(v.vehicleTypeName || "")
+          .trim()
+          .toUpperCase();
 
-          return (
-            ["YEARLY", "ANNUAL"].includes(passType) &&
-            ["TRAILORS", "TRAILER LORRY", "TRACTOR TRAILER"].includes(
-              vehicleType,
-            )
-          );
-        });
+        return (
+          !isOilDockArea(v.accessAreaId) &&
+          ["YEARLY", "ANNUAL"].includes(passType) &&
+          ["TRAILORS", "TRAILER LORRY", "TRACTOR TRAILER"].includes(
+            vehicleType,
+          )
+        );
+      });
 
       // Check if any reverted entities
       const hasRevertedPerson = persons.some((p) => p.status === "reverted");
@@ -2398,39 +2503,29 @@ const VendorPassRequest = {
       const isFireSafety = roleId === 27 || role === "Fire Safety Officer";
       const isSrDtm = roleId === 28 || role === "Senior Deputy Traffic Manager";
 
-      const isOilDockArea = (val) => {
-        if (!val) return false;
-        const str = String(val).toUpperCase();
-        return (
-          str === "1" || str.includes("OIL JETTY") || str.includes("OIL_JETTY")
-        );
-      };
-
-      if (isSafety && isNormalAnnualTrailer) {
-        const uncertifiedTrailerVehicles = vehicles.filter((v) => {
-          const passType = String(v.passType || "")
-            .trim()
-            .toUpperCase();
-
-          const vehicleType = String(v.vehicleTypeName || "")
-            .trim()
-            .toUpperCase();
-
+      if (isSafety) {
+        // Safety officer only validates normal annual container/trailer vehicles
+        const safetyReviewVehicles = vehicles.filter((v) => {
+          const passType = String(v.passType || "").trim().toUpperCase();
+          const vehicleType = String(v.vehicleTypeName || "").trim().toUpperCase();
+          const isOil = isOilDockArea(v.accessAreaId);
           return (
-            v.status !== "rejected" &&
+            !isOil &&
             ["YEARLY", "ANNUAL"].includes(passType) &&
-            ["TRAILORS", "TRAILER LORRY", "TRACTOR TRAILER"].includes(
-              vehicleType,
-            ) &&
-            !v.twistLockCertified
+            ["TRAILORS", "TRAILER LORRY", "TRACTOR TRAILER"].includes(vehicleType)
           );
         });
+
+        const uncertifiedTrailerVehicles = safetyReviewVehicles.filter(
+          (v) => v.status !== "rejected" && !v.twistLockCertified,
+        );
 
         if (uncertifiedTrailerVehicles.length > 0) {
           throw new Error(
             "All Trailer/Lorry vehicles must be certified by the Safety Officer.",
           );
         }
+
         /*
          * FINAL QR ISSUE FOR NORMAL ANNUAL TRAILER VEHICLES
          *
@@ -2438,25 +2533,8 @@ const VendorPassRequest = {
          * Ensure every approved annual trailer receives a fresh QR UUID
          * when necessary.
          */
-
-        const approvedAnnualTrailerVehicleIds = vehicles
-          .filter((v) => {
-            const passType = String(v.passType || "")
-              .trim()
-              .toUpperCase();
-
-            const vehicleType = String(v.vehicleTypeName || "")
-              .trim()
-              .toUpperCase();
-
-            return (
-              v.status === "approved" &&
-              ["YEARLY", "ANNUAL"].includes(passType) &&
-              ["TRAILORS", "TRAILER LORRY", "TRACTOR TRAILER"].includes(
-                vehicleType,
-              )
-            );
-          })
+        const approvedAnnualTrailerVehicleIds = safetyReviewVehicles
+          .filter((v) => v.status === "approved")
           .map((v) => v.id);
 
         if (approvedAnnualTrailerVehicleIds.length > 0) {
@@ -2483,63 +2561,127 @@ const VendorPassRequest = {
             [approvedAnnualTrailerVehicleIds],
           );
         }
-      }
 
-      if (isSafety && !isNormalAnnualTrailer) {
-        const uncertifiedVehicles = vehicles.filter(
+        // Check if all entities across the entire request are reviewed
+        const allPersonsReviewed = persons.every((p) =>
+          ["approved", "rejected", "reverted"].includes(p.status),
+        );
+        const allVehiclesReviewed = vehicles.every((v) =>
+          ["approved", "rejected", "reverted"].includes(v.status),
+        );
+        const allReviewed = allPersonsReviewed && allVehiclesReviewed;
+
+        // Check if there are remaining oil-dock vehicles that require Fire Safety next
+        const hasPendingOilDockVehicles = vehicles.some(
           (v) =>
+            isOilDockArea(v.accessAreaId) &&
             v.status !== "rejected" &&
-            (v.passType === "MONTHLY" || v.passType === "YEARLY") &&
-            !v.twistLockCertified,
+            !v.sparkArresterCertified,
         );
-        if (uncertifiedVehicles.length > 0) {
-          throw new Error(
-            "All monthly/yearly vehicles must be certified by the Safety Officer.",
-          );
+
+        let nextState = row.workflowState;
+        if (hasPendingOilDockVehicles) {
+          nextState = "PENDING_FIRE_SAFETY";
+        } else if (allReviewed) {
+          nextState = "COMPLETED";
         }
 
-        const prRes = await client.query(
-          `SELECT "isOilDock" FROM "vendor_pass_requests" WHERE id = $1`,
-          [vendorPassId],
-        );
-        const isOilDock = prRes.rows[0]?.isOilDock;
-        const nextState = isOilDock
-          ? "PENDING_FIRE_SAFETY"
-          : "PENDING_PASS_SECTION";
-
-        // Reset entity statuses to 'pending' when entering Pass Section queue
-        if (nextState === "PENDING_PASS_SECTION") {
-          await client.query(
-            `
-            UPDATE "vendor_pass_persons" SET status = 'pending', "updatedAt" = NOW()
-            WHERE "vendorPassRequestId" = $1 AND status = 'approved'
-          `,
-            [vendorPassId],
-          );
-          await client.query(
-            `
-            UPDATE "vendor_pass_vehicles" SET status = 'pending', "updatedAt" = NOW()
-            WHERE "vendorPassRequestId" = $1 AND status = 'approved'
-          `,
-            [vendorPassId],
-          );
-        }
-
-        const result = await client.query(
+        const updateRes = await client.query(
           `
           UPDATE "vendor_pass_requests"
-          SET "workflowState" = $2, "approvedBy" = $3, "updatedAt" = NOW()
+          SET "workflowState" = $2,
+              "status" = CASE WHEN $3 = true THEN 'COMPLETED' ELSE "status" END,
+              "approvedBy" = COALESCE($4, "approvedBy"),
+              "updatedAt" = NOW()
           WHERE id = $1
           RETURNING *
-        `,
-          [vendorPassId, nextState, approvedBy],
+          `,
+          [vendorPassId, nextState, allReviewed, approvedBy],
         );
+
         await client.query("COMMIT");
         client.release();
+
+        if (row.vendorEmail && EMAIL_SERVICE_URL) {
+          try {
+            const countsRes = await pool.query(
+              `
+              SELECT
+                (SELECT COUNT(*) FROM "vendor_pass_persons" WHERE "vendorPassRequestId" = $1 AND status = 'approved') AS "approvedPersonsCount",
+                (SELECT COUNT(*) FROM "vendor_pass_vehicles" WHERE "vendorPassRequestId" = $1 AND status = 'approved') AS "approvedVehiclesCount"
+              `,
+              [Number(vendorPassId)],
+            );
+            const approvedPersonsCount = Number(countsRes.rows[0]?.approvedPersonsCount || 0);
+            const approvedVehiclesCount = Number(countsRes.rows[0]?.approvedVehiclesCount || 0);
+
+            if (approvedPersonsCount > 0 || approvedVehiclesCount > 0) {
+              const { encryptToken } = require("../utils/cryptoUtils");
+              const encryptedToken = encryptToken(row.token);
+              const qrLink = `${FRONTEND_URL}/vendor_pass_approved/${encryptedToken}`;
+
+              const formatValidUpto = (raw) => {
+                if (!raw) return null;
+                try {
+                  const d = new Date(raw);
+                  if (isNaN(d)) return String(raw);
+                  return d.toLocaleString("en-IN", {
+                    day: "2-digit",
+                    month: "2-digit",
+                    year: "numeric",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                    hour12: true,
+                    timeZone: "Asia/Kolkata",
+                  });
+                } catch {
+                  return String(raw);
+                }
+              };
+
+              axios
+                .post(
+                  `${EMAIL_SERVICE_URL}/api/email/sendVendorPassApproved`,
+                  {
+                    email: row.vendorEmail,
+                    companyName: row.companyName,
+                    referenceNo: row.referenceNo,
+                    qrLink,
+                    approvedPersonsCount,
+                    approvedVehiclesCount,
+                    validUpto: formatValidUpto(row.validUpto),
+                    departmentName: row.departmentName,
+                    finalStatus: allReviewed ? "COMPLETED" : "APPROVED",
+                  },
+                  {
+                    headers: { "x-service-name": "USER-SERVICE" },
+                    timeout: 8000,
+                  },
+                )
+                .then(() => {
+                  console.log(
+                    `[VENDOR-PASS] Safety Officer approval email sent to ${row.vendorEmail} for ${row.referenceNo} (persons: ${approvedPersonsCount}, vehicles: ${approvedVehiclesCount})`,
+                  );
+                })
+                .catch((emailError) => {
+                  console.error(
+                    `[VENDOR-PASS] Failed to send Safety Officer approval email:`,
+                    emailError.message,
+                  );
+                });
+            }
+          } catch (emailErr) {
+            console.error(
+              `[VENDOR-PASS] Failed to trigger email after Safety approval:`,
+              emailErr.message,
+            );
+          }
+        }
+
         return {
-          ...result.rows[0],
-          reviewStatus: "PENDING_NEXT",
-          message: "Safety Officer pre-approval completed.",
+          ...updateRes.rows[0],
+          reviewStatus: allReviewed ? "COMPLETED" : "PROCESSED",
+          message: "Safety Officer approval completed.",
         };
       }
 
@@ -3281,6 +3423,8 @@ const VendorPassRequest = {
         resultingStatus =
           nextWorkflowState === "COMPLETED" ? "approved" : "pending";
 
+        const isApprovedStatus = resultingStatus === "approved";
+
         await client.query(
           `
           UPDATE "${targetTable}"
@@ -3290,6 +3434,17 @@ const VendorPassRequest = {
             "workflowActionStage" = $5,
             "workflowActionRemarks" = $6,
             "isReverted" = false,
+            "qrUuid" = CASE
+              WHEN $7 = true AND ("qrUuid" IS NULL OR COALESCE("qrRevoked", false) = true)
+              THEN gen_random_uuid()
+              ELSE "qrUuid"
+            END,
+            "qrIssuedAt" = CASE
+              WHEN $7 = true AND ("qrUuid" IS NULL OR COALESCE("qrRevoked", false) = true)
+              THEN NOW()
+              ELSE "qrIssuedAt"
+            END,
+            "qrRevoked" = false,
             "updatedAt" = NOW()
           WHERE id = $1
             AND "vendorPassRequestId" = $2
@@ -3301,6 +3456,7 @@ const VendorPassRequest = {
             resultingWorkflowState,
             currentStage,
             normalizedRemarks,
+            isApprovedStatus,
           ],
         );
       }

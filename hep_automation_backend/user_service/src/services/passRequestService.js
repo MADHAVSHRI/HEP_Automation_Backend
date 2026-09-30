@@ -12,26 +12,9 @@ const path = require("path");
 const formatISTDateTime = (dateValue, isEndOfDay = false) => {
   if (!dateValue) return null;
 
-  let dateStr;
+  // If it's a Date object (from pg driver), convert directly to IST
   if (dateValue instanceof Date) {
-    dateStr = dateValue.toISOString();
-  } else if (typeof dateValue === "string") {
-    dateStr = dateValue.trim();
-  } else {
-    return null;
-  }
-
-  // Try to extract full datetime: YYYY-MM-DD HH:MM:SS or YYYY-MM-DDTHH:MM:SS
-  // This preserves the actual time from DB without UTC→IST shifting
-  const dtMatch = dateStr.match(
-    /^(\d{4})-(\d{2})-(\d{2})[T\s](\d{2}):(\d{2}):(\d{2})/,
-  );
-  if (dtMatch) {
-    const [, year, month, day, hour, minute] = dtMatch;
-    // Build IST datetime using the EXTRACTED time (not converted)
-    const istDateStr = `${year}-${month}-${day}T${hour}:${minute}:00+05:30`;
-    const d = new Date(istDateStr);
-    return d.toLocaleString("en-IN", {
+    return dateValue.toLocaleString("en-IN", {
       day: "2-digit",
       month: "2-digit",
       year: "numeric",
@@ -40,6 +23,33 @@ const formatISTDateTime = (dateValue, isEndOfDay = false) => {
       hour12: true,
       timeZone: "Asia/Kolkata",
     });
+  }
+
+  let dateStr;
+  if (typeof dateValue === "string") {
+    dateStr = dateValue.trim();
+  } else {
+    return null;
+  }
+
+  // Try to extract full datetime: YYYY-MM-DD HH:MM:SS or YYYY-MM-DDTHH:MM:SS
+  const dtMatch = dateStr.match(
+    /^(\d{4})-(\d{2})-(\d{2})[T\s](\d{2}):(\d{2}):(\d{2})/,
+  );
+  if (dtMatch) {
+    // Parse the string as a Date and let toLocaleString handle IST conversion
+    const d = new Date(dateStr);
+    if (!isNaN(d.getTime())) {
+      return d.toLocaleString("en-IN", {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: true,
+        timeZone: "Asia/Kolkata",
+      });
+    }
   }
 
   // Fallback: date only (YYYY-MM-DD)
@@ -75,6 +85,7 @@ exports.getQrData = async (passRequestId, type = "null", entityId = "null") => {
           pv.id,
           pv."passType",
           pv."marineSafetyApproved",
+          pv."twistLockCertified",
           vt.name AS "vehicleTypeName"
         FROM pass_vehicles pv
         LEFT JOIN vehicle_types vt
@@ -102,9 +113,13 @@ exports.getQrData = async (passRequestId, type = "null", entityId = "null") => {
           vehicleTypeName === "TRAILER LORRY") &&
         (passType === "YEARLY" || passType === "ANNUAL");
 
-      if (isMarineVehicle && vehicle.marineSafetyApproved !== true) {
+      if (
+        isMarineVehicle &&
+        vehicle.marineSafetyApproved !== true &&
+        vehicle.twistLockCertified !== true
+      ) {
         throw new Error(
-          "Marine Safety approval is required before QR can be generated.",
+          "Safety Officer approval is required before QR can be generated.",
         );
       }
     }
@@ -367,8 +382,6 @@ exports.getVendorQrData = async (
             "purposeOfVisitId"
           FROM "vendor_pass_requests"
           WHERE id = $1
-            AND status = 'COMPLETED'
-            AND "workflowState" = 'COMPLETED'
         `,
     [resolvedId],
   );
@@ -386,6 +399,33 @@ exports.getVendorQrData = async (
     visitorTypeId,
     purposeOfVisitId,
   } = vprResult.rows[0];
+
+  /*
+   * Auto-heal any approved vendor person/vehicle missing qrUuid
+   */
+  await pool.query(
+    `UPDATE "vendor_pass_persons"
+     SET "qrUuid" = gen_random_uuid(),
+         "qrIssuedAt" = NOW(),
+         "qrRevoked" = false,
+         "updatedAt" = NOW()
+     WHERE "vendorPassRequestId" = $1
+       AND status = 'approved'
+       AND "qrUuid" IS NULL`,
+    [resolvedId],
+  );
+
+  await pool.query(
+    `UPDATE "vendor_pass_vehicles"
+     SET "qrUuid" = gen_random_uuid(),
+         "qrIssuedAt" = NOW(),
+         "qrRevoked" = false,
+         "updatedAt" = NOW()
+     WHERE "vendorPassRequestId" = $1
+       AND status = 'approved'
+       AND "qrUuid" IS NULL`,
+    [resolvedId],
+  );
 
   /*
    * ==========================================================

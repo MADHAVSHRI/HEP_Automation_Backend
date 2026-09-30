@@ -4,26 +4,9 @@ const ReferenceNumber = require("./referenceNumberSchema");
 const formatISTDateTime = (dateValue, isEndOfDay = false) => {
   if (!dateValue) return null;
 
-  let dateStr;
+  // If it's a Date object (from pg driver), convert directly to IST
   if (dateValue instanceof Date) {
-    dateStr = dateValue.toISOString();
-  } else if (typeof dateValue === "string") {
-    dateStr = dateValue.trim();
-  } else {
-    return null;
-  }
-
-  // Try to extract full datetime: YYYY-MM-DD HH:MM:SS or YYYY-MM-DDTHH:MM:SS
-  // This preserves the actual time from DB without UTC→IST shifting
-  const dtMatch = dateStr.match(
-    /^(\d{4})-(\d{2})-(\d{2})[T\s](\d{2}):(\d{2}):(\d{2})/
-  );
-  if (dtMatch) {
-    const [, year, month, day, hour, minute] = dtMatch;
-    // Build IST datetime using the EXTRACTED time (not converted)
-    const istDateStr = `${year}-${month}-${day}T${hour}:${minute}:00+05:30`;
-    const d = new Date(istDateStr);
-    return d.toLocaleString("en-IN", {
+    return dateValue.toLocaleString("en-IN", {
       day: "2-digit",
       month: "2-digit",
       year: "numeric",
@@ -32,6 +15,33 @@ const formatISTDateTime = (dateValue, isEndOfDay = false) => {
       hour12: true,
       timeZone: "Asia/Kolkata",
     });
+  }
+
+  let dateStr;
+  if (typeof dateValue === "string") {
+    dateStr = dateValue.trim();
+  } else {
+    return null;
+  }
+
+  // Try to extract full datetime: YYYY-MM-DD HH:MM:SS or YYYY-MM-DDTHH:MM:SS
+  const dtMatch = dateStr.match(
+    /^(\d{4})-(\d{2})-(\d{2})[T\s](\d{2}):(\d{2}):(\d{2})/
+  );
+  if (dtMatch) {
+    // Parse the string as a Date and let toLocaleString handle IST conversion
+    const d = new Date(dateStr);
+    if (!isNaN(d.getTime())) {
+      return d.toLocaleString("en-IN", {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: true,
+        timeZone: "Asia/Kolkata",
+      });
+    }
   }
 
   // Fallback: date only (YYYY-MM-DD)
