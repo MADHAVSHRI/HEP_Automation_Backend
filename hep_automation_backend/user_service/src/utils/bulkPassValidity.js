@@ -13,7 +13,12 @@
  *  - `validityUpto` is treated as date-only (no time component required).
  *    Any validity date is automatically extended to 23:59:59.999 of that day
  *    to ensure the pass remains valid throughout the entire day.
+ *  - `validityFrom` is date-only too: it opens at 00:00 IST of that day.
  *  - A pass is ACTIVE only between those two instants.
+ *
+ * Each batch submitted under a Bulk Pass carries its own window, chosen by the
+ * applicant. It must sit inside the pass window and must not start in the past
+ * — see `resolveBatchValidity`.
  */
 
 // A pass is flagged as nearing expiry inside this window so the applicant has
@@ -54,6 +59,37 @@ function normalizeValidityUpto(value) {
 }
 
 /**
+ * The IST calendar day of a date-ish value as "YYYY-MM-DD", or null.
+ * A bare "YYYY-MM-DD" (what a date input yields) is that IST day as-is.
+ */
+function toIstDateKey(value) {
+  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value.trim())) {
+    const key = value.trim();
+    const d = new Date(`${key}T00:00:00Z`);
+    // Reject impossible days ("2026-02-31") instead of rolling them over.
+    return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === key ? key : null;
+  }
+  const d = toDate(value);
+  if (!d) return null;
+  return new Date(d.getTime() + IST_OFFSET_MS).toISOString().slice(0, 10);
+}
+
+function istDayBoundary(key, endOfDay) {
+  const [y, m, d] = key.split("-").map(Number);
+  const utcMs = endOfDay ? Date.UTC(y, m - 1, d, 23, 59, 59, 999) : Date.UTC(y, m - 1, d);
+  return new Date(utcMs - IST_OFFSET_MS);
+}
+
+/**
+ * Normalise the start of a validity window to 00:00 IST of that day, so a pass
+ * valid "from 1 Oct" is usable from the first minute of 1 Oct in the port.
+ */
+function normalizeValidityFrom(value) {
+  const key = toIstDateKey(value);
+  return key ? istDayBoundary(key, false) : null;
+}
+
+/**
  * Pull the validity window off any Bulk Pass shaped object.
  * Handles the camelCase batch rows, the snake_case parent-request rows, and the
  * approved_time_* window that a General Administrator sets when approving a
@@ -74,7 +110,7 @@ function resolveValidityWindow(source) {
     source.validity_upto ??
     null;
 
-  return { validityFrom: toDate(from), validityUpto: normalizeValidityUpto(upto) };
+  return { validityFrom: normalizeValidityFrom(from), validityUpto: normalizeValidityUpto(upto) };
 }
 
 /**
@@ -153,10 +189,64 @@ function getBlockedMessage(validity) {
   }
 }
 
+/**
+ * The earliest and latest day ("YYYY-MM-DD", IST) an applicant may choose for a
+ * batch under this Bulk Pass: from today or the pass start, whichever is later,
+ * up to the pass end. `min > max` means no day is left to choose.
+ */
+function getBatchValidityBounds(pass, now = new Date()) {
+  const { validityFrom, validityUpto } = resolveValidityWindow(pass);
+  const today = toIstDateKey(now);
+  const passFrom = validityFrom ? toIstDateKey(validityFrom) : null;
+  return {
+    min: passFrom && passFrom > today ? passFrom : today,
+    max: validityUpto ? toIstDateKey(validityUpto) : null,
+  };
+}
+
+/**
+ * Validate the window an applicant chose for one batch against its Bulk Pass.
+ *
+ * @param {{ validityFrom, validityUpto }} input  dates as entered (date-only)
+ * @param {Object} pass  parent batch / parent request row
+ * @returns {{ ok: true, validityFrom: Date, validityUpto: Date }
+ *         | { ok: false, field: 'validityFrom'|'validityUpto', error: string }}
+ */
+function resolveBatchValidity(input, pass, now = new Date()) {
+  const fromKey = toIstDateKey(input?.validityFrom);
+  const uptoKey = toIstDateKey(input?.validityUpto);
+  if (!fromKey) return { ok: false, field: "validityFrom", error: "Please enter a valid 'Valid From' date for this batch." };
+  if (!uptoKey) return { ok: false, field: "validityUpto", error: "Please enter a valid 'Valid To' date for this batch." };
+
+  const { min, max } = getBatchValidityBounds(pass, now);
+  if (fromKey < min) {
+    return { ok: false, field: "validityFrom", error: `'Valid From' cannot be earlier than ${formatDateKey(min)}.` };
+  }
+  if (uptoKey < fromKey) {
+    return { ok: false, field: "validityUpto", error: "'Valid To' cannot be earlier than 'Valid From'." };
+  }
+  if (max && uptoKey > max) {
+    return { ok: false, field: "validityUpto", error: `'Valid To' cannot be later than the bulk pass validity (${formatDateKey(max)}).` };
+  }
+  return { ok: true, validityFrom: istDayBoundary(fromKey, false), validityUpto: istDayBoundary(uptoKey, true) };
+}
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+function formatDateKey(key) {
+  const [y, m, d] = key.split("-");
+  return `${d} ${MONTHS[Number(m) - 1]} ${y}`;
+}
+
 module.exports = {
   EXPIRY_WARNING_DAYS,
   toDate,
+  toIstDateKey,
+  normalizeValidityFrom,
   normalizeValidityUpto,
+  getBatchValidityBounds,
+  resolveBatchValidity,
+  formatDateKey,
   resolveValidityWindow,
   getValidityState,
   isWithinValidity,

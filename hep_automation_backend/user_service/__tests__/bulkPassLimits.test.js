@@ -45,6 +45,9 @@ app.post(
 
 const FUTURE = new Date(Date.now() + 30 * 86400000).toISOString();
 const PAST = new Date(Date.now() - 30 * 86400000).toISOString();
+// Every batch under a Bulk Pass carries its own dates, chosen by the applicant.
+const TODAY_IST = new Date(Date.now() + 330 * 60000).toISOString().slice(0, 10);
+const BATCH_DATES = { validityFrom: TODAY_IST, validityUpto: TODAY_IST };
 
 const row = (aadhaar, name) => ({
   name: name || `Person ${aadhaar}`,
@@ -119,7 +122,7 @@ describe("cumulative budget across the whole Bulk Pass", () => {
 
     const res = await request(app)
       .post("/api/bulk-pass/public/t/submit-rows")
-      .send({ rows: [row("123456789012")] });
+      .send({ ...BATCH_DATES, rows: [row("123456789012")] });
 
     // Rejected later in the pipeline for a missing Aadhaar document, never for
     // a budget — which is the point.
@@ -132,7 +135,7 @@ describe("cumulative budget across the whole Bulk Pass", () => {
 
     const res = await request(app)
       .post("/api/bulk-pass/public/t/submit-rows")
-      .send({ rows: [row("123456789012")] });
+      .send({ ...BATCH_DATES, rows: [row("123456789012")] });
 
     expect(res.status).toBe(403);
     expect(res.body.data.blockReason).toBe("SUBMISSION_LIMIT_REACHED");
@@ -146,7 +149,7 @@ describe("cumulative budget across the whole Bulk Pass", () => {
 
     const res = await request(app)
       .post("/api/bulk-pass/public/t/submit-rows")
-      .send({ rows: [row("123456789012"), row("223456789012")] });
+      .send({ ...BATCH_DATES, rows: [row("123456789012"), row("223456789012")] });
 
     expect(res.status).toBe(400);
     expect(res.body.data.blockReason).toBe("PERSON_LIMIT_EXCEEDS_REMAINING");
@@ -162,7 +165,7 @@ describe("cumulative budget across the whole Bulk Pass", () => {
 
     const res = await request(app)
       .post("/api/bulk-pass/public/t/submit-rows")
-      .send({ rows: [row("123456789012")] });
+      .send({ ...BATCH_DATES, rows: [row("123456789012")] });
 
     expect(res.status).toBe(403);
     expect(res.body.data.blockReason).toBe("PERSON_LIMIT_REACHED");
@@ -187,7 +190,7 @@ describe("cumulative budget across the whole Bulk Pass", () => {
 
     const res = await request(app)
       .post("/api/bulk-pass/public/t/submit-rows")
-      .send({ rows: Array.from({ length: 10 }, (_, i) => row(`${100000000000 + i}`)) });
+      .send({ ...BATCH_DATES, rows: Array.from({ length: 10 }, (_, i) => row(`${100000000000 + i}`)) });
 
     // Passes the budget; fails later on the missing Aadhaar document.
     expect(res.body.data?.blockReason).toBeUndefined();
@@ -212,7 +215,7 @@ describe("cumulative budget across the whole Bulk Pass", () => {
 
     const res = await request(app)
       .post("/api/bulk-pass/public/t/submit-rows")
-      .send({ rows: [row("123456789012")] });
+      .send({ ...BATCH_DATES, rows: [row("123456789012")] });
 
     expect(res.body.data?.blockReason).toBeUndefined();
   });
@@ -234,7 +237,7 @@ describe("cumulative budget across the whole Bulk Pass", () => {
 
     const res = await request(app)
       .post("/api/bulk-pass/public/t/submit-rows")
-      .send({ rows: [row("123456789012")] });
+      .send({ ...BATCH_DATES, rows: [row("123456789012")] });
 
     expect(res.body.data?.blockReason).toBeUndefined();
   });
@@ -294,7 +297,7 @@ describe("the same person across batches", () => {
 
     const res = await request(app)
       .post("/api/bulk-pass/public/t/submit-rows")
-      .send({ rows: [row("123456789012", "A Kumar")] });
+      .send({ ...BATCH_DATES, rows: [row("123456789012", "A Kumar")] });
 
     // Whatever else the pipeline says (Aadhaar document is missing here), it
     // is never a duplicate complaint.
@@ -308,7 +311,7 @@ describe("the same person across batches", () => {
 
     const res = await request(app)
       .post("/api/bulk-pass/public/t/submit-rows")
-      .send({ rows: [row("123456789012", "A Kumar"), row("1234 5678 9012", "A Kumar again")] });
+      .send({ ...BATCH_DATES, rows: [row("123456789012", "A Kumar"), row("1234 5678 9012", "A Kumar again")] });
 
     expect(res.status).toBe(400);
     expect(res.body.data.errors).toEqual(
@@ -333,7 +336,7 @@ describe("mobile numbers on a student pass", () => {
 
     const res = await request(app)
       .post("/api/bulk-pass/public/t/submit-rows")
-      .send({
+      .send({ ...BATCH_DATES,
         rows: [
           studentRow("123456789012", "9876543210"),
           studentRow("223456789012", "9876543211"),
@@ -352,7 +355,7 @@ describe("mobile numbers on a student pass", () => {
 
     const res = await request(app)
       .post("/api/bulk-pass/public/t/submit-rows")
-      .send({
+      .send({ ...BATCH_DATES,
         rows: [
           studentRow("123456789012", "9876543210"),
           studentRow("223456789012", ""),
@@ -373,7 +376,7 @@ describe("mobile numbers on a student pass", () => {
 
     const res = await request(app)
       .post("/api/bulk-pass/public/t/submit-rows")
-      .send({ rows: [studentRow("123456789012", "")] });
+      .send({ ...BATCH_DATES, rows: [studentRow("123456789012", "")] });
 
     expect(res.status).toBe(400);
     expect(res.body.data.blockReason).toBe("STUDENT_CONTACT_MOBILES_REQUIRED");
@@ -385,7 +388,7 @@ describe("mobile numbers on a student pass", () => {
 
     const res = await request(app)
       .post("/api/bulk-pass/public/t/submit-rows")
-      .send({ rows: [studentRow("123456789012", "12345"), studentRow("223456789012", "9876543210")] });
+      .send({ ...BATCH_DATES, rows: [studentRow("123456789012", "12345"), studentRow("223456789012", "9876543210")] });
 
     expect(res.status).toBe(400);
     expect(res.body.data.errors[0].message).toMatch(/Row 1: Invalid mobile number/);
@@ -396,7 +399,7 @@ describe("mobile numbers on a student pass", () => {
 
     const res = await request(app)
       .post("/api/bulk-pass/public/t/submit-rows")
-      .send({ rows: [studentRow("123456789012", "9876543210"), studentRow("223456789012", "")] });
+      .send({ ...BATCH_DATES, rows: [studentRow("123456789012", "9876543210"), studentRow("223456789012", "")] });
 
     expect(res.status).toBe(400);
     expect(res.body.data.errors[0].message).toMatch(/Row 2: Invalid mobile number/);
@@ -420,7 +423,7 @@ describe("mobile numbers on a student pass", () => {
     });
     const res = await request(app)
       .post("/api/bulk-pass/public/t/submit-rows")
-      .send({ rows: [studentRow("123456789012", ""), studentRow("223456789012", "")] });
+      .send({ ...BATCH_DATES, rows: [studentRow("123456789012", ""), studentRow("223456789012", "")] });
 
     expect(res.status).toBe(400);
     expect(res.body.data.blockReason).toBe("STUDENT_CONTACT_MOBILES_REQUIRED");
@@ -506,14 +509,14 @@ describe("a returned batch resolves inside its Bulk Pass", () => {
 
     const tooMany = await request(app)
       .post("/api/bulk-pass/public/child/submit-rows")
-      .send({ rows: [row("123456789012"), row("223456789012"), row("323456789012")] });
+      .send({ ...BATCH_DATES, rows: [row("123456789012"), row("223456789012"), row("323456789012")] });
     expect(tooMany.status).toBe(400);
     expect(tooMany.body.data.blockReason).toBe("PERSON_LIMIT_EXCEEDS_REMAINING");
     expect(tooMany.body.data.remaining).toBe(2);
 
     const fits = await request(app)
       .post("/api/bulk-pass/public/child/submit-rows")
-      .send({ rows: [row("123456789012"), row("223456789012")] });
+      .send({ ...BATCH_DATES, rows: [row("123456789012"), row("223456789012")] });
     expect(fits.body.data?.blockReason).toBeUndefined();
   });
 
@@ -524,7 +527,7 @@ describe("a returned batch resolves inside its Bulk Pass", () => {
 
     const res = await request(app)
       .post("/api/bulk-pass/public/child/submit-rows")
-      .send({ rows: [row("123456789012")] });
+      .send({ ...BATCH_DATES, rows: [row("123456789012")] });
 
     expect(res.status).toBe(403);
     expect(res.body.data.blockReason).toBe("LINK_INACTIVE");
@@ -540,7 +543,7 @@ describe("a returned batch resolves inside its Bulk Pass", () => {
 
     const res = await request(app)
       .post("/api/bulk-pass/public/child/submit-rows")
-      .send({ rows: [row("123456789012")] });
+      .send({ ...BATCH_DATES, rows: [row("123456789012")] });
 
     expect(res.status).toBe(403);
     expect(res.body.data.blockReason).toBe("EXPIRED");
@@ -555,7 +558,7 @@ describe("a returned batch resolves inside its Bulk Pass", () => {
     // because the Bulk Pass permits 30 per batch.
     const res = await request(app)
       .post("/api/bulk-pass/public/child/submit-rows")
-      .send({ rows: [row("123456789012"), row("223456789012"), row("323456789012")] });
+      .send({ ...BATCH_DATES, rows: [row("123456789012"), row("223456789012"), row("323456789012")] });
 
     expect(res.body.message).not.toMatch(/exceed the Max No. of Persons/);
   });
@@ -567,7 +570,7 @@ describe("per-batch ceiling", () => {
 
     const res = await request(app)
       .post("/api/bulk-pass/public/t/submit-rows")
-      .send({ rows: Array.from({ length: 31 }, (_, i) => row(`${100000000000 + i}`)) });
+      .send({ ...BATCH_DATES, rows: Array.from({ length: 31 }, (_, i) => row(`${100000000000 + i}`)) });
 
     expect(res.status).toBe(400);
     expect(res.body.data.blockReason).toBe("PER_BATCH_PERSON_LIMIT");
@@ -579,7 +582,7 @@ describe("per-batch ceiling", () => {
 
     const res = await request(app)
       .post("/api/bulk-pass/public/t/submit-rows")
-      .send({ rows: Array.from({ length: 31 }, (_, i) => row(`${100000000000 + i}`)) });
+      .send({ ...BATCH_DATES, rows: Array.from({ length: 31 }, (_, i) => row(`${100000000000 + i}`)) });
 
     expect(res.status).toBe(400);
     expect(res.body.data.maxPersons).toBe(30);
@@ -590,7 +593,7 @@ describe("per-batch ceiling", () => {
 
     const res = await request(app)
       .post("/api/bulk-pass/public/t/submit-rows")
-      .send({ rows: Array.from({ length: 11 }, (_, i) => row(`${100000000000 + i}`)) });
+      .send({ ...BATCH_DATES, rows: Array.from({ length: 11 }, (_, i) => row(`${100000000000 + i}`)) });
 
     expect(res.status).toBe(400);
     expect(res.body.data.blockReason).toBe("PER_BATCH_PERSON_LIMIT");
@@ -614,7 +617,7 @@ describe("per-batch ceiling", () => {
     // Two vehicles with one left: trim, do not close.
     const tooMany = await request(app)
       .post("/api/bulk-pass/public/t/submit-rows")
-      .send({ rows: [row("123456789012")], vehicles: [{ regNo: "TN01AB1234" }, { regNo: "TN01AB1235" }] });
+      .send({ ...BATCH_DATES, rows: [row("123456789012")], vehicles: [{ regNo: "TN01AB1234" }, { regNo: "TN01AB1235" }] });
     expect(tooMany.status).toBe(400);
     expect(tooMany.body.data.blockReason).toBe("VEHICLE_LIMIT_EXCEEDS_REMAINING");
     expect(tooMany.body.data.remaining).toBe(1);
@@ -630,7 +633,7 @@ describe("per-batch ceiling", () => {
 
     const res = await request(app)
       .post("/api/bulk-pass/public/t/submit-rows")
-      .send({ rows: [row("123456789012")], vehicles: [{ regNo: "TN01AB1234" }] });
+      .send({ ...BATCH_DATES, rows: [row("123456789012")], vehicles: [{ regNo: "TN01AB1234" }] });
 
     expect(res.status).toBe(400);
     expect(res.body.data.blockReason).toBe("PER_BATCH_VEHICLE_LIMIT");
@@ -678,7 +681,7 @@ describe("switching a Bulk Pass link off and on", () => {
 
     const submit = await request(app)
       .post("/api/bulk-pass/public/t/submit-rows")
-      .send({ rows: [row("123456789012")] });
+      .send({ ...BATCH_DATES, rows: [row("123456789012")] });
     expect(submit.status).toBe(403);
     expect(submit.body.data.blockReason).toBe("LINK_INACTIVE");
 
@@ -686,5 +689,39 @@ describe("switching a Bulk Pass link off and on", () => {
     expect(seen.body.data.canSubmit).toBe(false);
     expect(seen.body.data.blockReason).toBe("LINK_INACTIVE");
     expect(seen.body.data.submissionHistory).toBeDefined();
+  });
+});
+
+describe("each batch carries its own validity dates", () => {
+  test("a batch without dates is refused", async () => {
+    BulkPassSchema.getByToken.mockResolvedValue(reusablePass());
+    const res = await request(app)
+      .post("/api/bulk-pass/public/t/submit-rows")
+      .send({ rows: [row("123456789012")] });
+    expect(res.status).toBe(400);
+    expect(res.body.data.blockReason).toBe("INVALID_BATCH_VALIDITY");
+    expect(res.body.data.field).toBe("validityFrom");
+  });
+
+  test("a batch ending after the Bulk Pass is refused", async () => {
+    BulkPassSchema.getByToken.mockResolvedValue(reusablePass());
+    const tooLate = new Date(Date.parse(FUTURE) + 5 * 86400000).toISOString().slice(0, 10);
+    const res = await request(app)
+      .post("/api/bulk-pass/public/t/submit-rows")
+      .send({ validityFrom: TODAY_IST, validityUpto: tooLate, rows: [row("123456789012")] });
+    expect(res.status).toBe(400);
+    expect(res.body.data.blockReason).toBe("INVALID_BATCH_VALIDITY");
+    expect(res.body.data.field).toBe("validityUpto");
+    expect(res.body.data.bounds.min).toBe(TODAY_IST);
+  });
+
+  test("a batch starting in the past is refused", async () => {
+    BulkPassSchema.getByToken.mockResolvedValue(reusablePass());
+    const yesterday = new Date(Date.now() + 330 * 60000 - 86400000).toISOString().slice(0, 10);
+    const res = await request(app)
+      .post("/api/bulk-pass/public/t/submit-rows")
+      .send({ validityFrom: yesterday, validityUpto: TODAY_IST, rows: [row("123456789012")] });
+    expect(res.status).toBe(400);
+    expect(res.body.data.field).toBe("validityFrom");
   });
 });

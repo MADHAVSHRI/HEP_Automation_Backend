@@ -34,6 +34,9 @@ app.post("/api/bulk-pass/public/:token/submit-rows", bulkPassController.submitRo
 
 const FUTURE = new Date(Date.now() + 30 * 86400000).toISOString();
 const PAST = new Date(Date.now() - 30 * 86400000).toISOString();
+// Every batch under a Bulk Pass carries its own dates, chosen by the applicant.
+const TODAY_IST = new Date(Date.now() + 330 * 60000).toISOString().slice(0, 10);
+const BATCH_DATES = { validityFrom: TODAY_IST, validityUpto: TODAY_IST };
 
 // A row that would pass validation, so the request reaches the gate rather
 // than being turned away for bad data.
@@ -68,7 +71,7 @@ describe("reusable bulk pass — validity governs submissions", () => {
 
     const res = await request(app)
       .post("/api/bulk-pass/public/parent-token/submit-rows")
-      .send({ rows: [validRow()] });
+      .send({ ...BATCH_DATES, rows: [validRow()] });
 
     expect(res.status).toBe(403);
     expect(res.body.data.blockReason).toBe("EXPIRED");
@@ -93,7 +96,7 @@ describe("reusable bulk pass — validity governs submissions", () => {
 
     const res = await request(app)
       .post("/api/bulk-pass/public/parent-token/submit-rows")
-      .send({ rows: [validRow()] });
+      .send({ ...BATCH_DATES, rows: [validRow()] });
 
     expect(res.status).toBe(403);
     expect(res.body.data.blockReason).toBe("NOT_STARTED");
@@ -115,7 +118,7 @@ describe("reusable bulk pass — validity governs submissions", () => {
 
     const res = await request(app)
       .post("/api/bulk-pass/public/parent-token/submit-rows")
-      .send({ rows: [validRow()] });
+      .send({ ...BATCH_DATES, rows: [validRow()] });
 
     expect(res.status).toBe(403);
     expect(res.body.data.blockReason).toBe("LINK_INACTIVE");
@@ -136,7 +139,7 @@ describe("reusable bulk pass — validity governs submissions", () => {
 
     const res = await request(app)
       .post("/api/bulk-pass/public/parent-token/submit-rows")
-      .send({ rows: [validRow(), validRow(), validRow()] });
+      .send({ ...BATCH_DATES, rows: [validRow(), validRow(), validRow()] });
 
     expect(res.status).toBe(400);
     expect(res.body.message).toMatch(/exceed the 2 allowed in one batch/);
@@ -159,7 +162,7 @@ describe("reusable bulk pass — validity governs submissions", () => {
 
     const res = await request(app)
       .post("/api/bulk-pass/public/parent-token/submit-rows")
-      .send({ rows: [] });
+      .send({ ...BATCH_DATES, rows: [] });
 
     // Rejected for having no rows — not for the parent's status.
     expect(res.status).toBe(400);
@@ -182,7 +185,7 @@ describe("single-submission link — unchanged behaviour", () => {
 
     const res = await request(app)
       .post("/api/bulk-pass/public/single-token/submit-rows")
-      .send({ rows: [validRow()] });
+      .send({ ...BATCH_DATES, rows: [validRow()] });
 
     expect(res.status).toBe(403);
     expect(res.body.message).toMatch(/Link expired or inactive/i);
@@ -202,7 +205,7 @@ describe("single-submission link — unchanged behaviour", () => {
 
     const res = await request(app)
       .post("/api/bulk-pass/public/single-token/submit-rows")
-      .send({ rows: [validRow()] });
+      .send({ ...BATCH_DATES, rows: [validRow()] });
 
     expect(res.status).toBe(400);
     expect(res.body.message).toMatch(/not in a submittable state/i);
@@ -226,7 +229,7 @@ describe("public website bulk pass", () => {
 
     const res = await request(app)
       .post("/api/bulk-pass/public/public-token/submit-rows")
-      .send({ rows: [validRow()] });
+      .send({ ...BATCH_DATES, rows: [validRow()] });
 
     expect(res.status).toBe(403);
     expect(res.body.data.blockReason).toBe("EXPIRED");

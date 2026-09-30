@@ -1,4 +1,5 @@
 const { pool } = require("../dbconfig/db");
+const { getValidityState, normalizeValidityFrom } = require("../utils/bulkPassValidity");
 
 /**
  * The person/vehicle ceilings live in the maxNoOf* columns, but the whole
@@ -1186,26 +1187,12 @@ const BulkPassSchema = {
   */
   isValidityPeriodActive(batch) {
     if (!batch) return false;
-
-    const now = new Date();
-    
-    if (batch.validityFrom) {
-      const fromDate = new Date(batch.validityFrom);
-      if (now < fromDate) {
-        return false;
-      }
+    // No end date means no upper bound here; otherwise the shared IST rules.
+    if (!batch.validityUpto) {
+      const from = normalizeValidityFrom(batch.validityFrom);
+      return !from || Date.now() >= from.getTime();
     }
-
-    if (batch.validityUpto) {
-      const uptoDate = new Date(batch.validityUpto);
-      // Set time to end of day for validityUpto
-      uptoDate.setHours(23, 59, 59, 999);
-      if (now > uptoDate) {
-        return false;
-      }
-    }
-
-    return true;
+    return getValidityState(batch).canSubmit;
   },
 };
 

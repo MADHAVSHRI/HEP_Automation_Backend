@@ -1245,8 +1245,9 @@ async function generateBulkPassPDF(batch, persons) {
     if (!v) return "-";
     const d = new Date(v);
     if (isNaN(d.getTime())) return String(v);
-    const pad = (n) => String(n).padStart(2, "0");
-    return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    // Bulk pass validity is date-only in IST; the server's own timezone and
+    // the stored time of day must not shift or clutter the printed date.
+    return d.toLocaleDateString("en-GB", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: "Asia/Kolkata" });
   };
 
   const drawFooter = () => {

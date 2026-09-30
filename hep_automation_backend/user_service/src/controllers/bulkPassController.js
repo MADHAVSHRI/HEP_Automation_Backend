@@ -21,6 +21,10 @@ const {
   getValidityState,
   getBlockedMessage,
   normalizeValidityUpto,
+  resolveBatchValidity,
+  getBatchValidityBounds,
+  toIstDateKey,
+  formatDateKey,
   EXPIRY_WARNING_DAYS,
 } = require("../utils/bulkPassValidity");
 
@@ -117,13 +121,8 @@ const findBatchOrParentRequestByToken = async (token) => {
   const parentRequest = await BulkPassParentRequest.findByToken(token);
 
   if (parentRequest) {
-    let expiredByTime = false;
-    if (parentRequest.approved_time_upto) {
-      // Normalize to end of day for date-only validation
-      const upto = new Date(parentRequest.approved_time_upto);
-      upto.setHours(23, 59, 59, 999);
-      expiredByTime = upto.getTime() < Date.now();
-    }
+    const uptoEnd = normalizeValidityUpto(parentRequest.approved_time_upto);
+    const expiredByTime = !!uptoEnd && uptoEnd.getTime() < Date.now();
 
     const formattedBatch = {
       id: parentRequest.id,
@@ -2564,14 +2563,21 @@ exports.getPublicScanData = async (req, res) => {
       return res.status(403).json({ success: false, message: "This pass is not available for viewing" });
     }
 
-    // Check if the pass validity period has passed.
-    if (batch.validityUpto && new Date(batch.validityUpto).getTime() < Date.now()) {
+    // The batch's own window decides whether the pass is usable today — a
+    // batch dated for next week must not open the gate this week.
+    const scanValidity = getValidityState(batch);
+    if (scanValidity.state === "EXPIRED" || scanValidity.state === "NOT_STARTED") {
+      const notStarted = scanValidity.state === "NOT_STARTED";
       return res.status(403).json({
         success: false,
-        message: "This pass has expired.",
+        message: notStarted
+          ? `This pass is not valid yet. It can be used from ${formatDateKey(toIstDateKey(scanValidity.validityFrom))}.`
+          : "This pass has expired.",
         data: {
-          expired: true,
+          expired: !notStarted,
+          notStarted,
           refNo: batch.refNo,
+          validityFrom: batch.validityFrom,
           validityUpto: batch.validityUpto,
         },
       });
@@ -3155,6 +3161,28 @@ exports.submitRowsDirectly = async (req, res) => {
       return res.status(403).json({ success: false, message: "Link expired or inactive" });
     }
 
+    // Every batch under a Bulk Pass carries its own visit window, chosen by the
+    // applicant inside the pass window. A legacy single-batch link keeps the
+    // dates its department set.
+    let batchWindow = null;
+    if (parent) {
+      batchWindow = resolveBatchValidity(
+        { validityFrom: req.body.validityFrom, validityUpto: req.body.validityUpto },
+        parent
+      );
+      if (!batchWindow.ok) {
+        return res.status(400).json({
+          success: false,
+          message: batchWindow.error,
+          data: {
+            blockReason: "INVALID_BATCH_VALIDITY",
+            field: batchWindow.field,
+            bounds: getBatchValidityBounds(parent),
+          },
+        });
+      }
+    }
+
     if (!isMultiSubmission && !CORRECTABLE_STATUSES.includes(batch.status)) {
       return res.status(400).json({
         success: false,
@@ -3410,8 +3438,8 @@ exports.submitRowsDirectly = async (req, res) => {
           createdByUserId: parentRequest.approved_by_user_id || 1,
           departmentId: 6,
           departmentName: "General Administration",
-          validityFrom: parentRequest.approved_time_from || parentRequest.validity_from || batch.validityFrom || null,
-          validityUpto: parentRequest.approved_time_upto || parentRequest.validity_upto || batch.validityUpto || new Date(Date.now() + 30 * 86400000).toISOString(),
+          validityFrom: batchWindow.validityFrom.toISOString(),
+          validityUpto: batchWindow.validityUpto.toISOString(),
           noOfPersons: rows.length,
           noOfVehicles: vehicleMeta.length,
           purpose: parentRequest.purpose || batch.purpose || "Public Bulk Pass Submission",
@@ -3444,8 +3472,8 @@ exports.submitRowsDirectly = async (req, res) => {
           createdByUserId: batch.createdByUserId || 1,
           departmentId: batch.departmentId || 6,
           departmentName: batch.departmentName || "General Administration",
-          validityFrom: batch.validityFrom || null,
-          validityUpto: batch.validityUpto || new Date(Date.now() + 30 * 86400000).toISOString(),
+          validityFrom: batchWindow.validityFrom.toISOString(),
+          validityUpto: batchWindow.validityUpto.toISOString(),
           noOfPersons: rows.length,
           noOfVehicles: vehicleMeta.length,
           purpose: batch.purpose || "Department Bulk Pass Submission",
@@ -3454,6 +3482,13 @@ exports.submitRowsDirectly = async (req, res) => {
         targetBatch = await BulkPassSchema.createBatch(childBatchData);
       } else {
         await BulkPassSchema.deletePersonsByBatch(targetBatch.id);
+        // A correction may move the batch's dates as well as its rows.
+        if (batchWindow) {
+          await BulkPassSchema.updateBatch(targetBatch.id, {
+            validityFrom: batchWindow.validityFrom.toISOString(),
+            validityUpto: batchWindow.validityUpto.toISOString(),
+          });
+        }
       }
 
       // ── Persist persons ─────────────────────────────────────────────────────
@@ -3639,6 +3674,8 @@ exports.submitRowsDirectly = async (req, res) => {
           personsSubmitted: personRows.length,
           vehiclesSubmitted: vehicleRows.length,
           status: "UNDER_REVIEW",
+          validityFrom: batchWindow ? batchWindow.validityFrom.toISOString() : targetBatch.validityFrom || null,
+          validityUpto: batchWindow ? batchWindow.validityUpto.toISOString() : targetBatch.validityUpto || null,
           submissionNumber: isRevision ? batch.submission_number || submissionNumber : submissionNumber,
           isMultipleSubmission: isChildSubmission,
           isRevision,
@@ -3748,6 +3785,8 @@ exports.getChildSubmissions = async (req, res) => {
         approvedVehiclesCount: b.approvedVehiclesCount,
         rejectedVehiclesCount: b.rejectedVehiclesCount,
         status: b.status,
+        validityFrom: b.validityFrom,
+        validityUpto: b.validityUpto,
         submittedAt: b.submittedAt || b.createdAt,
         createdAt: b.createdAt,
         updatedAt: b.updatedAt,

@@ -1,4 +1,5 @@
 const { pool } = require("../dbconfig/db");
+const { getValidityState, normalizeValidityUpto } = require("../utils/bulkPassValidity");
 
 /**
  * Raw-SQL data layer for bulk_pass_parent_requests table.
@@ -203,10 +204,8 @@ const BulkPassParentRequest = {
     // Enforce time-based validity: if the approved time window has elapsed,
     // treat the token as inactive
     if (row && row.approved_time_upto) {
-      // Normalize to end of day for date-only validation
-      const uptoDate = new Date(row.approved_time_upto);
-      uptoDate.setHours(23, 59, 59, 999);
-      if (uptoDate.getTime() < Date.now()) {
+      const uptoDate = normalizeValidityUpto(row.approved_time_upto);
+      if (uptoDate && uptoDate.getTime() < Date.now()) {
         row.token_active = false;
       }
     }
@@ -523,10 +522,7 @@ const BulkPassParentRequest = {
       return true;
     }
 
-    // Normalize to end of day for date-only validation
-    const uptoDate = new Date(parentRequest.approved_time_upto);
-    uptoDate.setHours(23, 59, 59, 999);
-    return uptoDate.getTime() < Date.now();
+    return getValidityState({ validityUpto: parentRequest.approved_time_upto }).state === "EXPIRED";
   },
 
   /*
@@ -550,26 +546,11 @@ const BulkPassParentRequest = {
       return false;
     }
 
-    // Check if current time is within approved time window
-    const now = Date.now();
-    
-    if (parentRequest.approved_time_from) {
-      const fromTime = new Date(parentRequest.approved_time_from).getTime();
-      if (now < fromTime) {
-        return false;
-      }
-    }
-
-    if (parentRequest.approved_time_upto) {
-      // Normalize to end of day for date-only validation
-      const uptoDate = new Date(parentRequest.approved_time_upto);
-      uptoDate.setHours(23, 59, 59, 999);
-      if (now > uptoDate.getTime()) {
-        return false;
-      }
-    }
-
-    return true;
+    // Within the approved window (date-only, IST).
+    return getValidityState({
+      validityFrom: parentRequest.approved_time_from,
+      validityUpto: parentRequest.approved_time_upto,
+    }).canSubmit;
   },
 
   /*
