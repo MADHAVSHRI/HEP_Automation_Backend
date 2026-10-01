@@ -1336,7 +1336,8 @@ const PassRequest = {
      id,
      status,
      "isOilDock",
-     "approvedBy"
+     "approvedBy",
+     "workflowState"
    FROM "pass_requests"
    WHERE id = $1`,
         [passRequestId],
@@ -1347,16 +1348,13 @@ const PassRequest = {
       }
       const isSafetyReviewer = roleId === 26 || role === "Safety Officer";
 
-      // Fetch entities
+      // Fetch entities (include essentialWorkflowState so we can distinguish
+      // ordinary entities from essential ones still in departmental approval)
       const [personsRes, vehiclesRes] = await Promise.all([
         client.query(
-          `SELECT id, status, "srDtmApproved" FROM "pass_persons" WHERE "passRequestId" = $1`,
+          `SELECT id, status, "srDtmApproved", "essentialWorkflowState", "essentialDepartmentId" FROM "pass_persons" WHERE "passRequestId" = $1`,
           [passRequestId],
         ),
-        // client.query(
-        //   `SELECT id, status, "passType", "twistLockCertified", "sparkArresterCertified" FROM "pass_vehicles" WHERE "passRequestId" = $1`,
-        //   [passRequestId],
-        // ),
         client.query(
           `
               SELECT
@@ -1368,6 +1366,8 @@ const PassRequest = {
                 pv."twistLockCertified",
                 pv."sparkArresterCertified",
                 pv."marineSafetyApproved",
+                pv."essentialWorkflowState",
+                pv."essentialDepartmentId",
                 vt.name AS "vehicleTypeName"
               FROM "pass_vehicles" pv
               LEFT JOIN vehicle_types vt
@@ -1380,6 +1380,24 @@ const PassRequest = {
 
       const persons = personsRes.rows;
       const vehicles = vehiclesRes.rows;
+
+      // ============================================================
+      // HELPER: Identify essential entities still in departmental
+      // approval (i.e. NOT yet at pass section stage).
+      // These entities should NOT block the pass section from
+      // completing review of ordinary entities.
+      // ============================================================
+      const isEssentialPendingDeptApproval = (entity) => {
+        const ewState = String(entity?.essentialWorkflowState || "").trim().toUpperCase();
+        if (!ewState) return false;
+        // Entity is essential and still in departmental workflow
+        // (not yet at PENDING_PASS_SECTION_ESSENTIAL or completed)
+        return (
+          ewState.endsWith("_ESSENTIAL") &&
+          ewState !== "PENDING_PASS_SECTION_ESSENTIAL" &&
+          ewState !== "COMPLETED_ESSENTIAL"
+        );
+      };
 
       // Check if any reverted entities
       const hasRevertedPerson = persons.some((p) => p.status === "reverted");
@@ -1589,14 +1607,28 @@ const PassRequest = {
         };
       }
 
-      // Check if all reviewed
-      const allPersonsReviewed = persons.every((p) =>
+      // ============================================================
+      // DECOUPLED REVIEW CHECK
+      // Separate ordinary entities (pass section can act on) from
+      // essential entities still in departmental approval workflow.
+      // Pass section should NOT be blocked by essential entities
+      // that are still waiting for dept approval.
+      // ============================================================
+      const ordinaryPersons = persons.filter((p) => !isEssentialPendingDeptApproval(p));
+      const ordinaryVehicles = vehicles.filter((v) => !isEssentialPendingDeptApproval(v));
+      const essentialPendingPersons = persons.filter((p) => isEssentialPendingDeptApproval(p));
+      const essentialPendingVehicles = vehicles.filter((v) => isEssentialPendingDeptApproval(v));
+      const hasEssentialPendingDept = essentialPendingPersons.length > 0 || essentialPendingVehicles.length > 0;
+
+      const allOrdinaryPersonsReviewed = ordinaryPersons.every((p) =>
         ["approved", "rejected", "reverted"].includes(p.status),
       );
-      const allVehiclesReviewed = vehicles.every((v) =>
+      const allOrdinaryVehiclesReviewed = ordinaryVehicles.every((v) =>
         ["approved", "rejected", "reverted"].includes(v.status),
       );
-      const allReviewed = allPersonsReviewed && allVehiclesReviewed;
+      // allReviewed = true when all entities the pass section CAN act on are reviewed
+      // (essential entities still in dept approval are excluded from this check)
+      const allReviewed = allOrdinaryPersonsReviewed && allOrdinaryVehiclesReviewed;
 
       // Check if this request has annual container vehicles (non-oil-dock)
       // that require Safety Officer Twist Lock certification after Pass Section approval
@@ -1632,7 +1664,52 @@ const PassRequest = {
       let nextWorkflowState = null;
 
       if (allReviewed) {
-        if (requiresSafetyOfficer) {
+        if (hasEssentialPendingDept) {
+          // ============================================================
+          // MIXED REQUEST: ordinary entities are all reviewed, but
+          // essential entities are still in departmental approval.
+          //
+          // 1. Issue QR for approved ordinary entities NOW
+          // 2. Keep the parent request in SUBMITTED status
+          // 3. Preserve the current workflowState so essential
+          //    entities can continue their departmental workflow
+          // ============================================================
+          finalStatus = "SUBMITTED";
+          // Keep the existing workflowState so the essential entities
+          // continue to be routed through their departmental approval
+          nextWorkflowState = request.workflowState;
+
+          // Issue QR codes for approved ordinary persons only
+          // (do NOT touch essential persons still in dept workflow)
+          await client.query(
+            `UPDATE pass_persons
+             SET "qrUuid" = COALESCE("qrUuid", gen_random_uuid()),
+                 "qrIssuedAt" = COALESCE("qrIssuedAt", NOW()),
+                 "updatedAt" = NOW()
+             WHERE "passRequestId" = $1
+               AND status = 'approved'
+               AND ("essentialWorkflowState" IS NULL
+                    OR "essentialWorkflowState" = 'COMPLETED_ESSENTIAL'
+                    OR "essentialWorkflowState" = 'COMPLETED_PERSON_ESSENTIAL')`,
+            [passRequestId],
+          );
+          // Issue QR codes for approved ordinary vehicles only
+          await client.query(
+            `UPDATE pass_vehicles
+             SET "qrUuid" = COALESCE("qrUuid", gen_random_uuid()),
+                 "qrIssuedAt" = COALESCE("qrIssuedAt", NOW()),
+                 "updatedAt" = NOW()
+             WHERE "passRequestId" = $1
+               AND status = 'approved'
+               AND ("essentialWorkflowState" IS NULL
+                    OR "essentialWorkflowState" = 'COMPLETED_ESSENTIAL')`,
+            [passRequestId],
+          );
+
+          if (requiresSafetyOfficer) {
+            nextWorkflowState = "PENDING_SAFETY";
+          }
+        } else if (requiresSafetyOfficer) {
           // Pass Section approved → route to Safety Officer for Twist Lock check
           nextWorkflowState = "PENDING_SAFETY";
           finalStatus = "SUBMITTED";
@@ -1828,9 +1905,30 @@ const PassRequest = {
         if (updateData[field] !== undefined) {
           // Skip empty strings for file fields to avoid wiping existing paths
           if (fileFields.has(field) && updateData[field] === "") continue;
+
+          let fieldValue = updateData[field];
+          if (field === "passType") {
+            const pt = String(fieldValue || "").toUpperCase();
+            if (pt === "ANNUAL" || pt === "3") fieldValue = "YEARLY";
+            else if (pt === "1") fieldValue = "DAILY";
+            else if (pt === "2") fieldValue = "MONTHLY";
+          } else if (
+            field === "countryId" ||
+            field === "designationId" ||
+            field === "hepTypeId"
+          ) {
+            fieldValue = fieldValue ? parseInt(fieldValue, 10) : null;
+          } else if (field === "dob" || field === "dateFrom" || field === "dateTo") {
+            fieldValue = fieldValue || null;
+          } else if (field === "amount") {
+            fieldValue = fieldValue ? parseFloat(fieldValue) : null;
+          } else if (field === "passPeriod") {
+            fieldValue = fieldValue ? parseInt(fieldValue, 10) : 1;
+          }
+
           // Use exact column names from DB schema (camelCase)
           updates.push(`"${field}" = $${paramIndex}`);
-          values.push(updateData[field]);
+          values.push(fieldValue);
           paramIndex++;
         }
       }
@@ -1893,6 +1991,8 @@ const PassRequest = {
       const allowedFields = [
         "registrationNo",
         "vehicleTypeId",
+        "accessAreaId",
+        "essentialDepartmentId",
         "insuranceExpiry",
         "rcValidity",
         "passType",
@@ -1961,6 +2061,25 @@ const PassRequest = {
         if (fieldValue !== undefined) {
           // Skip empty strings for file fields to avoid wiping existing paths
           if (fileFields.has(field) && fieldValue === "") continue;
+
+          if (field === "passType") {
+            const pt = String(fieldValue || "").toUpperCase();
+            if (pt === "ANNUAL" || pt === "3") fieldValue = "YEARLY";
+            else if (pt === "1") fieldValue = "DAILY";
+            else if (pt === "2") fieldValue = "MONTHLY";
+          } else if (
+            field === "vehicleTypeId" ||
+            field === "essentialDepartmentId"
+          ) {
+            fieldValue = fieldValue ? parseInt(fieldValue, 10) : null;
+          } else if (field === "insuranceExpiry" || field === "rcValidity") {
+            fieldValue = fieldValue || null;
+          } else if (field === "amount") {
+            fieldValue = fieldValue ? parseFloat(fieldValue) : null;
+          } else if (field === "passPeriod") {
+            fieldValue = fieldValue ? parseInt(fieldValue, 10) : 1;
+          }
+
           // Use exact column names from DB schema (camelCase)
           updates.push(`"${field}" = $${paramIndex}`);
           values.push(fieldValue);
