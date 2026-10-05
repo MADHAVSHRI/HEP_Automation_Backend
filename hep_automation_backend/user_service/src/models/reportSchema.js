@@ -11,6 +11,32 @@ function normalizeLimit(value) {
   return Math.min(toPositiveInt(value, 100), MAX_REPORT_LIMIT);
 }
 
+function normalizeSortOrder(value) {
+  return String(value || "DESC").toUpperCase() === "ASC" ? "ASC" : "DESC";
+}
+
+function addLocalTimeFilters(where, params, timestampExpression, filters = {}) {
+  const fromTime = String(filters.fromTime || "").trim();
+  const toTime = String(filters.toTime || "").trim();
+  if (fromTime && toTime) {
+    params.push(fromTime, toTime);
+    const fromIndex = params.length - 1;
+    const toIndex = params.length;
+    const localTime = `(${timestampExpression} AT TIME ZONE 'Asia/Kolkata')::time`;
+    if (fromTime > toTime) {
+      where.push(`(${localTime} >= $${fromIndex}::time OR ${localTime} <= $${toIndex}::time)`);
+    } else {
+      where.push(`${localTime} BETWEEN $${fromIndex}::time AND $${toIndex}::time`);
+    }
+  } else if (fromTime) {
+    params.push(fromTime);
+    where.push(`(${timestampExpression} AT TIME ZONE 'Asia/Kolkata')::time >= $${params.length}::time`);
+  } else if (toTime) {
+    params.push(toTime);
+    where.push(`(${timestampExpression} AT TIME ZONE 'Asia/Kolkata')::time <= $${params.length}::time`);
+  }
+}
+
 const Report = {
   async getRegisteredUserOptions() {
     const result = await pool.query(`
@@ -37,6 +63,7 @@ const Report = {
     const limit = normalizeLimit(filters.limit);
     const page = toPositiveInt(filters.page, 1);
     const offset = (page - 1) * limit;
+    const sortOrder = normalizeSortOrder(filters.sortOrder);
     const params = [];
     const where = [];
 
@@ -99,7 +126,7 @@ const Report = {
           TO_CHAR(a."createdAt" AT TIME ZONE 'Asia/Kolkata', 'HH24:MI:SS') AS time
         FROM "Agents" a
         ${whereSql}
-        ORDER BY a."createdAt" DESC
+        ORDER BY a."createdAt" ${sortOrder}
         LIMIT $${params.length - 1} OFFSET $${params.length}
       `,
       params,
@@ -119,6 +146,7 @@ const Report = {
     const limit = normalizeLimit(filters.limit);
     const page = toPositiveInt(filters.page, 1);
     const offset = (page - 1) * limit;
+    const sortOrder = normalizeSortOrder(filters.sortOrder);
     const params = [];
     const where = [];
 
@@ -196,12 +224,15 @@ const Report = {
           pp.status::text AS status,
           pp."createdAt",
           a."entityName" AS "transporterName",
-          a."loginId" AS "transporterCode"
+          a."loginId" AS "transporterCode",
+          CASE WHEN UPPER(pr.status::text) = 'APPROVED' THEN pr."approvedBy" END AS "approvedBy",
+          CASE WHEN UPPER(pr.status::text) = 'APPROVED' THEN approver."employeeId" END AS "approverEmployeeId"
         FROM pass_persons pp
         JOIN pass_requests pr ON pr.id = pp."passRequestId"
         LEFT JOIN "Agents" a ON a.id = pr."agentId"
         LEFT JOIN master_persons mp ON mp.id = pp."masterPersonId"
         LEFT JOIN hep_types ht ON ht.id = COALESCE(pp."hepTypeId", mp."hepTypeId")
+        LEFT JOIN users approver ON LOWER(TRIM(approver."userName")) = LOWER(TRIM(pr."approvedBy"))
 
         UNION ALL
 
@@ -222,11 +253,14 @@ const Report = {
           pv.status::text AS status,
           pv."createdAt",
           a."entityName" AS "transporterName",
-          a."loginId" AS "transporterCode"
+          a."loginId" AS "transporterCode",
+          CASE WHEN UPPER(pr.status::text) = 'APPROVED' THEN pr."approvedBy" END,
+          CASE WHEN UPPER(pr.status::text) = 'APPROVED' THEN approver."employeeId" END
         FROM pass_vehicles pv
         JOIN pass_requests pr ON pr.id = pv."passRequestId"
         LEFT JOIN "Agents" a ON a.id = pr."agentId"
         LEFT JOIN master_vehicles mv ON mv.id = pv."masterVehicleId"
+        LEFT JOIN users approver ON LOWER(TRIM(approver."userName")) = LOWER(TRIM(pr."approvedBy"))
 
         UNION ALL
 
@@ -246,10 +280,13 @@ const Report = {
           vpp.status::text AS status,
           vpp."createdAt",
           vpr."companyName" AS "transporterName",
-          vpr."referenceNo" AS "transporterCode"
+          vpr."referenceNo" AS "transporterCode",
+          CASE WHEN UPPER(vpr.status::text) = 'APPROVED' THEN vpr."approvedBy" END,
+          CASE WHEN UPPER(vpr.status::text) = 'APPROVED' THEN approver."employeeId" END
         FROM vendor_pass_persons vpp
         JOIN vendor_pass_requests vpr ON vpr.id = vpp."vendorPassRequestId"
         LEFT JOIN hep_types ht ON ht.id = vpp."hepTypeId"
+        LEFT JOIN users approver ON LOWER(TRIM(approver."userName")) = LOWER(TRIM(vpr."approvedBy"))
 
         UNION ALL
 
@@ -266,9 +303,12 @@ const Report = {
           vpv.status::text AS status,
           vpv."createdAt",
           vpr."companyName" AS "transporterName",
-          vpr."referenceNo" AS "transporterCode"
+          vpr."referenceNo" AS "transporterCode",
+          CASE WHEN UPPER(vpr.status::text) = 'APPROVED' THEN vpr."approvedBy" END,
+          CASE WHEN UPPER(vpr.status::text) = 'APPROVED' THEN approver."employeeId" END
         FROM vendor_pass_vehicles vpv
         JOIN vendor_pass_requests vpr ON vpr.id = vpv."vendorPassRequestId"
+        LEFT JOIN users approver ON LOWER(TRIM(approver."userName")) = LOWER(TRIM(vpr."approvedBy"))
       )
     `;
 
@@ -304,7 +344,7 @@ const Report = {
           TO_CHAR(entry."createdAt" AT TIME ZONE 'Asia/Kolkata', 'HH24:MI:SS') AS time
         FROM entry
         ${whereSql}
-        ORDER BY "createdAt" DESC
+        ORDER BY "createdAt" ${sortOrder}
         LIMIT $${params.length - 1} OFFSET $${params.length}
       `,
       params,
@@ -380,6 +420,7 @@ const Report = {
     const limit = normalizeLimit(filters.limit);
     const page = toPositiveInt(filters.page, 1);
     const offset = (page - 1) * limit;
+    const sortOrder = normalizeSortOrder(filters.sortOrder);
     const params = [];
     const where = [];
     const addLike = (column, value) => {
@@ -401,6 +442,7 @@ const Report = {
     addLike(`entry."companySearch"`, filters.companyCodeOrName);
     addLike(`entry."idProof"`, filters.idProof);
     addLike(`entry.aadhaar`, filters.aadhaar);
+    addLike(`entry."approverEmployeeId"`, filters.employeeId);
     if (filters.search) {
       params.push(`%${filters.search.trim()}%`);
       where.push(`(
@@ -418,6 +460,8 @@ const Report = {
         OR entry."idProof" ILIKE $${params.length}
         OR entry.aadhaar ILIKE $${params.length}
         OR entry.nationality ILIKE $${params.length}
+        OR entry."approvedBy" ILIKE $${params.length}
+        OR entry."approverEmployeeId" ILIKE $${params.length}
       )`);
     }
     if (filters.companyType) { params.push(filters.companyType); where.push(`entry."companyType" = $${params.length}`); }
@@ -433,27 +477,39 @@ const Report = {
         CONCAT_WS(' ', a."entityName", a."loginId") AS "companySearch", a."userTypeName" AS "companyType", NULL::text AS department,
         pp."passType"::text AS "passType", pr.status::text AS "approvalStatus", pr."paymentMode"::text AS "paymentType",
         pp."dateFrom", pp."dateTo", pp.amount, pp."createdAt", pp."idProofNumber" AS "idProof",
-        pp."aadharNo" AS aadhaar, pp.nationality::text AS nationality, pp."qrUuid"::text AS "qrReference",
+        pp."aadharNo" AS aadhaar, pp.nationality::text AS nationality,
+        CASE WHEN UPPER(pr.status::text) = 'APPROVED' THEN pr."approvedBy" END AS "approvedBy",
+        CASE WHEN UPPER(pr.status::text) = 'APPROVED' THEN approver."employeeId" END AS "approverEmployeeId", pp."qrUuid"::text AS "qrReference",
         pp."qrIssuedAt", COALESCE(pp."qrRevoked", false) AS "qrRevoked", COALESCE(pp."scanCount", 0) AS "scanCount", pp."lastScannedAt"
       FROM pass_persons pp JOIN pass_requests pr ON pr.id=pp."passRequestId" LEFT JOIN "Agents" a ON a.id=pr."agentId"
+      LEFT JOIN users approver ON LOWER(TRIM(approver."userName")) = LOWER(TRIM(pr."approvedBy"))
       UNION ALL
       SELECT 'Regular', pv."vehiclePassNo", pr."referenceNo", pv."registrationNo", 'Vehicle', a."entityName", a."loginId",
         CONCAT_WS(' ', a."entityName", a."loginId"), a."userTypeName", NULL::text, pv."passType"::text, pr.status::text,
         pr."paymentMode"::text, pv."dateFrom", pv."dateTo", pv.amount, pv."createdAt", NULL, NULL, NULL,
+        CASE WHEN UPPER(pr.status::text) = 'APPROVED' THEN pr."approvedBy" END,
+        CASE WHEN UPPER(pr.status::text) = 'APPROVED' THEN approver."employeeId" END,
         pv."qrUuid"::text, pv."qrIssuedAt", COALESCE(pv."qrRevoked", false), COALESCE(pv."scanCount",0), pv."lastScannedAt"
       FROM pass_vehicles pv JOIN pass_requests pr ON pr.id=pv."passRequestId" LEFT JOIN "Agents" a ON a.id=pr."agentId"
+      LEFT JOIN users approver ON LOWER(TRIM(approver."userName")) = LOWER(TRIM(pr."approvedBy"))
       UNION ALL
       SELECT 'Vendor', vpp."personPassNo", vpr."referenceNo", vpp.name, 'Person', vpr."companyName", vpr."referenceNo",
         CONCAT_WS(' ',vpr."companyName",vpr."referenceNo"), 'Vendor', vpr."departmentName", vpp."passType", vpr.status::text,
         vpr."paymentMode"::text, vpp."dateFrom", vpp."dateTo", vpp.amount, vpp."createdAt", vpp."idProofNumber",
-        vpp."aadharNo", vpp.nationality::text, NULL, NULL, false, 0, NULL
+        vpp."aadharNo", vpp.nationality::text,
+        CASE WHEN UPPER(vpr.status::text) = 'APPROVED' THEN vpr."approvedBy" END,
+        CASE WHEN UPPER(vpr.status::text) = 'APPROVED' THEN approver."employeeId" END, NULL, NULL, false, 0, NULL
       FROM vendor_pass_persons vpp JOIN vendor_pass_requests vpr ON vpr.id=vpp."vendorPassRequestId"
+      LEFT JOIN users approver ON LOWER(TRIM(approver."userName")) = LOWER(TRIM(vpr."approvedBy"))
       UNION ALL
       SELECT 'Vendor', vpv."vehiclePassNo", vpr."referenceNo", vpv."vehicleRegistrationNo", 'Vehicle', vpr."companyName", vpr."referenceNo",
         CONCAT_WS(' ',vpr."companyName",vpr."referenceNo"), 'Vendor', vpr."departmentName", vpv."passType", vpr.status::text,
         vpr."paymentMode"::text, vpv."dateFrom", vpv."dateTo", vpv.amount, vpv."createdAt", NULL, NULL, NULL,
+        CASE WHEN UPPER(vpr.status::text) = 'APPROVED' THEN vpr."approvedBy" END,
+        CASE WHEN UPPER(vpr.status::text) = 'APPROVED' THEN approver."employeeId" END,
         NULL, NULL, false, 0, NULL
       FROM vendor_pass_vehicles vpv JOIN vendor_pass_requests vpr ON vpr.id=vpv."vendorPassRequestId"
+      LEFT JOIN users approver ON LOWER(TRIM(approver."userName")) = LOWER(TRIM(vpr."approvedBy"))
     )`;
     const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
     const countResult = await pool.query(`${baseQuery} SELECT COUNT(*)::int AS total FROM entry ${whereSql}`, params);
@@ -461,7 +517,7 @@ const Report = {
     const dataResult = await pool.query(`${baseQuery} SELECT entry.*,
       TO_CHAR(entry."createdAt" AT TIME ZONE 'Asia/Kolkata', 'DD/MM/YYYY') AS date,
       TO_CHAR(entry."createdAt" AT TIME ZONE 'Asia/Kolkata', 'HH24:MI:SS') AS time
-      FROM entry ${whereSql} ORDER BY "createdAt" DESC LIMIT $${params.length - 1} OFFSET $${params.length}`, params);
+      FROM entry ${whereSql} ORDER BY "createdAt" ${sortOrder} LIMIT $${params.length - 1} OFFSET $${params.length}`, params);
     return { data: dataResult.rows, pagination: { page, limit, totalRecords: countResult.rows[0]?.total || 0 } };
   },
 
@@ -498,14 +554,32 @@ const Report = {
         OR REGEXP_REPLACE(a."loginId", '[^a-zA-Z0-9]', '', 'g') ILIKE $2
       )`;
     }
-    let searchFilter = "";
+    const outerWhere = [];
     if (filters.search) {
       params.push(`%${filters.search.trim()}%`);
-      searchFilter = `WHERE (
+      outerWhere.push(`(
         q."holderType" ILIKE $${params.length}
         OR q."qrStatus" ILIKE $${params.length}
-      )`;
+      )`);
     }
+    if (filters.holderType) {
+      params.push(filters.holderType.trim());
+      outerWhere.push(`q."holderType" = $${params.length}`);
+    }
+    if (filters.qrStatus) {
+      params.push(filters.qrStatus.trim());
+      outerWhere.push(`q."qrStatus" = $${params.length}`);
+    }
+    if (filters.fromDate) {
+      params.push(filters.fromDate);
+      outerWhere.push(`q."eventTime" >= $${params.length}::date`);
+    }
+    if (filters.toDate) {
+      params.push(filters.toDate);
+      outerWhere.push(`q."eventTime" < ($${params.length}::date + INTERVAL '1 day')`);
+    }
+    addLocalTimeFilters(outerWhere, params, `q."eventTime"`, filters);
+    const outerWhereSql = outerWhere.length ? `WHERE ${outerWhere.join(" AND ")}` : "";
     const result = await pool.query(`
       SELECT "holderType", "qrStatus", COUNT(*)::int AS count,
         TO_CHAR(MAX("eventTime") AT TIME ZONE 'Asia/Kolkata', 'DD/MM/YYYY') AS date,
@@ -516,7 +590,7 @@ const Report = {
         UNION ALL
         SELECT 'Vehicle', CASE WHEN pv."qrRevoked" THEN 'Revoked' WHEN pv."qrIssuedAt" IS NOT NULL THEN 'Issued' ELSE 'Pending' END, COALESCE(pv."qrIssuedAt", pv."updatedAt", pv."createdAt")
         FROM pass_vehicles pv JOIN pass_requests pr ON pr.id=pv."passRequestId" LEFT JOIN "Agents" a ON a.id=pr."agentId" WHERE TRUE ${companyFilter}
-      ) q ${searchFilter} GROUP BY "holderType", "qrStatus" ORDER BY "holderType", "qrStatus"
+      ) q ${outerWhereSql} GROUP BY "holderType", "qrStatus" ORDER BY "holderType", "qrStatus"
     `, params);
     return { data: result.rows, pagination: { page: 1, limit: 500, totalRecords: result.rowCount } };
   },
@@ -557,6 +631,7 @@ const Report = {
     const limit = normalizeLimit(filters.limit);
     const page = toPositiveInt(filters.page, 1);
     const offset = (page - 1) * limit;
+    const sortOrder = normalizeSortOrder(filters.sortOrder);
     const params = [];
     const where = [];
     if (filters.cardNo) { params.push(`%${filters.cardNo.trim()}%`); where.push(`p.identifier ILIKE $${params.length}`); }
@@ -622,7 +697,7 @@ const Report = {
           TO_CHAR(p."createdAt" AT TIME ZONE 'Asia/Kolkata', 'DD/MM/YYYY') AS date,
           TO_CHAR(p."createdAt" AT TIME ZONE 'Asia/Kolkata', 'HH24:MI:SS') AS time
         FROM p ${whereSql}
-        ORDER BY "createdAt" DESC
+        ORDER BY "createdAt" ${sortOrder}
         LIMIT $${params.length - 1} OFFSET $${params.length}
     `, params);
     return {
@@ -639,6 +714,7 @@ const Report = {
     const limit = normalizeLimit(filters.limit);
     const page = toPositiveInt(filters.page, 1);
     const offset = (page - 1) * limit;
+    const sortOrder = normalizeSortOrder(filters.sortOrder);
     const params = [];
     const where = [`d.decision IN ('APPROVED', 'REJECTED')`];
 
@@ -650,6 +726,7 @@ const Report = {
       params.push(filters.toDate);
       where.push(`d."decisionDate" <= $${params.length}::date`);
     }
+    addLocalTimeFilters(where, params, `d."decisionTimestamp"`, filters);
     if (filters.employeeName) {
       params.push(`%${filters.employeeName.trim()}%`);
       where.push(`d."employeeName" ILIKE $${params.length}`);
@@ -826,7 +903,7 @@ const Report = {
          d.shift
        ${fromSql}
        GROUP BY d."employeeName", d."employeeId", d."decisionDate", d.shift
-       ORDER BY d."decisionDate" DESC, d."employeeName", d.shift
+       ORDER BY d."decisionDate" ${sortOrder}, d."employeeName", d.shift
        LIMIT $${params.length - 1} OFFSET $${params.length}`,
       params,
     );
@@ -845,17 +922,21 @@ const Report = {
     const limit = normalizeLimit(filters.limit);
     const page = toPositiveInt(filters.page, 1);
     const offset = (page - 1) * limit;
+    const sortOrder = normalizeSortOrder(filters.sortOrder);
     const params = [];
     const where = [];
     const eventTime = `COALESCE(bp."approvedAt", b."updatedAt", b."createdAt")`;
     if (filters.fromDate) { params.push(filters.fromDate); where.push(`${eventTime} >= $${params.length}::date`); }
     if (filters.toDate) { params.push(filters.toDate); where.push(`${eventTime} < ($${params.length}::date + INTERVAL '1 day')`); }
+    addLocalTimeFilters(where, params, eventTime, filters);
     if (filters.holderType) { params.push(filters.holderType); where.push(`CASE WHEN NULLIF(bp."driverLicenseNumber", '') IS NOT NULL THEN 'Driver' WHEN NULLIF(bp."vehicleNumber", '') IS NOT NULL THEN 'Vehicle' ELSE 'Person' END = $${params.length}`); }
     if (filters.search) {
       params.push(`%${filters.search.trim()}%`);
       where.push(`CONCAT_WS(' ', b."refNo", b."companyName", bp.name, bp."vehicleNumber", bp."driverLicenseNumber", bp."approvalStatus", b.status::text) ILIKE $${params.length}`);
     }
-    const fromSql = `FROM bulk_pass_batches b LEFT JOIN bulk_pass_persons bp ON bp."batchId" = b.id`;
+    const fromSql = `FROM bulk_pass_batches b
+      LEFT JOIN bulk_pass_persons bp ON bp."batchId" = b.id
+      LEFT JOIN users approver ON approver.id = bp."approvedBy"`;
     const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
     const total = await pool.query(`SELECT COUNT(*)::int AS total ${fromSql} ${whereSql}`, params);
     params.push(limit, offset);
@@ -865,10 +946,12 @@ const Report = {
         COALESCE(bp.name, bp."vehicleNumber", '—') AS "holderName",
         bp."vehicleNumber", bp."driverLicenseNumber",
         COALESCE(bp."approvalStatus", b.status::text) AS status,
+        CASE WHEN UPPER(bp."approvalStatus") = 'APPROVED' THEN approver."userName" END AS "approvedBy",
+        CASE WHEN UPPER(bp."approvalStatus") = 'APPROVED' THEN approver."employeeId" END AS "approverEmployeeId",
         TO_CHAR(${eventTime} AT TIME ZONE 'Asia/Kolkata', 'DD/MM/YYYY') AS date,
         TO_CHAR(${eventTime} AT TIME ZONE 'Asia/Kolkata', 'HH24:MI:SS') AS time
       ${fromSql} ${whereSql}
-      ORDER BY ${eventTime} DESC LIMIT $${params.length - 1} OFFSET $${params.length}`, params);
+      ORDER BY ${eventTime} ${sortOrder} LIMIT $${params.length - 1} OFFSET $${params.length}`, params);
     return { data: rows.rows, pagination: { page, limit, totalRecords: total.rows[0]?.total || 0 } };
   },
 
@@ -876,26 +959,33 @@ const Report = {
     const limit = normalizeLimit(filters.limit);
     const page = toPositiveInt(filters.page, 1);
     const offset = (page - 1) * limit;
+    const sortOrder = normalizeSortOrder(filters.sortOrder);
     const params = [];
     const where = [];
     if (filters.fromDate) { params.push(filters.fromDate); where.push(`b.blacklisted_at >= $${params.length}::date`); }
     if (filters.toDate) { params.push(filters.toDate); where.push(`b.blacklisted_at < ($${params.length}::date + INTERVAL '1 day')`); }
+    addLocalTimeFilters(where, params, `b.blacklisted_at`, filters);
     if (filters.entityType) { params.push(filters.entityType); where.push(`UPPER(b.entity_type) = UPPER($${params.length})`); }
     if (filters.search) {
       params.push(`%${filters.search.trim()}%`);
       where.push(`CONCAT_WS(' ', b.entity_type, b.identifier, b.entity_name, b.reason, b.status) ILIKE $${params.length}`);
     }
-    const fromSql = `FROM blacklist_entries b LEFT JOIN users u ON u.id = b.blacklisted_by`;
+    const fromSql = `FROM blacklist_entries b
+      LEFT JOIN users u ON u.id = b.blacklisted_by
+      LEFT JOIN users unblacklister ON unblacklister.id = b.unblacklisted_by`;
     const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
     const total = await pool.query(`SELECT COUNT(*)::int AS total ${fromSql} ${whereSql}`, params);
     params.push(limit, offset);
     const rows = await pool.query(`
       SELECT b.entity_type AS "entityType", b.identifier, b.entity_name AS "entityName",
         b.reason, b.status, u."userName" AS "blacklistedBy",
-        TO_CHAR(b.blacklisted_at AT TIME ZONE 'Asia/Kolkata', 'DD/MM/YYYY') AS date,
-        TO_CHAR(b.blacklisted_at AT TIME ZONE 'Asia/Kolkata', 'HH24:MI:SS') AS time
+        TO_CHAR(b.blacklisted_at AT TIME ZONE 'Asia/Kolkata', 'DD/MM/YYYY') AS "blacklistedDate",
+        TO_CHAR(b.blacklisted_at AT TIME ZONE 'Asia/Kolkata', 'HH24:MI:SS') AS "blacklistedTime",
+        unblacklister."userName" AS "unblacklistedBy",
+        TO_CHAR(b.unblacklisted_at AT TIME ZONE 'Asia/Kolkata', 'DD/MM/YYYY') AS "unblacklistedDate",
+        TO_CHAR(b.unblacklisted_at AT TIME ZONE 'Asia/Kolkata', 'HH24:MI:SS') AS "unblacklistedTime"
       ${fromSql} ${whereSql}
-      ORDER BY b.blacklisted_at DESC LIMIT $${params.length - 1} OFFSET $${params.length}`, params);
+      ORDER BY b.blacklisted_at ${sortOrder} LIMIT $${params.length - 1} OFFSET $${params.length}`, params);
     return { data: rows.rows, pagination: { page, limit, totalRecords: total.rows[0]?.total || 0 } };
   },
 
@@ -903,28 +993,51 @@ const Report = {
     const limit = normalizeLimit(filters.limit);
     const page = toPositiveInt(filters.page, 1);
     const offset = (page - 1) * limit;
+    const sortOrder = normalizeSortOrder(filters.sortOrder);
     const params = [];
     const where = [];
     const eventTime = `COALESCE(pm."scannedAt", mpr."dateOfEntry", pm."createdAt")`;
     if (filters.fromDate) { params.push(filters.fromDate); where.push(`${eventTime} >= $${params.length}::date`); }
     if (filters.toDate) { params.push(filters.toDate); where.push(`${eventTime} < ($${params.length}::date + INTERVAL '1 day')`); }
+    addLocalTimeFilters(where, params, eventTime, filters);
     if (filters.movement) { params.push(filters.movement); where.push(`UPPER(pm.movement::text) = UPPER($${params.length})`); }
+    if (filters.status) { params.push(filters.status); where.push(`UPPER(pm.status::text) = UPPER($${params.length})`); }
     if (filters.search) {
       params.push(`%${filters.search.trim()}%`);
       where.push(`CONCAT_WS(' ', mpr."referenceNo", pm."materialPassNo", a."entityName", mpt.name, pm.movement::text, pm.status::text) ILIKE $${params.length}`);
     }
-    const fromSql = `FROM pass_material pm JOIN material_pass_request mpr ON mpr.id = pm."materialPassRequestId" LEFT JOIN material_pass_type mpt ON mpt.id = pm."materialPassTypeId" LEFT JOIN "Agents" a ON a.id = mpr."agentId"`;
+    const fromSql = `FROM pass_material pm
+      JOIN material_pass_request mpr ON mpr.id = pm."materialPassRequestId"
+      LEFT JOIN material_pass_type mpt ON mpt.id = pm."materialPassTypeId"
+      LEFT JOIN "Agents" a ON a.id = mpr."agentId"
+      LEFT JOIN users approver ON LOWER(TRIM(approver."userName")) = LOWER(TRIM(mpr."approvedBy"))
+      LEFT JOIN LATERAL (
+        SELECT
+          STRING_AGG(CONCAT(mi.name, ' - ', COALESCE(ml."actualMovedQty", ml."requestedQty"), ' ', u."unitCode"), ', ' ORDER BY ml.id) AS "itemDetails",
+          STRING_AGG(CONCAT(COALESCE(ml."actualMovedQty", ml."requestedQty"), ' ', u."unitCode"), ', ' ORDER BY ml.id)
+            FILTER (WHERE LOWER(u."unitCode") IN ('g', 'kg', 'mg', 't')) AS weight,
+          SUM(COALESCE(ml."actualMovedQty", ml."requestedQty"))
+            FILTER (WHERE LOWER(u."unitCode") = 'pcs') AS "numberOfPieces"
+        FROM material_list ml
+        LEFT JOIN master_items mi ON mi.id = ml."masterItemId"
+        LEFT JOIN units u ON u.id = ml."unitId"
+        WHERE ml."passMaterialId" = pm.id
+      ) details ON TRUE`;
     const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
     const total = await pool.query(`SELECT COUNT(*)::int AS total ${fromSql} ${whereSql}`, params);
     params.push(limit, offset);
     const rows = await pool.query(`
       SELECT mpr."referenceNo" AS "requestNumber", pm."materialPassNo",
-        a."entityName" AS "companyName", mpt.name AS "materialType",
         pm.movement::text AS movement, pm.status::text AS status,
+        CASE WHEN UPPER(pm.status::text) = 'APPROVED' THEN mpr."approvedBy" END AS "approvedBy",
+        CASE WHEN UPPER(pm.status::text) = 'APPROVED' THEN approver."employeeId" END AS "approverEmployeeId",
         TO_CHAR(${eventTime} AT TIME ZONE 'Asia/Kolkata', 'DD/MM/YYYY') AS date,
-        TO_CHAR(${eventTime} AT TIME ZONE 'Asia/Kolkata', 'HH24:MI:SS') AS time
+        TO_CHAR(${eventTime} AT TIME ZONE 'Asia/Kolkata', 'HH24:MI:SS') AS time,
+        a."loginId" AS "vendorCode", a."entityName" AS "vendorName",
+        mpt.name AS "returnability", details."itemDetails", details.weight, details."numberOfPieces",
+        pm."rejectedReason"
       ${fromSql} ${whereSql}
-      ORDER BY ${eventTime} DESC LIMIT $${params.length - 1} OFFSET $${params.length}`, params);
+      ORDER BY ${eventTime} ${sortOrder} LIMIT $${params.length - 1} OFFSET $${params.length}`, params);
     return { data: rows.rows, pagination: { page, limit, totalRecords: total.rows[0]?.total || 0 } };
   },
 
@@ -932,6 +1045,7 @@ const Report = {
     const limit = normalizeLimit(filters.limit);
     const page = toPositiveInt(filters.page, 1);
     const offset = (page - 1) * limit;
+    const sortOrder = normalizeSortOrder(filters.sortOrder);
     const params = [];
     const where = [];
 
@@ -943,6 +1057,15 @@ const Report = {
 
     addLike(`mv."registrationNo"`, filters.vehicleNo);
     addLike(`vt.name`, filters.vehicleType);
+    if (filters.fromDate) {
+      params.push(filters.fromDate);
+      where.push(`mv."updatedAt" >= $${params.length}::date`);
+    }
+    if (filters.toDate) {
+      params.push(filters.toDate);
+      where.push(`mv."updatedAt" < ($${params.length}::date + INTERVAL '1 day')`);
+    }
+    addLocalTimeFilters(where, params, `mv."updatedAt"`, filters);
     if (filters.companyNameOrCode) {
       params.push(`%${filters.companyNameOrCode.trim()}%`);
       where.push(`(
@@ -999,19 +1122,20 @@ const Report = {
     params.push(limit, offset);
     const dataResult = await pool.query(
       `SELECT mv."registrationNo" AS "vehicleNo",
-        NULL::text AS "rcBookNo", vt.name AS "vehicleType",
+        vt.name AS "vehicleType",
+        CASE WHEN mv."isActive" THEN 'Active' ELSE 'Inactive' END AS status,
+        TO_CHAR(mv."updatedAt" AT TIME ZONE 'Asia/Kolkata', 'DD/MM/YYYY') AS date,
+        TO_CHAR(mv."updatedAt" AT TIME ZONE 'Asia/Kolkata', 'HH24:MI:SS') AS time,
         a."loginId" AS "companyCode", a."entityName" AS "companyName",
-        mv."insuranceExpiry" AS "insuranceExpiryDate",
-        mv."rcValidity" AS "rcExpiryDate",
+        TO_CHAR(mv."insuranceExpiry", 'DD/MM/YYYY') AS "insuranceExpiryDate",
+        TO_CHAR(mv."rcValidity", 'DD/MM/YYYY') AS "rcExpiryDate",
         COALESCE(
           NULLIF(TRIM(mv."scannedCopyFileName"), ''),
           CASE WHEN NULLIF(TRIM(mv."scannedCopyFilePath"), '') IS NOT NULL THEN 'Available' END
         ) AS "rcBookCopy",
-        CASE WHEN mv."isActive" THEN 'Active' ELSE 'Inactive' END AS status,
-        TO_CHAR(mv."updatedAt" AT TIME ZONE 'Asia/Kolkata', 'DD/MM/YYYY') AS date,
-        TO_CHAR(mv."updatedAt" AT TIME ZONE 'Asia/Kolkata', 'HH24:MI:SS') AS time
+        mv."scannedCopyFilePath" AS "rcCopyUrl"
        ${fromSql} ${whereSql}
-       ORDER BY mv."updatedAt" DESC, mv.id DESC
+       ORDER BY mv."updatedAt" ${sortOrder}, mv.id ${sortOrder}
        LIMIT $${params.length - 1} OFFSET $${params.length}`,
       params,
     );

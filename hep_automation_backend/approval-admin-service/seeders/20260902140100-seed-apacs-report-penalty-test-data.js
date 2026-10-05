@@ -8,10 +8,18 @@ module.exports = {
     const names = ['Ramesh Kumar', 'Priya Devi', 'Arun Prakash', 'Kavitha Rajan'];
     const reasons = ['Pass validity exceeded', 'Unauthorized access attempt', 'Safety document expired', 'Port access rule violation'];
 
+    const [users] = await queryInterface.sequelize.query(
+      `SELECT id FROM users WHERE status = 'active' ORDER BY id LIMIT 1`
+    );
+    if (!users.length) {
+      throw new Error('Blacklist report test data requires at least one active user.');
+    }
+    const blacklistedByUserId = users[0].id;
+
     const allBlacklistEntries = [
       ...Array.from({ length: count }, (_, i) => {
       const n = String(i + 1).padStart(5, '0'); const vehicle = i % 2 === 1; const penalty = i % 4 !== 0;
-      return { entity_type: vehicle ? 'VEHICLE' : 'PERSON', identifier: vehicle ? `TN${String(i % 99 + 1).padStart(2, '0')}BL${n.slice(-4)}` : `APACS-TEST-P-${n}`, entity_name: vehicle ? `APACS Test Vehicle ${n}` : names[i % names.length], reason: reasons[i % reasons.length], scenario: i % 2 ? 'OVERSTAY' : 'SECURITY', has_penalty: penalty, penalty_amount: penalty ? [100, 250, 500][i % 3] : null, penalty_status: penalty ? (i % 2 ? 'PAID' : 'PENDING') : 'NOT_APPLICABLE', status: i % 10 ? 'BLACKLISTED' : 'UNBLACKLISTED', blacklisted_at: new Date(+now - (i % 30) * 86400000), compliance_notes: 'APACS reports test data', authorizing_officer: 'APACS Test Officer', permit_one_gate_out: false, gate_out_used: false, payment_method: penalty ? (i % 2 ? 'ACCOUNT' : 'E-CASH') : null, transaction_id: `APACS-TEST-BL-TXN-${n}`, createdAt: now, updatedAt: now };
+      return { entity_type: vehicle ? 'VEHICLE' : 'PERSON', identifier: vehicle ? `TN${String(i % 99 + 1).padStart(2, '0')}BL${n.slice(-4)}` : `APACS-TEST-P-${n}`, entity_name: vehicle ? `APACS Test Vehicle ${n}` : names[i % names.length], reason: reasons[i % reasons.length], scenario: i % 2 ? 'OVERSTAY' : 'SECURITY', has_penalty: penalty, penalty_amount: penalty ? [100, 250, 500][i % 3] : null, penalty_status: penalty ? (i % 2 ? 'PAID' : 'PENDING') : 'NOT_APPLICABLE', status: i % 10 ? 'BLACKLISTED' : 'UNBLACKLISTED', blacklisted_at: new Date(+now - (i % 30) * 86400000), blacklisted_by: blacklistedByUserId, compliance_notes: 'APACS reports test data', authorizing_officer: 'APACS Test Officer', permit_one_gate_out: false, gate_out_used: false, payment_method: penalty ? (i % 2 ? 'ACCOUNT' : 'E-CASH') : null, transaction_id: `APACS-TEST-BL-TXN-${n}`, createdAt: now, updatedAt: now };
       }),
     ];
 
@@ -26,6 +34,13 @@ module.exports = {
     const existingBlacklist = new Set(blacklistRows.map((row) => row.transaction_id));
     const newBlacklistEntries = allBlacklistEntries.filter((row) => !existingBlacklist.has(row.transaction_id));
     for (let i = 0; i < newBlacklistEntries.length; i += 250) await queryInterface.bulkInsert('blacklist_entries', newBlacklistEntries.slice(i, i + 250), {});
+    await queryInterface.sequelize.query(
+      `UPDATE blacklist_entries
+       SET blacklisted_by = :blacklistedByUserId
+       WHERE transaction_id LIKE 'APACS-TEST-BL-TXN-%'
+         AND blacklisted_by IS NULL`,
+      { replacements: { blacklistedByUserId } }
+    );
 
     const [overstayRows] = await queryInterface.sequelize.query(`SELECT transaction_id FROM overstay_charges WHERE transaction_id LIKE 'APACS-TEST-OS-TXN-%'`);
     const existingOverstay = new Set(overstayRows.map((row) => row.transaction_id));
