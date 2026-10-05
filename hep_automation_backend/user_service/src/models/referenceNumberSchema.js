@@ -374,6 +374,86 @@ const ReferenceNumber = {
       return `DEB${day}${month}${year}${padded}`;
   },
 
+  async generateVendorMaterialLinkReference(client) {
+    const today = new Date().toISOString().slice(0, 10);
+
+    const result = await client.query(
+      `
+        INSERT INTO daily_pass_counters (
+          date,
+          "vendorMaterialLinkCounter"
+        )
+        VALUES ($1, 1)
+        ON CONFLICT (date)
+        DO UPDATE SET
+          "vendorMaterialLinkCounter" =
+            COALESCE(
+              daily_pass_counters."vendorMaterialLinkCounter",
+              0
+            ) + 1
+        RETURNING "vendorMaterialLinkCounter"
+      `,
+      [today]
+    );
+
+    const count =
+      result.rows[0].vendorMaterialLinkCounter;
+
+    const padded = String(count).padStart(4, "0");
+
+    const date = new Date(`${today}T00:00:00Z`);
+
+    const day = String(date.getUTCDate()).padStart(2, "0");
+    const month = String(
+      date.getUTCMonth() + 1
+    ).padStart(2, "0");
+    const year = String(
+      date.getUTCFullYear()
+    ).slice(-2);
+
+    return `VML${day}${month}${year}${padded}`;
+  },
+
+  async generateVendorMaterialRequestReference(client) {
+    const today = new Date().toISOString().slice(0, 10);
+
+    const result = await client.query(
+      `
+        INSERT INTO daily_pass_counters (
+          date,
+          "vendorMaterialRequestCounter"
+        )
+        VALUES ($1, 1)
+        ON CONFLICT (date)
+        DO UPDATE SET
+          "vendorMaterialRequestCounter" =
+            COALESCE(
+              daily_pass_counters."vendorMaterialRequestCounter",
+              0
+            ) + 1
+        RETURNING "vendorMaterialRequestCounter"
+      `,
+      [today]
+    );
+
+    const count =
+      result.rows[0].vendorMaterialRequestCounter;
+
+    const padded = String(count).padStart(4, "0");
+
+    const date = new Date(`${today}T00:00:00Z`);
+
+    const day = String(date.getUTCDate()).padStart(2, "0");
+    const month = String(
+      date.getUTCMonth() + 1
+    ).padStart(2, "0");
+    const year = String(
+      date.getUTCFullYear()
+    ).slice(-2);
+
+    return `VMR${day}${month}${year}${padded}`;
+  },
+
 };
 
 module.exports = ReferenceNumber;

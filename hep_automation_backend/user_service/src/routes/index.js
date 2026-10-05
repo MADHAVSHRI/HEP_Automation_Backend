@@ -14,13 +14,14 @@ const reportRoutes = require("./reportRoutes");
 const vvipPassRoutes = require("./vvipPassRoutes");
 const publicRequestRoutes = require("./publicRequestRoutes");
 const adminPublicRequestRoutes = require("./adminPublicRequestRoutes");
-
+const vendorMaterialLinkRoutes = require("./vendorMaterialLinkRoutes");
 
 router.use("/agents", agentRoutes);
 router.use("/user-types", userTypeRoutes);
 router.use("/captcha", captchaRoutes);
 router.use("/pass-request", passRequestRoutes);
 router.use("/vendor-pass", vendorPassRoutes);
+router.use("/vendor-material-pass", vendorMaterialLinkRoutes);
 router.use("/locks", lockRoutes);
 router.use("/material-pass", materialPassRoutes);
 router.use("/bulk-pass", bulkPassRoutes);

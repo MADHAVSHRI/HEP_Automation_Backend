@@ -37,6 +37,7 @@ const adminNewPublicRequestTemplate = require("../emailTemplates/adminNewPublicR
 const publicRequestApprovedTemplate = require("../emailTemplates/publicRequestApprovedTemplate");
 const publicRequestRejectedTemplate = require("../emailTemplates/publicRequestRejectedTemplate");
 const childBatchConfirmationTemplate = require("../emailTemplates/childBatchConfirmationTemplate");
+const vendorMaterialLinkTemplate = require("../emailTemplates/vendorMaterialLinkTemplate");
 
 const sendOverstayReminderEmail = async (data) => {
   const html = overstayReminderTemplate(data);
@@ -709,6 +710,47 @@ const sendPhotoCaptureLink = async ({ email, personName, agentName, link }) => {
   return transporter.sendMail(mailOptions);
 };
 
+const sendVendorMaterialLinkEmail = async ({
+  email,
+  companyName,
+  referenceNo,
+  link,
+  validFrom,
+  validTo,
+  departmentName,
+}) => {
+  const html = vendorMaterialLinkTemplate({
+    companyName,
+    referenceNo,
+    link,
+    validFrom,
+    validTo,
+    departmentName,
+  });
+
+  const mailOptions = {
+    from: process.env.EMAIL_USER,
+    to: email,
+    subject:
+      `Chennai Port — Material Movement Pass Application (${referenceNo})`,
+    html,
+  };
+
+  console.log(
+    `[EMAIL-SVC] Sending vendor material link email to ${email}`
+  );
+
+  const result =
+    await transporter.sendMail(mailOptions);
+
+  console.log(
+    `[EMAIL-SVC] Vendor material link email sent:`,
+    result.messageId
+  );
+
+  return result;
+};
+
 module.exports = {
   sendReferenceEmail, sendApprovalEmail, 
   sendRejectionEmail, sendDeptUserCreationEmail, sendDeptUserActivatedEmail, 
@@ -725,6 +767,7 @@ module.exports = {
   sendTwoWheelerUpdateRejectedEmail,
   sendLicenseExpiryWarningEmail,
   sendPhotoCaptureLink,
+  sendVendorMaterialLinkEmail,
   // Multiple Pass Submissions Functions
   sendOTPEmail,
   sendPublicRequestAcknowledgment,

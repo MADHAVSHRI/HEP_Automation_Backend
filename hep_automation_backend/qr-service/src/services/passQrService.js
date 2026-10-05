@@ -963,7 +963,7 @@ async function generateMaterialPdf(data) {
       doc.fillColor("black").font("Helvetica").fontSize(9.5);
       doc.text(String(idx + 1), COL.sno, y + 6);
       doc.text(m.name || "-", COL.item, y + 6, { width: 210 });
-      doc.text(String(m.quantity ?? "-"), COL.qty, y + 6);
+      doc.text(String(m.approvedQty ?? "-"), COL.qty, y + 6);
       doc.text(m.unit || "-", COL.unit, y + 6);
       drawCheckbox(y);
       y += ROW_H;

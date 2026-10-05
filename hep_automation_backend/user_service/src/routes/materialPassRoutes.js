@@ -11,10 +11,15 @@ const {
   completeMaterialPassReview,
   getMaterialQrData,
   saveMaterialQrPdfPath,
-  resubmitRevertedMaterialPass
+  resubmitRevertedMaterialPass,
+  viewMaterialPassDocument
 } = require("../controllers/materialPassController");
 
 const validate = require("../middlewares/validate");
+const parseJsonPayload = require("../middlewares/parseJsonPayload");
+const upload = require("../middlewares/uploadMiddleware");
+const { validateUploadedFileTypes } = require("../middlewares/uploadMiddleware");
+
 
 const {
   materialPassRequestSchema,
@@ -31,11 +36,17 @@ router.get("/locations", verifyToken, getPortLocations);
 
 router.get("/RegularPassTypes", verifyToken, getRegularPassTypes);
 
-router.get("/units", verifyToken, getUnits);
+router.get("/units", getUnits);
 
 router.post(
     "/createRegularMaterialPassRequest",
     verifyToken,
+    upload.fields([
+        { name: "materialPassRequisitionLetter", maxCount: 1 },
+        { name: "materialPassWorkOrder", maxCount: 1 },    
+    ]),
+    validateUploadedFileTypes,
+    parseJsonPayload,
     validate(materialPassRequestSchema),
     createRegularMaterialPassRequest
 )
@@ -72,5 +83,7 @@ router.put(
     validate(resubmitRevertedPassSchema),
     resubmitRevertedMaterialPass
 )
+
+router.get("/viewMaterialPassDocument", viewMaterialPassDocument);
 
 module.exports = router;

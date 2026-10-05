@@ -1,3 +1,5 @@
+const fs = require("fs");
+const path = require("path");
 
 const { 
   portLocations,
@@ -65,25 +67,52 @@ exports.getUnits = async (req, res) => {
 };
 
 exports.createRegularMaterialPassRequest = async (req, res) => {
+
+  const deleteFiles = () => {
+    const files = req.files;
+    if (!files) return;
+    Object.values(files).forEach((arr) => {
+      arr.forEach((file) => {
+        if (file?.path && fs.existsSync(file.path)) {
+          fs.unlink(file.path, (err) => {
+            if (err && err.code !== "ENOENT") {
+              console.error("File delete error:", err);
+            }
+          });
+        }
+      });
+    });
+  };
+
   try {
-    const payload = req.body;
+    const payload = req.body; // already parsed + zod-validated by the route middlewares
 
-    // Agent ID from JWT
     payload.agentId = req.user.userId;
-    // payload.agentId = req?.user?.userId || 1;
 
-    // Expiry Date = Entry Date + 2 days
     const expiryDate = new Date(payload.entryDate);
     expiryDate.setDate(expiryDate.getDate() + 2);
-
     payload.expiryDate = expiryDate;
+
+    const requisitionLetter = req.files?.materialPassRequisitionLetter?.[0];
+    const workOrder = req.files?.materialPassWorkOrder?.[0];
+
+    if (!requisitionLetter) {
+      deleteFiles();
+      return res.status(400).json({
+        success: false,
+        message: "Requisition Letter is mandatory.",
+      });
+    }
+
+    payload.requisitionLetterFilePath = requisitionLetter.path;
+    payload.requisitionLetterFileName = requisitionLetter.originalname;
+    payload.workOrderFilePath = workOrder?.path || null;
+    payload.workOrderFileName = workOrder?.originalname || null;
 
     // TODO: Check whether the requesting company is blacklisted.
 
     const passRequestId =
       await materialPassRequest.createRegularMaterialPass(payload);
-    
-
 
     res.status(201).json({
       success: true,
@@ -91,18 +120,104 @@ exports.createRegularMaterialPassRequest = async (req, res) => {
       passRequestId,
     });
   } catch (error) {
-
-    console.error(
-      "Material Pass Creation Error:",
-      error
-    );
-
+    deleteFiles();
+    console.error("Material Pass Creation Error:", error);
     res.status(500).json({
       success: false,
       message: error.message || "Failed to create material pass request",
     });
   }
-}
+};
+
+exports.viewMaterialPassDocument = async (req, res) => {
+  try {
+    const { passRequestId, documentType } = req.query;
+
+    if (!passRequestId || !documentType) {
+      return res.status(400).json({
+        success: false,
+        message: "passRequestId and documentType required"
+      });
+    }
+
+    const fileData = await materialPassRequest.getMaterialPassDocumentPath(
+      passRequestId,
+      documentType
+    );
+
+    if (!fileData) {
+      return res.status(404).json({
+        success: false,
+        message: "Document not found"
+      });
+    }
+
+    const filePath = Object.values(fileData)[0];
+
+    if (!filePath) {
+      return res.status(404).json({
+        success: false,
+        message: "File path not found"
+      });
+    }
+
+    const absolutePath = path.join(process.cwd(), filePath);
+
+    if (!fs.existsSync(absolutePath)) {
+      return res.status(404).json({
+        success: false,
+        message: "File missing on server"
+      });
+    }
+
+    let contentType = "application/octet-stream";
+    try {
+      const fd = fs.openSync(absolutePath, "r");
+      const buffer = Buffer.alloc(4);
+      fs.readSync(fd, buffer, 0, 4, 0);
+      fs.closeSync(fd);
+
+      if (buffer[0] === 0x25 && buffer[1] === 0x50 && buffer[2] === 0x44 && buffer[3] === 0x46) {
+        contentType = "application/pdf";
+      } else if (buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4E && buffer[3] === 0x47) {
+        contentType = "image/png";
+      } else if (buffer[0] === 0xFF && buffer[1] === 0xD8 && buffer[2] === 0xFF) {
+        contentType = "image/jpeg";
+      } else {
+        const pathExt = path.extname(absolutePath).toLowerCase();
+        if (pathExt === ".pdf") contentType = "application/pdf";
+        if (pathExt === ".jpg" || pathExt === ".jpeg") contentType = "image/jpeg";
+        if (pathExt === ".png") contentType = "image/png";
+      }
+    } catch (err) {
+      console.error("Error reading file magic bytes, falling back to extension:", err);
+      const pathExt = path.extname(absolutePath).toLowerCase();
+      if (pathExt === ".pdf") contentType = "application/pdf";
+      if (pathExt === ".jpg" || pathExt === ".jpeg") contentType = "image/jpeg";
+      if (pathExt === ".png") contentType = "image/png";
+    }
+
+    res.setHeader("Content-Type", contentType);
+    res.setHeader("Content-Disposition", "inline");
+
+    const stream = fs.createReadStream(absolutePath);
+
+    stream.on("error", (error) => {
+      console.error("Stream error:", error);
+      res.status(500).end("Error reading file");
+    });
+
+    stream.pipe(res);
+
+  } catch (error) {
+    console.error("View material pass request document error:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "Internal server error"
+    });
+  }
+};
 
 exports.getMaterialPassRequests = async (req, res) => {
   try {

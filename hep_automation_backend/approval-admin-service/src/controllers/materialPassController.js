@@ -111,7 +111,7 @@ exports.materialPassRequestAction = async (req, res) => {
     }
 
     for (const pass of passes) {
-      const { passType, decision: passDecision, remarks } = pass || {};
+      const { passType, decision: passDecision, remarks, items } = pass || {};
 
       if (!passType || !VALID_PASS_TYPES.includes(passType)) {
         return res.status(400).json({
@@ -134,6 +134,37 @@ exports.materialPassRequestAction = async (req, res) => {
         return res.status(400).json({
           success: false,
           message: `Remarks are required when ${passDecision.toLowerCase()} for passType ${passType}`
+        });
+      }
+
+      // Item-level approval data only ever applies to an APPROVED pass.
+      if (passDecision === "APPROVED") {
+        if (!Array.isArray(items) || items.length === 0) {
+          return res.status(400).json({
+            success: false,
+            message: `items array is required when approving passType ${passType}`
+          });
+        }
+
+        for (const item of items) {
+          if (
+            !item ||
+            typeof item.materialId !== "number" ||
+            typeof item.approvedQty !== "number" ||
+            item.approvedQty < 0
+          ) {
+            return res.status(400).json({
+              success: false,
+              message: `Invalid item entry in passType ${passType}: materialId and a non-negative approvedQty are required`
+            });
+          }
+        }
+      } else if (items !== undefined) {
+        // Defensive: reject stray items on a non-approved pass rather than
+        // silently ignoring data the client shouldn't have sent.
+        return res.status(400).json({
+          success: false,
+          message: `items should not be provided when decision is ${passDecision} for passType ${passType}`
         });
       }
     }

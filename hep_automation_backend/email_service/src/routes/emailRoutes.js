@@ -51,4 +51,7 @@ router.post("/sendChildBatchConfirmation", emailController.sendChildBatchConfirm
 // ── Photo Capture Link ────────────────────────────────────────────────────────
 router.post("/sendPhotoCaptureLink", emailController.sendPhotoCaptureLink);
 
+// ── Vendor Material Link Email Route ──────────────────────────────────────────────
+router.post("/sendVendorMaterialLink", emailController.sendVendorMaterialLink);
+
 module.exports = router;

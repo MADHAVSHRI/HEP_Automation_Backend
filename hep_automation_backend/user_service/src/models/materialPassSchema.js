@@ -172,9 +172,12 @@ const materialPassRequest = {
         expiryDate,
         returnables,
         nonReturnables,
+        requisitionLetterFilePath,
+        requisitionLetterFileName,
+        workOrderFilePath,
+        workOrderFileName,
       } = payload;
 
-      //Generate Pass Request Reference Number
       let referenceNo;
       let passRequestId;
       let inserted = false;
@@ -198,17 +201,21 @@ const materialPassRequest = {
                 "locationFrom",
                 "locationTo",
                 "locationOther",
+                "requisitionLetterFilePath",
+                "requisitionLetterFileName",
+                "workOrderFilePath",
+                "workOrderFileName",
                 "submittedAt"
             )
             VALUES
             (
-                $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,NOW()
+                $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,NOW()
             )
             RETURNING id
           `;
           const passRequestResult = await client.query(query,  [
               referenceNo,
-              "Agent",            // or "Department"
+              "Agent",
               agentId,
               concernedDepartment,
               purpose,
@@ -218,6 +225,10 @@ const materialPassRequest = {
               location,
               location,
               locationOther || null,
+              requisitionLetterFilePath,
+              requisitionLetterFileName,
+              workOrderFilePath || null,
+              workOrderFileName || null,
           ]);
           passRequestId = passRequestResult.rows[0].id;
           inserted = true;
@@ -261,11 +272,12 @@ const materialPassRequest = {
               "masterItemId",
               "requestedQty",
               "actualMovedQty",
-              "unitId"
+              "unitId",
+              "description"
           )
           VALUES
           (
-              $1,$2,$3,$4,$5
+              $1,$2,$3,$4,$5,$6
           )
       `;
 
@@ -298,6 +310,7 @@ const materialPassRequest = {
                   material.quantity,
                   0,              // Nothing has moved yet
                   material.unit,
+                  material.description || null,
               ]);
           }
       }
@@ -331,6 +344,7 @@ const materialPassRequest = {
                   material.quantity,
                   0,
                   material.unit,
+                  material.description || null,
               ]);
           }
       }
@@ -344,6 +358,33 @@ const materialPassRequest = {
     } finally {
       client.release();
     }
+  },
+
+  async getMaterialPassDocumentPath(passRequestId, documentType) {
+    let columnName;
+
+    switch (documentType) {
+      case "requisitionLetter":
+        columnName = "requisitionLetterFilePath";
+        break;
+
+      case "workOrder":
+        columnName = "workOrderFilePath";
+        break;
+
+      default:
+        throw new Error("Invalid document type");
+    }
+
+    const query = `
+      SELECT "${columnName}"
+      FROM material_pass_request
+      WHERE id = $1
+    `;
+
+    const result = await pool.query(query, [passRequestId]);
+
+    return result.rows[0] || null;
   },
 
    /*
@@ -369,8 +410,6 @@ const materialPassRequest = {
         NON_RETURNABLE: 2,
       };
 
-      // Resolve reviewer's username — "approvedBy" is compared against
-      // userName elsewhere (see processedByMe filter), so store the same way.
       let approvedByName = null;
       if (userId) {
         const userRes = await client.query(
@@ -393,7 +432,7 @@ const materialPassRequest = {
       };
 
       for (const pass of passes) {
-        const { passType, decision, remarks } = pass;
+        const { passType, decision, remarks, items } = pass;
         const materialPassTypeId = PASS_TYPE_ID_MAP[passType];
 
         if (!materialPassTypeId) {
@@ -402,7 +441,7 @@ const materialPassRequest = {
 
         if (decision === "REVERTED") anyReverted = true;
 
-       const dbStatus = STATUS_MAP[decision?.toUpperCase()];
+        const dbStatus = STATUS_MAP[decision?.toUpperCase()];
         if (!dbStatus) {
           throw new Error(`Invalid decision: ${decision}`);
         }
@@ -434,6 +473,40 @@ const materialPassRequest = {
           throw new Error(
             `No ${passType} pass found for material pass request ${passRequestId}`
           );
+        }
+
+        const passMaterialId = updateResult.rows[0].id;
+
+        // Item-level approvedQty/approverRemarks only apply when this
+        // specific pass type is APPROVED — REJECTED/REVERTED passes never
+        // touch material_list, per the review rules.
+        if (decision === "APPROVED" && Array.isArray(items) && items.length > 0) {
+          const itemUpdateQuery = `
+            UPDATE material_list
+            SET
+              "approvedQty" = $1,
+              "approverRemarks" = $2
+            WHERE id = $3
+              AND "passMaterialId" = $4
+            RETURNING id
+          `;
+
+          for (const item of items) {
+            const { materialId, approvedQty, approverRemarks } = item;
+
+            const result = await client.query(itemUpdateQuery, [
+              approvedQty,
+              approverRemarks || null,
+              materialId,
+              passMaterialId, // scopes the update to THIS request's pass — prevents a crafted materialId from touching another request's row
+            ]);
+
+            if (result.rows.length === 0) {
+              throw new Error(
+                `Material item ${materialId} does not belong to ${passType} pass of request ${passRequestId}`
+              );
+            }
+          }
         }
       }
 
@@ -781,6 +854,9 @@ const getMaterialPass = {
               mpr."hasRevertedPass",
               mpr."submittedAt",
               mpr."createdAt",
+              mpr."requisitionLetterFilePath",
+              mpr."workOrderFilePath",
+              mpr."isResubmitted",
 
               vp."name" AS "purpose",
               mpr."purposeOther",
@@ -824,9 +900,13 @@ const getMaterialPass = {
                       COALESCE(
                           jsonb_agg(
                               jsonb_build_object(
+                                  'id', ml.id,
                                   'name', mi.name,
                                   'quantity', ml."requestedQty",
-                                  'unit', u."unitName"
+                                  'unit', u."unitName",
+                                  'description', ml.description,
+                                  'approvedQty', ml."approvedQty",
+                                  'approverRemarks', ml."approverRemarks"
                               )
                           ), '[]'::jsonb
                       )
@@ -853,9 +933,13 @@ const getMaterialPass = {
                       COALESCE(
                           jsonb_agg(
                               jsonb_build_object(
+                                  'id', ml.id,
                                   'name', mi.name,
                                   'quantity', ml."requestedQty",
-                                  'unit', u."unitName"
+                                  'unit', u."unitName",
+                                  'description', ml.description,
+                                  'approvedQty', ml."approvedQty",
+                                  'approverRemarks', ml."approverRemarks"
                               )
                           ), '[]'::jsonb
                       )
@@ -1031,6 +1115,7 @@ const getMaterialPass = {
             mpr."referenceNo",
             mpr."status",
 
+            a.id AS "agentId",
             a."entityName" AS "companyName",
 
             mpr."dateOfEntry" AS "entryDate",
@@ -1039,6 +1124,9 @@ const getMaterialPass = {
             mpr."submittedAt",
             mpr."createdAt",
             mpr."approvedBy",
+            mpr."requisitionLetterFilePath",
+            mpr."workOrderFilePath",
+            mpr."isResubmitted",
 
             vp.name AS "purpose",
             mpr."purposeOther",
@@ -1082,9 +1170,13 @@ const getMaterialPass = {
                 COALESCE(
                     jsonb_agg(
                     jsonb_build_object(
+                        'id', ml.id,
                         'name', mi.name,
                         'quantity', ml."requestedQty",
-                        'unit', u."unitName"
+                        'unit', u."unitName",
+                        'description', ml.description,
+                        'approvedQty', ml."approvedQty",
+                        'approverRemarks', ml."approverRemarks"
                     )
                     ), '[]'::jsonb
                 )
@@ -1109,9 +1201,13 @@ const getMaterialPass = {
                 COALESCE(
                     jsonb_agg(
                     jsonb_build_object(
+                        'id', ml.id,
                         'name', mi.name,
                         'quantity', ml."requestedQty",
-                        'unit', u."unitName"
+                        'unit', u."unitName",
+                        'description', ml.description,
+                        'approvedQty', ml."approvedQty",
+                        'approverRemarks', ml."approverRemarks"
                     )
                     ), '[]'::jsonb
                 )
@@ -1322,12 +1418,13 @@ const getMaterialPass = {
       const materialsQuery = `
         SELECT
           mi.name,
-          ml."requestedQty" AS quantity,
+          ml."approvedQty" AS "approvedQty",
           u."unitName" AS unit
         FROM material_list ml
         JOIN master_items mi ON mi.id = ml."masterItemId"
         JOIN units u ON u.id = ml."unitId"
         WHERE ml."passMaterialId" = $1
+          AND ml."approvedQty" > 0
         ORDER BY ml.id ASC
       `;
 

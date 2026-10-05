@@ -37,8 +37,9 @@ const {
   sendApprovalNotification,
   sendRejectionNotification,
   sendChildBatchConfirmation,
-  sendBulkPassExpiringEmail
-} = require("../services/emailService");
+  sendBulkPassExpiringEmail,
+  sendVendorMaterialLinkEmail
+ } = require("../services/emailService");
 
 exports.sendOverstayReminder = async (req, res) => {
   try {
@@ -880,5 +881,67 @@ exports.sendPhotoCaptureLink = async (req, res) => {
   } catch (error) {
     console.error("[EMAIL-CTRL] sendPhotoCaptureLink error:", error);
     res.status(500).json({ success: false, message: "Email sending failed" });
+  }
+};
+
+exports.sendVendorMaterialLink = async (
+  req,
+  res
+) => {
+  try {
+    const {
+      email,
+      companyName,
+      referenceNo,
+      link,
+      validFrom,
+      validTo,
+      departmentName,
+    } = req.body;
+
+    if (!email || !referenceNo || !link) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "email, referenceNo and link are required",
+      });
+    }
+
+    if (
+      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(
+        email
+      )
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "A valid email is required",
+      });
+    }
+
+    await sendVendorMaterialLinkEmail({
+      email,
+      companyName,
+      referenceNo,
+      link,
+      validFrom,
+      validTo,
+      departmentName,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message:
+        "Vendor material application link email sent successfully",
+    });
+  } catch (error) {
+    console.error(
+      "[EMAIL-CTRL] sendVendorMaterialLink error:",
+      error
+    );
+
+    return res.status(500).json({
+      success: false,
+      message: "Email sending failed",
+    });
   }
 };

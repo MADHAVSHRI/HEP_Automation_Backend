@@ -8,6 +8,23 @@ Predefine directories to avoid repeated path.join calls during upload
 const baseDir = "uploads/agent_docs";
 const passRequestBaseDir = "uploads/passRequestDocs";
 const vendorPassBaseDir = "uploads/vendorPassDocs";
+const materialPassBaseDir = "uploads/materialPassDocs";
+const vendorMaterialPassBaseDir = "uploads/vendorMaterialPassDocs";
+
+const MATERIAL_PASS_REQ_DIR = path.join(materialPassBaseDir, "requisitionLetter");
+const MATERIAL_PASS_WORKORDER_DIR = path.join(materialPassBaseDir, "workOrder");
+
+const VENDOR_MATERIAL_LINK_WORKORDER_DIR =
+  path.join(
+    vendorMaterialPassBaseDir,
+    "linkWorkOrders"
+  );
+
+const VENDOR_MATERIAL_REQUEST_WORKORDER_DIR =
+  path.join(
+    vendorMaterialPassBaseDir,
+    "requestWorkOrders"
+  );
 
 
 
@@ -83,6 +100,26 @@ const passRequestFolders = [
   "visaDoc",
   "immigrationDoc"
 ];
+
+const materialPassFolders = ["requisitionLetter", "workOrder"];
+
+materialPassFolders.forEach((folder) => {
+  const dir = path.join(materialPassBaseDir, folder);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+});
+
+[
+  VENDOR_MATERIAL_LINK_WORKORDER_DIR,
+  VENDOR_MATERIAL_REQUEST_WORKORDER_DIR,
+].forEach((directory) => {
+  if (!fs.existsSync(directory)) {
+    fs.mkdirSync(directory, {
+      recursive: true,
+    });
+  }
+});
 
 folders.forEach((folder) => {
   const dir = path.join(baseDir, folder);
@@ -262,6 +299,28 @@ const storage = multer.diskStorage({
         cb(null, ENTRY_AUTHORIZATION_DIR);
         break;
 
+      case "materialPassRequisitionLetter":
+        cb(null, MATERIAL_PASS_REQ_DIR);
+        break;
+
+      case "materialPassWorkOrder":
+        cb(null, MATERIAL_PASS_WORKORDER_DIR);
+        break;
+
+      case "vendorMaterialLinkWorkOrder":
+        cb(
+          null,
+          VENDOR_MATERIAL_LINK_WORKORDER_DIR
+        );
+        break;
+
+      case "vendorMaterialRequestWorkOrder":
+        cb(
+          null,
+          VENDOR_MATERIAL_REQUEST_WORKORDER_DIR
+        );
+        break;
+
       default:
         cb(new Error("Invalid upload field"), "null");
     }
@@ -411,6 +470,31 @@ const storage = multer.diskStorage({
 
     else if (fieldPrefix === "twistLock") {
       fileName = `TWISTLOCK${timestamp}.pdf`;
+    }
+
+    else if (fieldPrefix === "materialPassRequisitionLetter") {
+      fileName = `MATERIALREQUISITIONLETTER${timestamp}.pdf`;
+    }
+
+    else if (fieldPrefix === "materialPassWorkOrder") {
+      fileName = `MATERIALWORKORDER${timestamp}.pdf`;
+    }
+
+    else if (fieldPrefix ===
+    "vendorMaterialLinkWorkOrder"
+    ) {
+      fileName =
+        `VENDORMATERIALLINKWORKORDER` +
+        `${timestamp}.pdf`;
+    }
+
+    else if (
+      fieldPrefix ===
+      "vendorMaterialRequestWorkOrder"
+    ) {
+      fileName =
+        `VENDORMATERIALREQUESTWORKORDER` +
+        `${timestamp}.pdf`;
     }
 
     else if (!fileName) {
