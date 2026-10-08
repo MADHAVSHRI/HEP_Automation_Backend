@@ -466,6 +466,7 @@ const bcrypt = require("bcrypt");
 const { randomUUID: uuidv4 } = require("crypto");
 const jwt = require("jsonwebtoken");
 const RefreshToken = require("../models/refreshTokenSchema");
+const AccountDeletion = require("../models/accountDeletionSchema");
 const { generateAccessToken, generateRefreshToken } = require("../utils/jwt");
 const {
   getUserSession,
@@ -1405,3 +1406,298 @@ exports.resetPassword = async (req, res) => {
     return res.status(500).json({ success: false, message: "Internal server error" });
   }
 };
+
+/* ─────────────────────────────────────────────
+   CAPTCHA PROXY
+───────────────────────────────────────────── */
+exports.getCaptcha = async (req, res) => {
+  try {
+    const captchaRes = await axios.get(
+      `${process.env.USER_SERVICE_URL}/api/captcha/get-captcha`,
+      {
+        timeout: 5000,
+        headers: {
+          "x-service-key": process.env.SERVICE_AUTH_KEY,
+          "x-service-name": "AUTH-SERVICE",
+        },
+      }
+    );
+    return res.status(200).json(captchaRes.data);
+  } catch (error) {
+    log.error("CAPTCHA_PROXY", "Error proxying getCaptcha", error);
+    // Dynamic math fallback if user_service is busy or unreachable
+    const n1 = Math.floor(Math.random() * 9) + 1;
+    const n2 = Math.floor(Math.random() * 9) + 1;
+    const q = `${n1} + ${n2} = ?`;
+    return res.status(200).json({
+      success: true,
+      question: q,
+      captchaQuestion: q,
+      token: `fallback-${Date.now()}`,
+      captchaToken: `fallback-${Date.now()}`,
+    });
+  }
+};
+
+/* ─────────────────────────────────────────────
+   REQUEST ACCOUNT DELETION
+───────────────────────────────────────────── */
+exports.requestAccountDeletion = async (req, res) => {
+  const TAG = "ACCOUNT_DELETION";
+  try {
+    const { username, loginId, password, captchaValue, captchaToken, reason } = req.body;
+    const userIdentifier = (username || loginId || "").trim();
+
+    // 1. Validate inputs
+    if (!userIdentifier || !password || !captchaValue) {
+      return res.status(400).json({
+        success: false,
+        message: "Username, password, and security code are required",
+      });
+    }
+
+    // 2. Validate CAPTCHA against user-service
+    if (captchaToken && !captchaToken.startsWith("fallback-")) {
+      try {
+        const captchaRes = await axios.post(
+          `${process.env.USER_SERVICE_URL}/api/captcha/verify-captcha`,
+          { token: captchaToken, value: captchaValue },
+          {
+            timeout: 5000,
+            headers: {
+              "x-service-key": process.env.SERVICE_AUTH_KEY,
+              "x-service-name": "AUTH-SERVICE",
+            },
+          }
+        );
+        if (captchaRes.data?.valid === false && captchaRes.data?.success === false) {
+          return res.status(400).json({
+            success: false,
+            message: "Invalid or expired security code. Please refresh the captcha.",
+          });
+        }
+      } catch (captchaErr) {
+        log.warn(TAG, "Captcha verification rejected", {
+          err: captchaErr?.response?.data || captchaErr.message,
+        });
+        return res.status(400).json({
+          success: false,
+          message: "Invalid or expired security code. Please refresh the captcha.",
+        });
+      }
+    }
+
+    // 3. User Lookup
+    let user = null;
+    let userType = "unknown";
+
+    if (userIdentifier.startsWith("190")) {
+      userType = "agent";
+      try {
+        const agentRes = await axios.post(
+          `${process.env.USER_SERVICE_URL}/api/agents/login`,
+          { loginId: userIdentifier },
+          {
+            timeout: 5000,
+            headers: {
+              "x-service-key": process.env.SERVICE_AUTH_KEY,
+              "x-service-name": "AUTH-SERVICE",
+            },
+          }
+        );
+        user = agentRes.data?.data;
+      } catch (err) {
+        log.warn(TAG, "Agent lookup failed", { userIdentifier, error: err.message });
+      }
+    } else {
+      userType = "admin";
+      try {
+        const adminRes = await axios.post(
+          `${process.env.ADMIN_SERVICE_URL}/api/user/login`,
+          { loginId: userIdentifier },
+          {
+            timeout: 5000,
+            headers: {
+              "x-service-key": process.env.SERVICE_AUTH_KEY,
+              "x-service-name": "AUTH-SERVICE",
+            },
+          }
+        );
+        user = adminRes.data?.data;
+      } catch (err) {
+        log.warn(TAG, "Admin lookup failed, checking agent fallback", { userIdentifier });
+      }
+
+      // Fallback: check agent service if not found in admin
+      if (!user) {
+        try {
+          const agentRes = await axios.post(
+            `${process.env.USER_SERVICE_URL}/api/agents/login`,
+            { loginId: userIdentifier },
+            {
+              timeout: 5000,
+              headers: {
+                "x-service-key": process.env.SERVICE_AUTH_KEY,
+                "x-service-name": "AUTH-SERVICE",
+              },
+            }
+          );
+          if (agentRes.data?.data) {
+            user = agentRes.data.data;
+            userType = "agent";
+          }
+        } catch (_) {}
+      }
+    }
+
+    if (!user) {
+      await bcrypt.compare(
+        password,
+        "$2b$10$invalidhashpadding000000000000000000000000000000000000"
+      );
+      return res.status(401).json({
+        success: false,
+        message: "Invalid credentials. Please verify your username and password.",
+      });
+    }
+
+    // 4. Verify password
+    const isPasswordValid = await bcrypt.compare(password, user.password);
+    if (!isPasswordValid) {
+      return res.status(401).json({
+        success: false,
+        message: "Invalid credentials. Please verify your username and password.",
+      });
+    }
+
+    // 5. Check if an active deletion request is already pending
+    const existing = await AccountDeletion.findPendingByLoginId(userIdentifier);
+    if (existing) {
+      return res.status(409).json({
+        success: false,
+        message: `An account deletion request is already pending review (Request ID: #${existing.id}). An administrator will process it.`,
+      });
+    }
+
+    // 6. Record the deletion request
+    const ipAddress =
+      req.headers["x-forwarded-for"]?.split(",")[0]?.trim() ||
+      req.socket?.remoteAddress ||
+      req.ip ||
+      "";
+    const userAgent = req.headers["user-agent"] || "";
+
+    const requestRecord = await AccountDeletion.createRequest({
+      userId: user.id,
+      userType,
+      loginId: userIdentifier,
+      email: user.email || null,
+      reason: reason || "User initiated deletion request via portal",
+      ipAddress,
+      userAgent,
+    });
+
+    // 7. Security: Invalidate any active sessions
+    try {
+      if (user.id) {
+        await RefreshToken.deleteUserSessions(user.id);
+        await deleteUserSession(user.id);
+      }
+    } catch (sessionErr) {
+      log.warn(TAG, "Failed to invalidate user sessions after deletion request", {
+        userId: user.id,
+        error: sessionErr.message,
+      });
+    }
+
+    log.info(TAG, "Account deletion request successfully logged", {
+      requestId: requestRecord.id,
+      loginId: userIdentifier,
+      userType,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Account deletion request submitted successfully. Your request has been queued for administrative processing.",
+      requestId: requestRecord.id,
+    });
+  } catch (error) {
+    log.error(TAG, "Unhandled error during account deletion request", error);
+    return res.status(500).json({
+      success: false,
+      message: "An unexpected error occurred while processing your request. Please try again later.",
+    });
+  }
+};
+
+/* ─────────────────────────────────────────────
+   ADMIN: GET ALL ACCOUNT DELETION REQUESTS
+───────────────────────────────────────────── */
+exports.getAccountDeletionRequests = async (req, res) => {
+  try {
+    const { status, search, page = 1, limit = 20 } = req.query;
+    const pageNum = Math.max(1, parseInt(page, 10) || 1);
+    const limitNum = Math.max(1, parseInt(limit, 10) || 20);
+    const offset = (pageNum - 1) * limitNum;
+
+    const { records, total } = await AccountDeletion.getAllRequests({
+      status,
+      search,
+      limit: limitNum,
+      offset,
+    });
+    return res.status(200).json({
+      success: true,
+      data: records,
+      pagination: {
+        totalRecords: total,
+        totalPages: Math.ceil(total / limitNum) || 1,
+        currentPage: pageNum,
+        pageSize: limitNum,
+      },
+    });
+  } catch (error) {
+    log.error("ADMIN_DELETION_LIST", "Failed to retrieve deletion requests", error);
+    return res.status(500).json({ success: false, message: "Failed to fetch deletion requests" });
+  }
+};
+
+/* ─────────────────────────────────────────────
+   ADMIN: UPDATE ACCOUNT DELETION STATUS
+───────────────────────────────────────────── */
+exports.updateAccountDeletionStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status, adminNotes } = req.body;
+    const reviewedBy = req.user?.username || req.user?.loginId || "admin";
+
+    if (!status || !["APPROVED", "REJECTED"].includes(status.toUpperCase())) {
+      return res.status(400).json({
+        success: false,
+        message: "Valid status ('APPROVED' or 'REJECTED') is required",
+      });
+    }
+
+    const updated = await AccountDeletion.updateRequestStatus(id, {
+      status: status.toUpperCase(),
+      reviewedBy,
+      adminNotes: adminNotes || "",
+    });
+
+    if (!updated) {
+      return res.status(404).json({ success: false, message: "Deletion request not found" });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: status.toUpperCase() === "APPROVED"
+        ? "Account deletion request approved and account deactivated."
+        : "Account deletion request rejected.",
+      data: updated,
+    });
+  } catch (error) {
+    log.error("ADMIN_DELETION_UPDATE", "Failed to update deletion request status", error);
+    return res.status(500).json({ success: false, message: "Failed to update deletion status" });
+  }
+};
+

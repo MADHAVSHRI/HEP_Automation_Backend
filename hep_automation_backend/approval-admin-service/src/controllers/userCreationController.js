@@ -1,6 +1,7 @@
 const axios = require("axios");
 const bcrypt = require("bcrypt");
 const User = require("../models/userCreationSchema");
+const AccountDeletion = require("../models/accountDeletionSchema");
 const sendEmailEvent = require("../utils/kafka/producer");
 const {DEPARTMENT_USER_ACCOUNT_STATUS} = require("../constants/constants");
 const redisClient = require("../../config/redisClient");
@@ -742,3 +743,85 @@ exports.changePassword = async (req, res) => {
     return res.status(500).json({ success: false, message: "Internal server error" });
   }
 };
+
+/* ─────────────────────────────────────────────
+   GET ALL ACCOUNT DELETION REQUESTS
+───────────────────────────────────────────── */
+exports.getAccountDeletionRequests = async (req, res) => {
+  try {
+    const { status, search, page = 1, limit = 20 } = req.query;
+    const pageNum = Math.max(1, parseInt(page, 10) || 1);
+    const limitNum = Math.max(1, parseInt(limit, 10) || 20);
+    const offset = (pageNum - 1) * limitNum;
+
+    const { records, total } = await AccountDeletion.getAllRequests({
+      status,
+      search,
+      limit: limitNum,
+      offset,
+    });
+
+    return res.status(200).json({
+      success: true,
+      data: records,
+      pagination: {
+        totalRecords: total,
+        totalPages: Math.ceil(total / limitNum) || 1,
+        currentPage: pageNum,
+        pageSize: limitNum,
+      },
+    });
+  } catch (error) {
+    console.error("Error fetching account deletion requests:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch account deletion requests",
+    });
+  }
+};
+
+/* ─────────────────────────────────────────────
+   UPDATE ACCOUNT DELETION STATUS
+───────────────────────────────────────────── */
+exports.updateAccountDeletionStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status, adminNotes } = req.body;
+    const reviewedBy = req.user?.userName || req.user?.username || req.user?.loginId || "Admin";
+
+    if (!status || !["APPROVED", "REJECTED"].includes(status.toUpperCase())) {
+      return res.status(400).json({
+        success: false,
+        message: "Valid status ('APPROVED' or 'REJECTED') is required",
+      });
+    }
+
+    const updated = await AccountDeletion.updateRequestStatus(id, {
+      status: status.toUpperCase(),
+      reviewedBy,
+      adminNotes: adminNotes || "",
+    });
+
+    if (!updated) {
+      return res.status(404).json({
+        success: false,
+        message: "Account deletion request not found",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: status.toUpperCase() === "APPROVED"
+        ? "Account deletion request approved and account deactivated."
+        : "Account deletion request rejected.",
+      data: updated,
+    });
+  } catch (error) {
+    console.error("Error updating account deletion status:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to update account deletion request status",
+    });
+  }
+};
+

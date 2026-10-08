@@ -24,4 +24,8 @@ router.post("/forgot-password", forgotPasswordLimiter, loginController.forgotPas
 router.post("/verify-otp", loginController.verifyOtp);
 router.post("/reset-password", loginController.resetPassword);
 
+// Captcha proxy & Account Deletion Request
+router.get("/getCaptcha", loginController.getCaptcha);
+router.post("/requestAccountDeletion", loginController.requestAccountDeletion);
+
 module.exports = router;
