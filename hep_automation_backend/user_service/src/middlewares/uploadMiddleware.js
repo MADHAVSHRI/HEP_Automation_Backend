@@ -388,7 +388,8 @@ const storage = multer.diskStorage({
     }
 
     else if (fieldPrefix === "passRequisitionLetter") {
-      fileName = `PASSREQUISITIONLETTER${timestamp}.pdf`;
+      const ext = path.extname(file.originalname).toLowerCase() || ".pdf";
+      fileName = `PASSREQUISITIONLETTER${timestamp}${ext}`;
     }
 
     else if (fieldPrefix === "vehicleRC") {

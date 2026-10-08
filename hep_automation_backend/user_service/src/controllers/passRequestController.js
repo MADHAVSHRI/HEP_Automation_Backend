@@ -1142,39 +1142,62 @@ const approveVehicle = async (req, res) => {
       // Daily oil dock vehicles just need to be individually certified (twistLockCertified set to true).
       // "Complete Review" button handles the actual state transition — here we just track per-vehicle.
       // Check if ALL monthly/yearly vehicles in this request have been twist-lock certified.
+      // Annual container trailers require twistLockCertified.
+      // Daily oil dock vehicles just need to be individually certified (twistLockCertified set to true).
+      // Check if ALL annual trailers in this request have been twist-lock certified.
       const allVehiclesQuery = `
-        SELECT id, "twistLockCertified", "passType", "accessAreaId"
-        FROM pass_vehicles
-        WHERE "passRequestId" = $1
+        SELECT pv.id, pv."twistLockCertified", pv."passType", pv."accessAreaId", vt.name AS "vehicleTypeName"
+        FROM pass_vehicles pv
+        LEFT JOIN vehicle_types vt ON vt.id = pv."vehicleTypeId"
+        WHERE pv."passRequestId" = $1
       `;
       const allVehiclesRes = await pool.query(allVehiclesQuery, [
         passRequestId,
       ]);
-      // Only monthly/yearly vehicles strictly require twistLockCertified to advance.
-      // Daily oil dock vehicles are certified individually via this same endpoint (twistLockCertified=true).
-      // The overall state transition is handled by completePassReview.
-      const monthlyYearlyVehicles = allVehiclesRes.rows.filter((v) =>
-        ["MONTHLY", "YEARLY", "ANNUAL"].includes(v.passType),
-      );
+      const annualTrailers = allVehiclesRes.rows.filter((v) => {
+        const typeName = String(v.vehicleTypeName || "").trim().toUpperCase();
+        const isTrailer = ["TRAILORS", "TRAILER LORRY", "TRACTOR TRAILER"].includes(typeName);
+        const isAnnual = ["YEARLY", "ANNUAL"].includes(String(v.passType || "").trim().toUpperCase());
+        return isTrailer && isAnnual;
+      });
       const allCertified =
-        monthlyYearlyVehicles.length === 0 ||
-        monthlyYearlyVehicles.every((v) => v.twistLockCertified);
+        annualTrailers.length === 0 ||
+        annualTrailers.every((v) => v.twistLockCertified);
 
       if (allCertified) {
-        const prRes = await pool.query(
-          `SELECT "isOilDock" FROM pass_requests WHERE id = $1`,
-          [passRequestId],
+        // Check if ALL entities in this pass request are already approved!
+        const entityCheck = await pool.query(
+          `SELECT 
+             (SELECT COUNT(*) FROM pass_persons WHERE "passRequestId" = $1 AND status NOT IN ('approved', 'rejected')) AS unapproved_persons,
+             (SELECT COUNT(*) FROM pass_vehicles WHERE "passRequestId" = $1 AND status NOT IN ('approved', 'rejected')) AS unapproved_vehicles,
+             (SELECT COUNT(*) FROM essential_pass_conversions WHERE "passRequestId" = $1 AND status IN ('PENDING', 'REVERTED')) AS pending_conversions`,
+          [passRequestId]
         );
-        const isOilDock = prRes.rows[0]?.isOilDock;
+        const unapprovedPersons = parseInt(entityCheck.rows[0]?.unapproved_persons || "0", 10);
+        const unapprovedVehicles = parseInt(entityCheck.rows[0]?.unapproved_vehicles || "0", 10);
+        const pendingConversions = parseInt(entityCheck.rows[0]?.pending_conversions || "0", 10);
 
-        const nextState = isOilDock
-          ? "PENDING_FIRE_SAFETY"
-          : "PENDING_PASS_SECTION";
+        if (unapprovedPersons === 0 && unapprovedVehicles === 0 && pendingConversions === 0) {
+          await pool.query(
+            `UPDATE pass_requests SET "workflowState" = 'COMPLETED', "status" = 'COMPLETED', "updatedAt" = NOW() WHERE id = $1`,
+            [passRequestId],
+          );
+        } else {
+          const prRes = await pool.query(
+            `SELECT "isOilDock" FROM pass_requests WHERE id = $1`,
+            [passRequestId],
+          );
+          const isOilDock = prRes.rows[0]?.isOilDock;
 
-        await pool.query(
-          `UPDATE pass_requests SET "workflowState" = $2, "updatedAt" = NOW() WHERE id = $1`,
-          [passRequestId, nextState],
-        );
+          const nextState = isOilDock
+            ? "PENDING_FIRE_SAFETY"
+            : "PENDING_PASS_SECTION";
+
+          await pool.query(
+            `UPDATE pass_requests SET "workflowState" = $2, "updatedAt" = NOW() WHERE id = $1`,
+            [passRequestId, nextState],
+          );
+        }
       }
 
       return res.json({
@@ -1750,6 +1773,10 @@ const getVendorQrData = async (req, res) => {
 const getPassDetails = async (req, res) => {
   try {
     const { passRequestId } = req.params;
+
+    if (PassRequest && PassRequest.syncPassRequestCompletion) {
+      await PassRequest.syncPassRequestCompletion(passRequestId);
+    }
 
     const passData = await getAgentPassRequestsDetails.getPassById(
       passRequestId,
@@ -3063,6 +3090,7 @@ const revertMarineSafetyVehicle = async (req, res) => {
 const getEssentialOilDockStage = (req) => {
   const role = String(req.user?.role || "").trim();
   const roleCode = String(req.user?.roleCode || "").trim();
+  const roleId = Number(req.user?.roleId || req.user?.role_id);
   const departmentId = Number(req.user?.departmentId);
 
   if (
@@ -3484,18 +3512,9 @@ module.exports = {
 
   async requestBulkPassConversion(req, res) {
     try {
-      const { items, departmentId, purpose } = req.body;
+      const { items, departmentId, purpose, existingRequisitionPath } = req.body;
       const file = req.file;
       const userId = req.user?.id;
-
-      if (!file) {
-        return res
-          .status(400)
-          .json({
-            success: false,
-            message: "Requisition letter PDF is required.",
-          });
-      }
 
       let parsedItems = [];
       if (typeof items === "string") {
@@ -3515,6 +3534,7 @@ module.exports = {
         departmentId,
         purpose,
         file,
+        existingRequisitionPath,
         userId,
       });
 
