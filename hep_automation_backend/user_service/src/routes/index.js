@@ -11,6 +11,7 @@ const bulkPassRoutes = require("./bulkPassRoutes");
 const chatbotRoutes = require("./chatbotRoutes");
 const ulipRoutes = require("./ulipRoutes");
 const reportRoutes = require("./reportRoutes");
+const trafficAnalyticsRoutes = require("./trafficAnalyticsRoutes");
 const vvipPassRoutes = require("./vvipPassRoutes");
 const publicRequestRoutes = require("./publicRequestRoutes");
 const adminPublicRequestRoutes = require("./adminPublicRequestRoutes");
@@ -29,6 +30,7 @@ router.use("/bulk-pass/public", publicRequestRoutes);
 router.use("/bulk-pass/admin", adminPublicRequestRoutes);
 router.use("/chatbot", chatbotRoutes);
 router.use("/ulip", ulipRoutes);
+router.use("/reports/traffic", trafficAnalyticsRoutes);
 router.use("/reports", reportRoutes);
 router.use("/vvip-pass", vvipPassRoutes);
 
