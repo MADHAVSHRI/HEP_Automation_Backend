@@ -74,7 +74,7 @@ const listHandler = (method, baseName, label) => async (req, res) => {
     return res.status(200).json({ success: true, ...result });
   } catch (error) {
     console.error(`Traffic analytics ${label} error:`, error);
-    return res.status(500).json({ success: false, message: `Failed to fetch ${label}` });
+    return res.status(500).json({ success: false, message: `Failed to fetch ${label}`, code: error?.code || null, detail: error?.message || null });
   }
 };
 
@@ -84,7 +84,7 @@ exports.getFilterOptions = async (req, res) => {
     return res.status(200).json({ success: true, ...options });
   } catch (error) {
     console.error("Traffic analytics filter options error:", error);
-    return res.status(500).json({ success: false, message: "Failed to fetch filter options" });
+    return res.status(500).json({ success: false, message: "Failed to fetch filter options", code: error?.code || null, detail: error?.message || null });
   }
 };
 
@@ -94,7 +94,7 @@ exports.getOverview = async (req, res) => {
     return res.status(200).json({ success: true, ...overview });
   } catch (error) {
     console.error("Traffic analytics overview error:", error);
-    return res.status(500).json({ success: false, message: "Failed to fetch cargo analytics overview" });
+    return res.status(500).json({ success: false, message: "Failed to fetch cargo analytics overview", code: error?.code || null, detail: error?.message || null });
   }
 };
 
@@ -108,7 +108,7 @@ exports.getJourney = async (req, res) => {
     return res.status(200).json({ success: true, ...journey });
   } catch (error) {
     console.error("Traffic analytics journey error:", error);
-    return res.status(500).json({ success: false, message: "Failed to build journey" });
+    return res.status(500).json({ success: false, message: "Failed to build journey", code: error?.code || null, detail: error?.message || null });
   }
 };
 
