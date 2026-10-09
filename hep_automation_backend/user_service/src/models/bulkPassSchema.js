@@ -2,6 +2,56 @@ const { pool } = require("../dbconfig/db");
 const { getValidityState, normalizeValidityFrom } = require("../utils/bulkPassValidity");
 
 /**
+ * Who created each batch and who approved it, by name. Creation is
+ * "createdByUserId"; approval is the latest COMPLETED entry in the status log
+ * (written by the traffic officer who finalised the batch). `reviewedByName`
+ * is the officer who last approved a person in it — the pass PDF is rendered
+ * just before the COMPLETED log entry exists, so it falls back to this.
+ * Mutates and returns `rows`; one query for any number of rows.
+ */
+async function attachActors(rows) {
+  const list = (Array.isArray(rows) ? rows : [rows]).filter(Boolean);
+  if (!list.length) return rows;
+  const ids = list.map((r) => r.id);
+  const result = await pool.query(
+    `SELECT b.id,
+            cu."userName" AS "createdByName",
+            ap."approvedByName",
+            ap."approvedAt",
+            rv."reviewedByName"
+       FROM "bulk_pass_batches" b
+       LEFT JOIN "users" cu ON cu.id = b."createdByUserId"
+       LEFT JOIN LATERAL (
+         SELECT au."userName" AS "approvedByName", l."createdAt" AS "approvedAt"
+           FROM "bulk_pass_status_logs" l
+           LEFT JOIN "users" au ON au.id = l."changedBy"
+          WHERE l."batchId" = b.id AND l.status = 'COMPLETED'
+          ORDER BY l."createdAt" DESC
+          LIMIT 1
+       ) ap ON true
+       LEFT JOIN LATERAL (
+         SELECT ru."userName" AS "reviewedByName"
+           FROM "bulk_pass_persons" bp
+           JOIN "users" ru ON ru.id = bp."approvedBy"
+          WHERE bp."batchId" = b.id AND bp."approvalStatus" = 'APPROVED'
+          ORDER BY bp."approvedAt" DESC NULLS LAST
+          LIMIT 1
+       ) rv ON true
+      WHERE b.id = ANY($1::int[])`,
+    [ids]
+  );
+  const byId = new Map(result.rows.map((r) => [r.id, r]));
+  for (const row of list) {
+    const a = byId.get(row.id) || {};
+    row.createdByName = a.createdByName || null;
+    row.approvedByName = a.approvedByName || null;
+    row.approvedAt = a.approvedAt || null;
+    row.reviewedByName = a.reviewedByName || null;
+  }
+  return rows;
+}
+
+/**
  * The person/vehicle ceilings live in the maxNoOf* columns, but the whole
  * module — controllers, emails, the API contract — knows them as noOfPersons /
  * noOfVehicles. Queries that use RETURNING * pass through here so callers only
@@ -165,7 +215,9 @@ const BulkPassSchema = {
        WHERE id = $1`,
       [id]
     );
-    return result.rows[0] || null;
+    const row = result.rows[0] || null;
+    if (row) await attachActors(row);
+    return row;
   },
 
   /*
@@ -373,6 +425,7 @@ const BulkPassSchema = {
     `;
 
     const result = await pool.query(query, params);
+    await attachActors(result.rows);
     return result.rows;
   },
 
@@ -429,6 +482,7 @@ const BulkPassSchema = {
       LIMIT 500
     `;
     const result = await pool.query(query);
+    await attachActors(result.rows);
     return result.rows;
   },
 

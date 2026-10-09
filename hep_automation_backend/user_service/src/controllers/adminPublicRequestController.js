@@ -4,6 +4,7 @@ const axios = require("axios");
 const { generateUploadToken } = require("../utils/tokenUtils");
 // Links must be readable by the applicant portal, which decrypts with cryptoUtils.
 const { encryptToken } = require("../utils/cryptoUtils");
+const { combineValidity } = require("../utils/bulkPassValidity");
 
 /**
  * Admin Public Request Controller
@@ -131,7 +132,9 @@ exports.getPendingRequests = async (req, res) => {
       last_submission_at: request.last_submission_at || null,
       created_at: request.created_at,
       approved_at: request.approved_at,
+      approved_by_name: request.approved_by_name || null,
       rejected_at: request.rejected_at,
+      rejected_by_name: request.rejected_by_name || null,
       rejection_reason: request.rejection_reason
     }));
 
@@ -375,11 +378,12 @@ exports.approveRequest = async (req, res) => {
       });
     }
 
-    // Validate date formats
-    const fromDate = new Date(validityFrom);
-    const uptoDate = new Date(validityUpto);
+    // Date + optional "HH:MM" (IST); a date without its time gets the
+    // 06:00 / 18:00 bulk pass default.
+    const fromDate = combineValidity(validityFrom, req.body.validityFromTime);
+    const uptoDate = combineValidity(validityUpto, req.body.validityUptoTime, { upto: true });
 
-    if (isNaN(fromDate.getTime()) || isNaN(uptoDate.getTime())) {
+    if (!fromDate || !uptoDate) {
       return res.status(400).json({
         success: false,
         message: "Invalid date format for validityFrom or validityUpto"
@@ -450,8 +454,8 @@ exports.approveRequest = async (req, res) => {
     const updateData = {
       status: "ACTIVE",
       token_active: true,
-      approved_time_from: validityFrom,
-      approved_time_upto: validityUpto,
+      approved_time_from: fromDate.toISOString(),
+      approved_time_upto: uptoDate.toISOString(),
       approved_by_user_id: adminUserId,
       approved_at: new Date(),
       shared_token: shared_token,
@@ -499,8 +503,8 @@ exports.approveRequest = async (req, res) => {
             companyName: parentRequest.company_name,
             trackingNumber: parentRequest.tracking_number,
             uploadLink: uploadLink,
-            validityFrom: validityFrom,
-            validityUpto: validityUpto,
+            validityFrom: fromDate.toISOString(),
+            validityUpto: uptoDate.toISOString(),
             noOfPersons: parentRequest.no_of_persons,
             noOfVehicles: parentRequest.no_of_vehicles,
             maxSubmissions: toLimit(maxSubmissions),

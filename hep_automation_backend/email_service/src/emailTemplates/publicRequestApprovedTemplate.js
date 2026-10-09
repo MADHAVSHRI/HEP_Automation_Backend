@@ -1,9 +1,11 @@
+const { formatValidityDateTime } = require("../utils/formatDate");
+
 const publicRequestApprovedTemplate = ({
   companyName,
   trackingNumber,
   uploadLink,
-  validityFrom,
-  validityUpto,
+  validityFrom: rawValidityFrom,
+  validityUpto: rawValidityUpto,
   noOfPersons,
   noOfVehicles,
   remarks,
@@ -13,6 +15,8 @@ const publicRequestApprovedTemplate = ({
   perBatchMaxPersons = 30,
   perBatchMaxVehicles = 30,
 }) => {
+  const validityFrom = formatValidityDateTime(rawValidityFrom);
+  const validityUpto = formatValidityDateTime(rawValidityUpto, { upto: true });
   const hasLimit = (v) => v !== undefined && v !== null && v !== "" && Number(v) > 0;
   return `
   <div style="font-family: Arial, sans-serif; color:#1f2937; max-width:600px; margin:0 auto;">

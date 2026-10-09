@@ -148,6 +148,9 @@ router.get("/public/:token/submissions", bulkPassController.getPublicSubmissions
 // Detail of one previous batch, scoped to the Bulk Pass that owns it.
 router.get("/public/:token/submissions/:submissionId", bulkPassController.getPublicSubmissionDetail);
 
+// Correction payload for one returned batch, through the Bulk Pass link that owns it
+router.get("/public/:token/submissions/:submissionId/correction", bulkPassController.getPublicSubmissionCorrection);
+
 // The approved pass (QR PDF) of one batch, through the Bulk Pass link that owns it
 router.get("/public/:token/submissions/:submissionId/pdf", bulkPassController.getPublicSubmissionPdf);
 
@@ -192,38 +195,51 @@ router.post(
   bulkPassController.uploadZipPhotos
 );
 
+// Multipart parser for a batch submission: vehicle docs + Aadhaar cards for all
+// persons. Shared by a new batch and a correction sent from the dashboard.
+const submitRowsUpload = (req, res, next) => {
+  // Accept any field name for vehicle docs + Aadhaar cards for all persons.
+  // Vehicles: up to MAX_VEHICLES × 8 docs. Persons: up to 200 Aadhaar cards.
+  const fields = [];
+  for (let i = 0; i < BULK_PASS_LIMITS.MAX_VEHICLES; i++) {
+    ["rc", "insurance", "fitness", "permit", "roadTax", "emission", "driverAadhaarCard", "driverLicense"].forEach((doc) => {
+      fields.push({ name: `vehicle_${i}_${doc}`, maxCount: 1 });
+    });
+  }
+  for (let i = 0; i < 200; i++) {
+    fields.push({ name: `person_${i}_aadhaarCard`, maxCount: 1 });
+  }
+  const docStorage = multer.diskStorage({
+    destination: (_req, _file, cb) => {
+      const tmpDir = "/tmp/bulk_pass_vehicle_docs";
+      if (!require("fs").existsSync(tmpDir)) require("fs").mkdirSync(tmpDir, { recursive: true });
+      cb(null, tmpDir);
+    },
+    filename: (_req, file, cb) => cb(null, Date.now() + "_" + file.originalname.replace(/[^a-zA-Z0-9._-]/g, "_")),
+  });
+  multer({ storage: docStorage, limits: { fileSize: 10 * 1024 * 1024, files: fields.length } })
+    .fields(fields)(req, res, (err) => {
+      if (err) return res.status(400).json({ success: false, message: err.message || "File upload error" });
+      next();
+    });
+};
+
 // Submit rows directly with photoDataUrl per row + optional vehicle docs
 router.post(
   "/public/:token/submit-rows",
   bulkSubmissionRateLimiter,
-  (req, res, next) => {
-    // Accept any field name for vehicle docs + Aadhaar cards for all persons.
-    // Vehicles: up to MAX_VEHICLES × 8 docs. Persons: up to 200 Aadhaar cards.
-    const fields = [];
-    for (let i = 0; i < BULK_PASS_LIMITS.MAX_VEHICLES; i++) {
-      ["rc", "insurance", "fitness", "permit", "roadTax", "emission", "driverAadhaarCard", "driverLicense"].forEach((doc) => {
-        fields.push({ name: `vehicle_${i}_${doc}`, maxCount: 1 });
-      });
-    }
-    for (let i = 0; i < 200; i++) {
-      fields.push({ name: `person_${i}_aadhaarCard`, maxCount: 1 });
-    }
-    const docStorage = multer.diskStorage({
-      destination: (_req, _file, cb) => {
-        const tmpDir = "/tmp/bulk_pass_vehicle_docs";
-        if (!require("fs").existsSync(tmpDir)) require("fs").mkdirSync(tmpDir, { recursive: true });
-        cb(null, tmpDir);
-      },
-      filename: (_req, file, cb) => cb(null, Date.now() + "_" + file.originalname.replace(/[^a-zA-Z0-9._-]/g, "_")),
-    });
-    multer({ storage: docStorage, limits: { fileSize: 10 * 1024 * 1024, files: fields.length } })
-      .fields(fields)(req, res, (err) => {
-        if (err) return res.status(400).json({ success: false, message: err.message || "File upload error" });
-        next();
-      });
-  },
+  submitRowsUpload,
   validateUploadedFileTypes,
   bulkPassController.submitRowsDirectly
+);
+
+// Correct a returned batch from the Bulk Pass dashboard (scoped to the pass that owns it)
+router.post(
+  "/public/:token/submissions/:submissionId/submit-rows",
+  bulkSubmissionRateLimiter,
+  submitRowsUpload,
+  validateUploadedFileTypes,
+  bulkPassController.submitPublicSubmissionCorrection
 );
 
 // ── Internal service-to-service routes (x-service-key) ─────────────────────

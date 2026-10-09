@@ -14,8 +14,8 @@ const bulkPassExpiringTemplate = ({
   submissionsCount,
   uploadLink,
 }) => {
-  const { formatValidityDate } = require("../utils/formatDate");
-  const validUpto = formatValidityDate(validityUpto);
+  const { formatValidityDateTime } = require("../utils/formatDate");
+  const validUpto = formatValidityDateTime(validityUpto, { upto: true });
   const days = Number(daysRemaining);
   const whenPhrase =
     !Number.isFinite(days) || days <= 0

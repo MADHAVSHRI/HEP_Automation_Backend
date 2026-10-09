@@ -10,10 +10,11 @@
  *
  * Rules:
  *  - `validityFrom` is optional. When absent the window is open from creation.
- *  - `validityUpto` is treated as date-only (no time component required).
- *    Any validity date is automatically extended to 23:59:59.999 of that day
- *    to ensure the pass remains valid throughout the entire day.
- *  - `validityFrom` is date-only too: it opens at 00:00 IST of that day.
+ *  - A window is a date plus a time of day, both in IST. The time defaults to
+ *    06:00 (from) and 18:00 (upto) when only a date is given, and the user may
+ *    change it. An upto time is inclusive of its whole minute (HH:MM:59.999).
+ *  - Legacy rows stored as a bare date (midnight) keep their old meaning: from
+ *    opens at 00:00 IST, upto runs to the end of that IST day.
  *  - A pass is ACTIVE only between those two instants.
  *
  * Each batch submitted under a Bulk Pass carries its own window, chosen by the
@@ -41,29 +42,19 @@ function toDate(value) {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
-/**
- * Normalise the end of a validity window. All dates are treated as date-only
- * (no time component) and automatically extended to end of day (23:59:59.999)
- * so a pass valid "upto 30 Sep" stays usable throughout the entire day.
- */
-function normalizeValidityUpto(value) {
-  const d = toDate(value);
-  if (!d) return null;
-  
-  // Always treat as date-only and extend to END of that day in IST
-  // This ensures consistent behavior regardless of how the date was stored
-  const ist = new Date(d.getTime() + IST_OFFSET_MS);
-  const endUtcMs =
-    Date.UTC(ist.getUTCFullYear(), ist.getUTCMonth(), ist.getUTCDate(), 23, 59, 59, 999) - IST_OFFSET_MS;
-  return new Date(endUtcMs);
-}
+// Default time of day for a bulk pass window when only a date is chosen.
+const DEFAULT_VALIDITY_FROM_TIME = "06:00";
+const DEFAULT_VALIDITY_UPTO_TIME = "18:00";
+
+const DATE_KEY_RE = /^\d{4}-\d{2}-\d{2}$/;
+const TIME_KEY_RE = /^([01]\d|2[0-3]):([0-5]\d)$/;
 
 /**
  * The IST calendar day of a date-ish value as "YYYY-MM-DD", or null.
  * A bare "YYYY-MM-DD" (what a date input yields) is that IST day as-is.
  */
 function toIstDateKey(value) {
-  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value.trim())) {
+  if (typeof value === "string" && DATE_KEY_RE.test(value.trim())) {
     const key = value.trim();
     const d = new Date(`${key}T00:00:00Z`);
     // Reject impossible days ("2026-02-31") instead of rolling them over.
@@ -74,19 +65,98 @@ function toIstDateKey(value) {
   return new Date(d.getTime() + IST_OFFSET_MS).toISOString().slice(0, 10);
 }
 
+/** A valid "HH:MM" (24h) time, or null. */
+function toTimeKey(value) {
+  if (typeof value !== "string") return null;
+  const t = value.trim().slice(0, 5);
+  return TIME_KEY_RE.test(t) ? t : null;
+}
+
+/** The IST time of day of an instant as "HH:MM", or null. */
+function toIstTimeKey(value) {
+  const d = toDate(value);
+  if (!d) return null;
+  return new Date(d.getTime() + IST_OFFSET_MS).toISOString().slice(11, 16);
+}
+
+/**
+ * The instant for an IST day + "HH:MM". An upto instant covers its whole
+ * minute (HH:MM:59.999), so "valid upto 18:00" is usable through 18:00, and it
+ * can never be mistaken for a legacy bare-date midnight.
+ */
+function istDateTime(dateKey, timeKey, { upto = false } = {}) {
+  const [y, m, d] = dateKey.split("-").map(Number);
+  const [hh, mm] = timeKey.split(":").map(Number);
+  const utcMs = Date.UTC(y, m - 1, d, hh, mm, upto ? 59 : 0, upto ? 999 : 0);
+  return new Date(utcMs - IST_OFFSET_MS);
+}
+
 function istDayBoundary(key, endOfDay) {
   const [y, m, d] = key.split("-").map(Number);
   const utcMs = endOfDay ? Date.UTC(y, m - 1, d, 23, 59, 59, 999) : Date.UTC(y, m - 1, d);
   return new Date(utcMs - IST_OFFSET_MS);
 }
 
+const isIstMidnight = (d) => (d.getTime() + IST_OFFSET_MS) % MS_PER_DAY === 0;
+const isUtcMidnight = (d) => d.getTime() % MS_PER_DAY === 0;
+
 /**
- * Normalise the start of a validity window to 00:00 IST of that day, so a pass
- * valid "from 1 Oct" is usable from the first minute of 1 Oct in the port.
+ * Build the instant to store for one end of a window from a date and an
+ * optional "HH:MM". A missing time falls back to the 06:00 / 18:00 default. A
+ * full timestamp (no separate time) is taken as-is. Returns null when unusable.
+ */
+function combineValidity(dateValue, timeValue, { upto = false } = {}) {
+  const fallback = upto ? DEFAULT_VALIDITY_UPTO_TIME : DEFAULT_VALIDITY_FROM_TIME;
+  const isBareDate = typeof dateValue === "string" && DATE_KEY_RE.test(dateValue.trim());
+  if (!isBareDate && timeValue == null) {
+    const d = toDate(dateValue);
+    if (!d) return null;
+    return upto ? normalizeValidityUpto(d) : d;
+  }
+  const dateKey = toIstDateKey(dateValue);
+  if (!dateKey) return null;
+  const timeKey = timeValue == null || timeValue === "" ? fallback : toTimeKey(timeValue);
+  if (!timeKey) return null;
+  return istDateTime(dateKey, timeKey, { upto });
+}
+
+/**
+ * Normalise the end of a validity window to the instant it closes.
+ *  - a bare "YYYY-MM-DD" closes at the default 18:00 IST of that day;
+ *  - a legacy bare date stored as midnight (IST or UTC) closes at the end of
+ *    that IST day, as it always has;
+ *  - any other instant is the chosen date + time and is kept as-is.
+ */
+function normalizeValidityUpto(value) {
+  if (typeof value === "string" && DATE_KEY_RE.test(value.trim())) {
+    const key = toIstDateKey(value);
+    return key ? istDateTime(key, DEFAULT_VALIDITY_UPTO_TIME, { upto: true }) : null;
+  }
+  const d = toDate(value);
+  if (!d) return null;
+  if (isIstMidnight(d) || isUtcMidnight(d)) return istDayBoundary(toIstDateKey(d), true);
+  return d;
+}
+
+/**
+ * Normalise the start of a validity window to the instant it opens.
+ *  - a bare "YYYY-MM-DD" opens at the default 06:00 IST of that day;
+ *  - any stored instant is kept (a legacy midnight already means 00:00 IST).
  */
 function normalizeValidityFrom(value) {
-  const key = toIstDateKey(value);
-  return key ? istDayBoundary(key, false) : null;
+  if (typeof value === "string" && DATE_KEY_RE.test(value.trim())) {
+    const key = toIstDateKey(value);
+    return key ? istDateTime(key, DEFAULT_VALIDITY_FROM_TIME) : null;
+  }
+  return toDate(value);
+}
+
+/** "DD/MM/YYYY HH:MM" in IST — how a validity instant is printed on a pass. */
+function formatValidityDateTime(value) {
+  const d = toDate(value);
+  if (!d) return "";
+  const [y, m, day] = toIstDateKey(d).split("-");
+  return `${day}/${m}/${y} ${toIstTimeKey(d)}`;
 }
 
 /**
@@ -165,6 +235,33 @@ function getValidityState(source, now = new Date()) {
 }
 
 /**
+ * The applicant LINK's state: open from the moment the link was issued until
+ * the pass expires — so an organisation can send batches ahead of the visit
+ * window. The pass's own validityFrom still bounds the visit dates a batch may
+ * choose (resolveBatchValidity) and when the gate accepts it (scan), but it no
+ * longer keeps the link closed.
+ *
+ * The link opens at creation (department pass) or approval (public request).
+ * Returns the getValidityState shape; `validityFrom` stays the pass's visit
+ * start for display, and `linkOpensAt` is when submissions opened.
+ */
+function getLinkState(source, now = new Date()) {
+  if (!source) return getValidityState(source, now);
+  const linkOpensAt = toDate(source.approved_at ?? source.createdAt ?? source.created_at ?? null);
+  const { validityFrom, validityUpto } = resolveValidityWindow(source);
+  const state = getValidityState(
+    { validityFrom: linkOpensAt ? linkOpensAt.toISOString() : null, validityUpto: validityUpto ? validityUpto.toISOString() : null },
+    now
+  );
+  return {
+    ...state,
+    validityFrom: validityFrom ? validityFrom.toISOString() : null,
+    linkOpensAt: linkOpensAt ? linkOpensAt.toISOString() : null,
+    visitsNotStarted: !!validityFrom && (toDate(now) || new Date()).getTime() < validityFrom.getTime(),
+  };
+}
+
+/**
  * True when a new batch may still be submitted against this Bulk Pass.
  */
 function isWithinValidity(source, now = new Date()) {
@@ -207,7 +304,9 @@ function getBatchValidityBounds(pass, now = new Date()) {
 /**
  * Validate the window an applicant chose for one batch against its Bulk Pass.
  *
- * @param {{ validityFrom, validityUpto }} input  dates as entered (date-only)
+ * @param {{ validityFrom, validityUpto, validityFromTime?, validityUptoTime? }} input
+ *   dates as entered ("YYYY-MM-DD") plus optional "HH:MM" times, which default
+ *   to 06:00 / 18:00 IST
  * @param {Object} pass  parent batch / parent request row
  * @returns {{ ok: true, validityFrom: Date, validityUpto: Date }
  *         | { ok: false, field: 'validityFrom'|'validityUpto', error: string }}
@@ -218,17 +317,32 @@ function resolveBatchValidity(input, pass, now = new Date()) {
   if (!fromKey) return { ok: false, field: "validityFrom", error: "Please enter a valid 'Valid From' date for this batch." };
   if (!uptoKey) return { ok: false, field: "validityUpto", error: "Please enter a valid 'Valid To' date for this batch." };
 
+  const fromTime = input?.validityFromTime ? toTimeKey(input.validityFromTime) : DEFAULT_VALIDITY_FROM_TIME;
+  const uptoTime = input?.validityUptoTime ? toTimeKey(input.validityUptoTime) : DEFAULT_VALIDITY_UPTO_TIME;
+  if (!fromTime) return { ok: false, field: "validityFrom", error: "Please enter a valid 'Valid From' time for this batch." };
+  if (!uptoTime) return { ok: false, field: "validityUpto", error: "Please enter a valid 'Valid To' time for this batch." };
+
+  const from = istDateTime(fromKey, fromTime);
+  const upto = istDateTime(uptoKey, uptoTime, { upto: true });
+  const { validityFrom: passFrom, validityUpto: passUpto } = resolveValidityWindow(pass);
   const { min, max } = getBatchValidityBounds(pass, now);
+
   if (fromKey < min) {
     return { ok: false, field: "validityFrom", error: `'Valid From' cannot be earlier than ${formatDateKey(min)}.` };
   }
-  if (uptoKey < fromKey) {
-    return { ok: false, field: "validityUpto", error: "'Valid To' cannot be earlier than 'Valid From'." };
+  if (passFrom && from.getTime() < passFrom.getTime()) {
+    return { ok: false, field: "validityFrom", error: `'Valid From' cannot be earlier than the bulk pass validity (${formatValidityDateTime(passFrom)}).` };
   }
-  if (max && uptoKey > max) {
-    return { ok: false, field: "validityUpto", error: `'Valid To' cannot be later than the bulk pass validity (${formatDateKey(max)}).` };
+  if (upto.getTime() <= from.getTime()) {
+    return { ok: false, field: "validityUpto", error: "'Valid To' must be later than 'Valid From'." };
   }
-  return { ok: true, validityFrom: istDayBoundary(fromKey, false), validityUpto: istDayBoundary(uptoKey, true) };
+  if ((max && uptoKey > max) || (passUpto && upto.getTime() > passUpto.getTime())) {
+    return { ok: false, field: "validityUpto", error: `'Valid To' cannot be later than the bulk pass validity (${formatValidityDateTime(passUpto)}).` };
+  }
+  if (upto.getTime() < (toDate(now) || new Date()).getTime()) {
+    return { ok: false, field: "validityUpto", error: "'Valid To' time has already passed." };
+  }
+  return { ok: true, validityFrom: from, validityUpto: upto };
 }
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -240,8 +354,14 @@ function formatDateKey(key) {
 
 module.exports = {
   EXPIRY_WARNING_DAYS,
+  DEFAULT_VALIDITY_FROM_TIME,
+  DEFAULT_VALIDITY_UPTO_TIME,
   toDate,
   toIstDateKey,
+  toTimeKey,
+  toIstTimeKey,
+  combineValidity,
+  formatValidityDateTime,
   normalizeValidityFrom,
   normalizeValidityUpto,
   getBatchValidityBounds,
@@ -249,6 +369,7 @@ module.exports = {
   formatDateKey,
   resolveValidityWindow,
   getValidityState,
+  getLinkState,
   isWithinValidity,
   getBlockedMessage,
 };

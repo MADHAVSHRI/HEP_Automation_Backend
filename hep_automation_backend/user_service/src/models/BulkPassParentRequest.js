@@ -104,7 +104,9 @@ const BulkPassParentRequest = {
          approved_at,
          approved_by_user_id,
          rejected_at,
-         rejected_by_user_id
+         rejected_by_user_id,
+         (SELECT u."userName" FROM "users" u WHERE u.id = approved_by_user_id) AS approved_by_name,
+         (SELECT u."userName" FROM "users" u WHERE u.id = rejected_by_user_id) AS rejected_by_name
        FROM "bulk_pass_parent_requests"
        WHERE id = $1`,
       [id]
@@ -356,6 +358,8 @@ const BulkPassParentRequest = {
         r.approved_by_user_id,
         r.rejected_at,
         r.rejected_by_user_id,
+        au."userName" AS approved_by_name,
+        ru."userName" AS rejected_by_name,
         COALESCE(c.child_count, 0)   AS submissions_count,
         COALESCE(c.child_persons, 0) AS submitted_persons_count,
         COALESCE(c.child_vehicles, 0) AS submitted_vehicles_count,
@@ -373,6 +377,8 @@ const BulkPassParentRequest = {
         WHERE cb.parent_request_id IS NOT NULL AND cb."request_source" = 'PUBLIC_WEBSITE'
         GROUP BY cb.parent_request_id
       ) c ON c.parent_id = r.id
+      LEFT JOIN "users" au ON au.id = r.approved_by_user_id
+      LEFT JOIN "users" ru ON ru.id = r.rejected_by_user_id
       ${whereSql}
       ORDER BY r.created_at DESC
       LIMIT 500

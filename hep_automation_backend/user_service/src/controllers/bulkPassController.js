@@ -19,12 +19,13 @@ const ReferenceNumber = require("../models/referenceNumberSchema");
 const { BULK_VISITOR_TYPES, BULK_PASS_LIMITS, isStudentVisitorType } = require("../constants/constants");
 const {
   getValidityState,
+  getLinkState,
   getBlockedMessage,
   normalizeValidityUpto,
   resolveBatchValidity,
   getBatchValidityBounds,
-  toIstDateKey,
-  formatDateKey,
+  combineValidity,
+  formatValidityDateTime,
   EXPIRY_WARNING_DAYS,
 } = require("../utils/bulkPassValidity");
 
@@ -51,6 +52,11 @@ const buildToken = () =>
     .replace(/=+$/, "");
 
 const buildUploadLink = (token) => `${FRONTEND_BASE}/bulk_pass/${encryptToken(token)}`;
+// Public approved-pass page (/bulk_pass_approved/:id). The page expects the
+// AES-encrypted batch id, and the frontend has no key, so the server must hand
+// the encrypted id over — never let a client build this URL from the raw id.
+const encryptBatchId = (id) => encryptToken(String(id));
+const buildPassViewLink = (id) => `${FRONTEND_BASE}/bulk_pass_approved/${encryptBatchId(id)}`;
 
 // ── Encrypted-link resolution ───────────────────────────────────────────────
 // All public bulk-pass links carry an AES-256-GCM encrypted token/id in the URL
@@ -287,7 +293,9 @@ const isRevoked = (parent, source, validity) => {
  *   so they are left out of the remaining-budget arithmetic.
  */
 async function resolveBulkPassGate(parent, source, { identifier, isApproved = true, excludeBatchId = null } = {}) {
-  const validity = getValidityState(parent);
+  // The link is open from creation until the pass expires — a visit window
+  // that starts later does not keep applicants from sending batches early.
+  const validity = getLinkState(parent);
   const revoked = isRevoked(parent, source, validity);
 
   const [submissionHistory, submissionSummary, nextSubmissionNumber, budgetSummary] = await Promise.all([
@@ -507,6 +515,7 @@ async function buildCorrectionData(batchId, batchReason = null) {
     aadhaar: p.aadhaar || "",
     dob: toFormDob(p.dob),
     mobile: p.mobile || "",
+    inCharge: p.inCharge === true,
     photoPath: p.photoPath || null,             // reused unless replaced
     aadhaarCardPath: p.aadhaarCardPath || null, // reused unless replaced
     approvalStatus: p.approvalStatus || "PENDING",
@@ -688,18 +697,23 @@ function validateIntakeBody(body) {
   const totalsCheck = validatePassTotals(persons, vehicles, isReusableLink);
   if (!totalsCheck.ok) return totalsCheck;
 
-  // "Valid upto today" means the whole of today, so compare against the end
-  // of that day rather than the instant the form was submitted.
-  const uptoEnd = normalizeValidityUpto(validityUpto);
-  if (!uptoEnd || uptoEnd.getTime() <= Date.now()) {
-    return { ok: false, status: 400, message: "Validity upto must be today or a future date" };
+  // A window is a date + time in IST; a date sent without its time gets the
+  // 06:00 / 18:00 default.
+  const uptoEnd = combineValidity(validityUpto, body.validityUptoTime, { upto: true });
+  if (!uptoEnd) {
+    return { ok: false, status: 400, message: "Invalid validity upto date or time" };
+  }
+  if (uptoEnd.getTime() <= Date.now()) {
+    return { ok: false, status: 400, message: "Validity upto must be in the future" };
   }
 
+  let fromStart = null;
   if (validityFrom) {
-    if (isNaN(new Date(validityFrom).getTime())) {
-      return { ok: false, status: 400, message: "Invalid validity from date" };
+    fromStart = combineValidity(validityFrom, body.validityFromTime);
+    if (!fromStart) {
+      return { ok: false, status: 400, message: "Invalid validity from date or time" };
     }
-    if (new Date(validityFrom).getTime() > uptoEnd.getTime()) {
+    if (fromStart.getTime() >= uptoEnd.getTime()) {
       return { ok: false, status: 400, message: "Validity from must be before validity upto" };
     }
   }
@@ -716,7 +730,7 @@ function validateIntakeBody(body) {
     if (!limitsCheck.ok) return limitsCheck;
   }
 
-  return { ok: true };
+  return { ok: true, validityFrom: fromStart, validityUpto: uptoEnd };
 }
 
 /**
@@ -980,13 +994,13 @@ exports.createIntake = async (req, res) => {
       paymentMode,
       purpose,
       purposeOfVisit,
-      validityFrom,
-      validityUpto,
       remarks,
       multipleSubmissionsEnabled,
       maxSubmissions,
       maxTotalPersons,
     } = req.body;
+    const validityFrom = validation.validityFrom ? validation.validityFrom.toISOString() : null;
+    const validityUpto = validation.validityUpto.toISOString();
 
     // The create forms submit "purposeOfVisit"; accept it as a fallback for "purpose".
     const resolvedPurpose = purpose || purposeOfVisit || "";
@@ -1260,12 +1274,22 @@ exports.getBatchDetail = async (req, res) => {
     // that happened to hold when the applicant submitted.
     const persons = await annotateBlacklist(rawPersons);
 
+    // Per-person decisions change while the batch is under review; a cached
+    // copy (304) shown after navigating back hides the officer's Undo buttons.
+    res.set("Cache-Control", "no-store, no-cache, must-revalidate");
     return res.status(200).json({
       success: true,
       data: {
         // The link is encrypted server-side, so the console cannot derive it —
         // hand it over so officers can copy, read out or show it as a QR.
-        batch: { ...batch, uploadLink: batch.token ? buildUploadLink(batch.token) : null },
+        batch: {
+          ...batch,
+          uploadLink: batch.token ? buildUploadLink(batch.token) : null,
+          // Encrypted id for the public approved-pass page; the console opens
+          // `/bulk_pass_approved/${encryptedId}` with it (see traffic detail pages).
+          encryptedId: encryptBatchId(batch.id),
+          passViewLink: batch.status === "COMPLETED" ? buildPassViewLink(batch.id) : null,
+        },
         persons,
         uploads,
         statusLog,
@@ -1346,11 +1370,20 @@ exports.updateBatch = async (req, res) => {
         if (req.body.noOfPersons !== undefined) req.body.maxTotalPersons = persons;
       }
     }
+    // Date + optional "HH:MM" (IST) → the stored instant; a missing time gets
+    // the 06:00 / 18:00 default.
+    const { validityFromTime, validityUptoTime } = req.body;
+    delete req.body.validityFromTime;
+    delete req.body.validityUptoTime;
     if (req.body.validityUpto !== undefined) {
-      const uptoEnd = normalizeValidityUpto(req.body.validityUpto);
-      if (!uptoEnd || uptoEnd.getTime() <= Date.now()) {
-        return res.status(400).json({ success: false, message: "Validity upto must be today or a future date" });
+      const uptoEnd = combineValidity(req.body.validityUpto, validityUptoTime, { upto: true });
+      if (!uptoEnd) {
+        return res.status(400).json({ success: false, message: "Invalid validity upto date or time" });
       }
+      if (uptoEnd.getTime() <= Date.now()) {
+        return res.status(400).json({ success: false, message: "Validity upto must be in the future" });
+      }
+      req.body.validityUpto = uptoEnd.toISOString();
     }
 
     // An optional cap on the number of batches, reusable passes only.
@@ -1370,12 +1403,14 @@ exports.updateBatch = async (req, res) => {
       }
     }
     if (req.body.validityFrom !== undefined && req.body.validityFrom !== null && req.body.validityFrom !== "") {
-      if (isNaN(new Date(req.body.validityFrom).getTime())) {
-        return res.status(400).json({ success: false, message: "Invalid validity from date" });
+      const fromStart = combineValidity(req.body.validityFrom, validityFromTime);
+      if (!fromStart) {
+        return res.status(400).json({ success: false, message: "Invalid validity from date or time" });
       }
+      req.body.validityFrom = fromStart.toISOString();
       // Compare against the new validityUpto if provided, else the existing one
-      const upto = req.body.validityUpto !== undefined ? req.body.validityUpto : batch.validityUpto;
-      if (upto && new Date(req.body.validityFrom) >= new Date(upto)) {
+      const upto = normalizeValidityUpto(req.body.validityUpto !== undefined ? req.body.validityUpto : batch.validityUpto);
+      if (upto && fromStart.getTime() >= upto.getTime()) {
         return res.status(400).json({ success: false, message: "Validity from must be before validity upto" });
       }
     }
@@ -1440,7 +1475,7 @@ exports.setLinkActive = async (req, res) => {
       return res.status(400).json({ success: false, message: "This link has already been used and cannot be switched" });
     }
 
-    if (nextActive && !getValidityState(batch).canSubmit) {
+    if (nextActive && !getLinkState(batch).canSubmit) {
       return res.status(400).json({
         success: false,
         message: "The validity period has ended; extend the validity before reactivating the link",
@@ -1476,9 +1511,22 @@ exports.returnToApplicant = async (req, res) => {
   try {
     const id = Number(req.params.id);
     if (!id || isNaN(id)) return res.status(400).json({ success: false, message: "Invalid batch ID" });
-    const { returnReason } = req.body;
+    // `flagged`: [{ id, reason }] — the persons / vehicles that need fixing, each
+    // with its own reason, so the applicant sees exactly which rows to correct.
+    const flaggedInput = Array.isArray(req.body.flagged) ? req.body.flagged : [];
+    const flagged = flaggedInput
+      .map((f) => ({ id: Number(f?.id), reason: String(f?.reason || "").trim() }))
+      .filter((f) => Number.isInteger(f.id) && f.id > 0);
+    if (flagged.some((f) => !f.reason)) {
+      return res.status(400).json({ success: false, message: "Give a reason for every person or vehicle you mark for correction" });
+    }
+    // The overall note is optional once rows are marked; one is written for them.
+    const returnReason = String(req.body.returnReason || "").trim() ||
+      (flagged.length
+        ? `Please correct the ${flagged.length} highlighted ${flagged.length === 1 ? "entry" : "entries"} and resubmit.`
+        : "");
 
-    if (!returnReason || !returnReason.trim()) {
+    if (!returnReason) {
       return res.status(400).json({ success: false, message: "returnReason is required" });
     }
 
@@ -1490,21 +1538,38 @@ exports.returnToApplicant = async (req, res) => {
       return res.status(400).json({ success: false, message: "Only UNDER_REVIEW batches can be returned to applicant" });
     }
 
+    if (flagged.length) {
+      const rowIds = new Set(((await BulkPassSchema.getPersonsByBatch(id)) || []).map((r) => Number(r.id)));
+      const foreign = flagged.filter((f) => !rowIds.has(f.id));
+      if (foreign.length) {
+        return res.status(400).json({ success: false, message: "Some marked entries do not belong to this batch" });
+      }
+      // Marked rows carry the officer's reason into the correction link (the
+      // portal highlights REJECTED rows with their approvalReason). The batch's
+      // rows are replaced wholesale on resubmission, so nothing lingers.
+      for (const f of flagged) {
+        await BulkPassSchema.setPersonApprovalStatus(f.id, "REJECTED", f.reason, req.user.userId);
+      }
+    }
+
     const updated = await BulkPassSchema.setStatus(id, "RETURNED_TO_APPLICANT", {
       tokenActive: true,
-      returnReason: returnReason.trim(),
+      returnReason,
       tokenExpiresAt: batch.validityUpto,
     });
-    await BulkPassSchema.logTransition(id, "RETURNED_TO_APPLICANT", req.user.userId, returnReason.trim());
+    await BulkPassSchema.logTransition(
+      id, "RETURNED_TO_APPLICANT", req.user.userId,
+      flagged.length ? `${returnReason} (${flagged.length} entr${flagged.length === 1 ? "y" : "ies"} marked)` : returnReason
+    );
 
     // Email applicant — log failures but don't block the response
-    const correction = await buildCorrectionData(id, returnReason.trim());
+    const correction = await buildCorrectionData(id, returnReason);
 
     const emailSent = await sendEmail("sendBulkPassReturned", {
       email: batch.applicantEmail,
       refNo: batch.refNo,
       companyName: batch.companyName,
-      returnReason: returnReason.trim(),
+      returnReason,
       uploadLink: buildUploadLink(batch.token),
       // Name the rows that need attention rather than only the batch.
       issues: correction.issues,
@@ -2047,6 +2112,87 @@ exports.getPublicSubmissions = async (req, res) => {
 };
 
 /**
+ * Resolve a returned batch through the Bulk Pass link that owns it, so the
+ * applicant can correct it from their dashboard instead of hunting for the
+ * per-batch email. Answers either `{ child }` or `{ status, body }` to send.
+ *
+ * Only a batch the Traffic Department returned for revision qualifies, and it
+ * must belong to this exact pass (same parent id AND same source — department
+ * and public-request ids live in different tables and can collide).
+ */
+async function resolveOwnedCorrection(req) {
+  const resolved = await findBatchOrParentRequestByToken(getResolvedToken(req.params.token));
+  if (!resolved || !resolved.batch) {
+    return { status: 404, body: { success: false, message: "Invalid link" } };
+  }
+  const { batch, isParentRequest, parentRequest } = resolved;
+  if (!isParentRequest && batch.multipleSubmissionsEnabled !== true) {
+    return { status: 400, body: { success: false, message: "This link has no batches to correct" } };
+  }
+
+  const submissionId = Number(req.params.submissionId);
+  if (!submissionId || Number.isNaN(submissionId)) {
+    return { status: 400, body: { success: false, message: "Invalid submission ID" } };
+  }
+
+  const parentId = isParentRequest ? parentRequest.id : batch.id;
+  const source = isParentRequest ? "PUBLIC_WEBSITE" : "DEPARTMENT";
+  const child = await BulkPassSchema.getChildBatchById(parentId, submissionId);
+  if (!child || (child.request_source || "DEPARTMENT") !== source) {
+    return { status: 404, body: { success: false, message: "Submission not found for this bulk pass" } };
+  }
+  if (child.status !== "RETURNED_TO_APPLICANT" || !child.tokenActive || !child.token) {
+    return {
+      status: 409,
+      body: {
+        success: false,
+        message: "This batch is not open for correction.",
+        data: { blockReason: "NOT_SUBMITTABLE" },
+      },
+    };
+  }
+  return { child };
+}
+
+/**
+ * GET /api/bulk-pass/public/:token/submissions/:submissionId/correction  (public — no auth)
+ *
+ * The correction payload for one returned batch, fetched through the Bulk
+ * Pass link. Identical to opening that batch's own correction link — it runs
+ * the same handler — so gating, pre-fill and the officer's flags all match.
+ */
+exports.getPublicSubmissionCorrection = async (req, res) => {
+  try {
+    const owned = await resolveOwnedCorrection(req);
+    if (!owned.child) return res.status(owned.status).json(owned.body);
+    req.params.token = encryptToken(owned.child.token);
+    return exports.validateToken(req, res);
+  } catch (err) {
+    console.error("[bulkPass] getPublicSubmissionCorrection error:", err.message);
+    return res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
+/**
+ * POST /api/bulk-pass/public/:token/submissions/:submissionId/submit-rows  (public — no auth)
+ *
+ * Resubmit a returned batch from the Bulk Pass dashboard. Runs the regular
+ * submit-rows handler against that batch's own link, so a correction made here
+ * is validated, budgeted and stored exactly like one made from the email link.
+ */
+exports.submitPublicSubmissionCorrection = async (req, res) => {
+  try {
+    const owned = await resolveOwnedCorrection(req);
+    if (!owned.child) return res.status(owned.status).json(owned.body);
+    req.params.token = encryptToken(owned.child.token);
+    return exports.submitRowsDirectly(req, res);
+  } catch (err) {
+    console.error("[bulkPass] submitPublicSubmissionCorrection error:", err.message);
+    return res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+
+/**
  * GET /api/bulk-pass/public/:token/submissions/:submissionId  (public — no auth)
  *
  * Detail of one previous batch, readable only through the Bulk Pass link that
@@ -2090,6 +2236,7 @@ exports.getPublicSubmissionDetail = async (req, res) => {
       aadhaar: maskAadhaar(p.aadhaar),
       dob: p.dob,
       mobile: p.mobile,
+      inCharge: p.inCharge === true,
       approvalStatus: p.approvalStatus || "PENDING",
       approvalReason: p.approvalReason || null,
     }));
@@ -2321,7 +2468,7 @@ exports.uploadFiles = async (req, res) => {
 ==========================================
 Visitor type of the Bulk Pass a submission belongs to. A public-website pass
 keeps it on the parent request, a department pass on the batch itself.
-Drives the student mobile rule (see BULK_PASS_LIMITS.MIN_STUDENT_CONTACT_MOBILES).
+Drives the student mobile / in-charge rule (see BULK_PASS_LIMITS.MIN_STUDENT_INCHARGE).
 ==========================================
 */
 const resolvePassVisitorType = ({ parent, parentRequest, batch }) =>
@@ -2571,7 +2718,7 @@ exports.getPublicScanData = async (req, res) => {
       return res.status(403).json({
         success: false,
         message: notStarted
-          ? `This pass is not valid yet. It can be used from ${formatDateKey(toIstDateKey(scanValidity.validityFrom))}.`
+          ? `This pass is not valid yet. It can be used from ${formatValidityDateTime(scanValidity.validityFrom)}.`
           : "This pass has expired.",
         data: {
           expired: !notStarted,
@@ -2750,8 +2897,11 @@ exports.undoPersonInBatch = async (req, res) => {
     if (!person || person.batchId !== batchId) {
       return res.status(404).json({ success: false, message: "Person not found in this batch" });
     }
+    // Idempotent: a stale screen (another tab, or a page restored after going
+    // back) may offer Undo on a row that is already pending — that is the
+    // state the officer asked for, so report success rather than an error.
     if (!person.approvalStatus || person.approvalStatus === "PENDING") {
-      return res.status(400).json({ success: false, message: "Person is already pending — nothing to undo" });
+      return res.status(200).json({ success: true, data: person });
     }
 
     // Reset to PENDING by clearing all approval fields
@@ -2891,7 +3041,7 @@ exports.finalizeBatch = async (req, res) => {
       departmentName: batch.departmentName,
       approvedCount: summary.approved,
       rejectedCount: summary.rejected,
-      qrLink: FRONTEND_BASE ? `${FRONTEND_BASE}/bulk_pass_approved/${encryptToken(batch.id)}` : null,
+      qrLink: FRONTEND_BASE ? buildPassViewLink(batch.id) : null,
     }).catch(() => {});
 
     // If some persons were rejected, send a separate email listing each
@@ -3140,7 +3290,7 @@ exports.submitRowsDirectly = async (req, res) => {
     }
 
     if (parent) {
-      const validity = getValidityState(parent);
+      const validity = getLinkState(parent);
       if (!validity.canSubmit) {
         return res.status(403).json({
           success: false,
@@ -3167,7 +3317,12 @@ exports.submitRowsDirectly = async (req, res) => {
     let batchWindow = null;
     if (parent) {
       batchWindow = resolveBatchValidity(
-        { validityFrom: req.body.validityFrom, validityUpto: req.body.validityUpto },
+        {
+          validityFrom: req.body.validityFrom,
+          validityUpto: req.body.validityUpto,
+          validityFromTime: req.body.validityFromTime,
+          validityUptoTime: req.body.validityUptoTime,
+        },
         parent
       );
       if (!batchWindow.ok) {
@@ -3264,16 +3419,16 @@ exports.submitRowsDirectly = async (req, res) => {
       const { validateEmbeddedPhoto } = require("../services/photoValidationService");
 
       // ── Validate persons ────────────────────────────────────────────────────
-      // A student group does not need a mobile number per head — only a couple
-      // of contact numbers for the whole batch (or one per person when the
-      // batch is smaller than that). Every other visitor type needs one each.
+      // A student group does not need a mobile number per head. It names 1–2
+      // in-charge persons (teacher / escort) instead, and each in-charge must
+      // have a mobile. Every other visitor type needs a mobile per person and
+      // has no in-charge.
       const mobileOptional = isStudentVisitorType(
         resolvePassVisitorType({ parent, parentRequest, batch })
       );
-      const minContactMobiles = mobileOptional
-        ? Math.min(BULK_PASS_LIMITS.MIN_STUDENT_CONTACT_MOBILES, rows.length)
-        : 0;
-      let rowsWithMobile = 0;
+      // The flag only means anything on a student batch; never store it elsewhere.
+      for (const row of rows) row.inCharge = mobileOptional && (row.inCharge === true || row.inCharge === "true");
+      const inChargeCount = rows.filter((r) => r.inCharge).length;
 
       const errors = [];
       const seenAadhaar = new Set();
@@ -3298,12 +3453,17 @@ exports.submitRowsDirectly = async (req, res) => {
         const dobRes = validateDOB(row.dob || "");
         if (!dobRes.valid) { errors.push({ index: i, message: `${rowLabel}: ${dobRes.error}` }); continue; }
 
-        const mobile = String(row.mobile || "").trim();
+        // Spaces are formatting, not part of the number — the form strips them
+        // too, so "98765 43210" must not pass there and fail here.
+        const mobile = String(row.mobile || "").replace(/\s+/g, "");
+        row.mobile = mobile;
+        if (row.inCharge && !mobile) {
+          errors.push({ index: i, message: `${rowLabel}: Mobile number is required for an in-charge` }); continue;
+        }
         if (mobile || !mobileOptional) {
           const mobRes = validateMobile(mobile);
           if (!mobRes.valid) { errors.push({ index: i, message: `${rowLabel}: ${mobRes.error}` }); continue; }
         }
-        if (mobile) rowsWithMobile++;
 
         // Photo: accept either a newly uploaded base64 data URL or a reused server-side path.
         const hasNewPhoto = !!row.photoDataUrl;
@@ -3341,16 +3501,17 @@ exports.submitRowsDirectly = async (req, res) => {
         return res.status(400).json({ success: false, message: "Validation errors", data: { errors } });
       }
 
-      if (mobileOptional && rowsWithMobile < minContactMobiles) {
-        return res.status(400).json({
-          success: false,
-          message: `For a student group at least ${minContactMobiles} person(s) in the batch must have a mobile number — ${rowsWithMobile} given. Add a teacher's or escort's number to ${minContactMobiles - rowsWithMobile} more row(s).`,
-          data: {
-            blockReason: "STUDENT_CONTACT_MOBILES_REQUIRED",
-            required: minContactMobiles,
-            provided: rowsWithMobile,
-          },
-        });
+      if (mobileOptional) {
+        const { MIN_STUDENT_INCHARGE: min, MAX_INCHARGE_PER_BATCH: max } = BULK_PASS_LIMITS;
+        if (inChargeCount < min || inChargeCount > max) {
+          return res.status(400).json({
+            success: false,
+            message: inChargeCount < min
+              ? `A student batch needs at least ${min} in-charge (teacher or escort) with a mobile number. Tick "In-charge" for them.`
+              : `A batch can have at most ${max} in-charge persons — ${inChargeCount} are ticked.`,
+            data: { blockReason: "STUDENT_INCHARGE_REQUIRED", min, max, provided: inChargeCount },
+          });
+        }
       }
 
       // ── Blacklist checks ────────────────────────────────────────────────────
@@ -3741,7 +3902,7 @@ exports.getChildSubmissions = async (req, res) => {
       BulkPassSchema.getSubmissionSummary(parentId, 'DEPARTMENT'),
     ]);
 
-    const validity = getValidityState(parentBatch);
+    const validity = getLinkState(parentBatch);
     const bulkPassView = buildBulkPassView(parentBatch, { source: "DEPARTMENT", validity, identifier: parentBatch.refNo });
     const remaining = buildRemaining(bulkPassView, submissionSummary);
 

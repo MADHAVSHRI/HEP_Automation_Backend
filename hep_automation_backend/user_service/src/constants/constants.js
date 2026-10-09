@@ -88,8 +88,9 @@ const VISITOR_TYPES = [
 const BULK_VISITOR_TYPES = Object.freeze(VISITOR_TYPES.map((t) => t.name));
 
 // Student groups are mostly minors travelling together, so the Bulk Pass does
-// not need a mobile number for every head — a couple of contact numbers per
-// batch (teachers / escorts) is enough. See BULK_PASS_LIMITS.MIN_STUDENT_CONTACT_MOBILES.
+// not need a mobile number for every head. Instead each student batch names
+// its in-charge (teacher / escort), who must carry a mobile. See
+// BULK_PASS_LIMITS.MIN_STUDENT_INCHARGE / MAX_INCHARGE_PER_BATCH.
 const STUDENT_VISITOR_TYPE = "Students";
 const isStudentVisitorType = (v) =>
   String(v || "").trim().toLowerCase() === STUDENT_VISITOR_TYPE.toLowerCase();
@@ -129,9 +130,11 @@ const BULK_PASS_LIMITS = Object.freeze({
   // Sanity ceiling for a pass-level total; guards against typos, not policy.
   MAX_TOTAL_PERSONS: 10000,
   MAX_TOTAL_VEHICLES: 10000,
-  // A student batch needs this many persons with a mobile number (or every
-  // person, when the batch is smaller). Other visitor types need one per head.
-  MIN_STUDENT_CONTACT_MOBILES: 2,
+  // A student batch names 1–2 in-charge persons (teacher / escort); each must
+  // have a mobile number. Other students need none. Other visitor types need a
+  // mobile per head and have no in-charge.
+  MIN_STUDENT_INCHARGE: 1,
+  MAX_INCHARGE_PER_BATCH: 2,
 });
 
 const DEPARTMENT_IDS = Object.freeze({

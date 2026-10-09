@@ -321,88 +321,96 @@ describe("the same person across batches", () => {
   });
 });
 
-describe("mobile numbers on a student pass", () => {
+describe("mobile numbers and in-charge on a student pass", () => {
   // Rows carry a real Aadhaar document path so the only thing left to complain
-  // about is the mobile number.
-  const studentRow = (aadhaar, mobile) => ({
+  // about is the mobile number / in-charge.
+  const studentRow = (aadhaar, mobile, inCharge = false) => ({
     ...row(aadhaar),
     mobile,
+    inCharge,
     _keepAadhaarPath: __filename,
   });
   const studentPass = (overrides = {}) => reusablePass({ visitorType: "Students", ...overrides });
+  const submit = (rows) =>
+    request(app).post("/api/bulk-pass/public/t/submit-rows").send({ ...BATCH_DATES, rows });
 
-  test("a blank mobile is not a row error for students", async () => {
+  test("students without a mobile are fine when an in-charge has one", async () => {
     BulkPassSchema.getByToken.mockResolvedValue(studentPass());
 
-    const res = await request(app)
-      .post("/api/bulk-pass/public/t/submit-rows")
-      .send({ ...BATCH_DATES,
-        rows: [
-          studentRow("123456789012", "9876543210"),
-          studentRow("223456789012", "9876543211"),
-          studentRow("323456789012", ""),
-          studentRow("423456789012", undefined),
-        ],
-      });
+    const res = await submit([
+      studentRow("123456789012", "9876543210", true),
+      studentRow("223456789012", ""),
+      studentRow("323456789012", undefined),
+      studentRow("423456789012", null),
+    ]);
 
     expect(res.body.message).not.toBe("Validation errors");
-    expect(res.body.data?.blockReason).not.toBe("STUDENT_CONTACT_MOBILES_REQUIRED");
+    expect(res.body.data?.blockReason).not.toBe("STUDENT_INCHARGE_REQUIRED");
     expect(JSON.stringify(res.body)).not.toMatch(/mobile/i);
   });
 
-  test("but the batch still needs two contact numbers", async () => {
+  test("a student batch needs at least one in-charge", async () => {
     BulkPassSchema.getByToken.mockResolvedValue(studentPass());
 
-    const res = await request(app)
-      .post("/api/bulk-pass/public/t/submit-rows")
-      .send({ ...BATCH_DATES,
-        rows: [
-          studentRow("123456789012", "9876543210"),
-          studentRow("223456789012", ""),
-          studentRow("323456789012", ""),
-        ],
-      });
+    const res = await submit([studentRow("123456789012", "9876543210"), studentRow("223456789012", "")]);
 
     expect(res.status).toBe(400);
-    expect(res.body.data.blockReason).toBe("STUDENT_CONTACT_MOBILES_REQUIRED");
-    expect(res.body.data.required).toBe(2);
-    expect(res.body.data.provided).toBe(1);
-    expect(res.body.message).toMatch(/at least 2 person/);
+    expect(res.body.data.blockReason).toBe("STUDENT_INCHARGE_REQUIRED");
+    expect(res.body.data.provided).toBe(0);
+    expect(res.body.message).toMatch(/at least 1 in-charge/);
     expect(BulkPassSchema.createBatch).not.toHaveBeenCalled();
   });
 
-  test("a batch smaller than two needs a number for everyone in it", async () => {
+  test("and at most two", async () => {
     BulkPassSchema.getByToken.mockResolvedValue(studentPass());
 
-    const res = await request(app)
-      .post("/api/bulk-pass/public/t/submit-rows")
-      .send({ ...BATCH_DATES, rows: [studentRow("123456789012", "")] });
+    const res = await submit([
+      studentRow("123456789012", "9876543210", true),
+      studentRow("223456789012", "9876543211", true),
+      studentRow("323456789012", "9876543212", true),
+    ]);
 
     expect(res.status).toBe(400);
-    expect(res.body.data.blockReason).toBe("STUDENT_CONTACT_MOBILES_REQUIRED");
-    expect(res.body.data.required).toBe(1);
+    expect(res.body.data.blockReason).toBe("STUDENT_INCHARGE_REQUIRED");
+    expect(res.body.data.provided).toBe(3);
+    expect(res.body.message).toMatch(/at most 2 in-charge/);
+  });
+
+  test("an in-charge must have a mobile", async () => {
+    BulkPassSchema.getByToken.mockResolvedValue(studentPass());
+
+    const res = await submit([studentRow("123456789012", "", true), studentRow("223456789012", "")]);
+
+    expect(res.status).toBe(400);
+    expect(res.body.data.errors[0].message).toMatch(/Row 1: Mobile number is required for an in-charge/);
+  });
+
+  test("spaces inside a mobile are not an error", async () => {
+    BulkPassSchema.getByToken.mockResolvedValue(studentPass());
+
+    const res = await submit([studentRow("123456789012", "98765 43210", true)]);
+
+    expect(res.body.message).not.toBe("Validation errors");
+    expect(JSON.stringify(res.body)).not.toMatch(/Invalid mobile/i);
   });
 
   test("a mobile that is given must still be a valid one", async () => {
     BulkPassSchema.getByToken.mockResolvedValue(studentPass());
 
-    const res = await request(app)
-      .post("/api/bulk-pass/public/t/submit-rows")
-      .send({ ...BATCH_DATES, rows: [studentRow("123456789012", "12345"), studentRow("223456789012", "9876543210")] });
+    const res = await submit([studentRow("123456789012", "12345"), studentRow("223456789012", "9876543210", true)]);
 
     expect(res.status).toBe(400);
     expect(res.body.data.errors[0].message).toMatch(/Row 1: Invalid mobile number/);
   });
 
-  test("every other visitor type still needs a mobile per person", async () => {
+  test("every other visitor type still needs a mobile per person, and has no in-charge", async () => {
     BulkPassSchema.getByToken.mockResolvedValue(reusablePass({ visitorType: "Vendors" }));
 
-    const res = await request(app)
-      .post("/api/bulk-pass/public/t/submit-rows")
-      .send({ ...BATCH_DATES, rows: [studentRow("123456789012", "9876543210"), studentRow("223456789012", "")] });
+    const res = await submit([studentRow("123456789012", "9876543210"), studentRow("223456789012", "")]);
 
     expect(res.status).toBe(400);
     expect(res.body.data.errors[0].message).toMatch(/Row 2: Invalid mobile number/);
+    expect(res.body.data?.blockReason).not.toBe("STUDENT_INCHARGE_REQUIRED");
   });
 
   test("a public-website student pass is recognised from the parent request", async () => {
@@ -421,12 +429,10 @@ describe("mobile numbers on a student pass", () => {
       no_of_vehicles: 0,
       max_submissions: null,
     });
-    const res = await request(app)
-      .post("/api/bulk-pass/public/t/submit-rows")
-      .send({ ...BATCH_DATES, rows: [studentRow("123456789012", ""), studentRow("223456789012", "")] });
+    const res = await submit([studentRow("123456789012", ""), studentRow("223456789012", "")]);
 
     expect(res.status).toBe(400);
-    expect(res.body.data.blockReason).toBe("STUDENT_CONTACT_MOBILES_REQUIRED");
+    expect(res.body.data.blockReason).toBe("STUDENT_INCHARGE_REQUIRED");
   });
 });
 

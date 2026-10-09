@@ -15,6 +15,9 @@ const {
   resolveBatchValidity,
   getBatchValidityBounds,
   toIstDateKey,
+  combineValidity,
+  formatValidityDateTime,
+  getLinkState,
 } = require("../src/utils/bulkPassValidity");
 
 const NOW = new Date("2026-09-21T10:00:00.000Z");
@@ -24,25 +27,23 @@ const daysFromNow = (n) => new Date(NOW.getTime() + n * 86400000).toISOString();
 describe("resolveValidityWindow", () => {
   test("reads the camelCase batch shape", () => {
     const w = resolveValidityWindow({
-      validityFrom: "2026-09-01T00:00:00Z",
-      validityUpto: "2026-10-01T12:00:00Z",
+      validityFrom: "2026-09-01T00:30:00Z",
+      validityUpto: "2026-10-01T12:30:59.999Z",
     });
-    // Date-only: the window opens at 00:00 IST of the from-day
-    expect(w.validityFrom.toISOString()).toBe("2026-08-31T18:30:00.000Z");
-    // Date-only validation: all dates extended to end of day in IST
-    expect(w.validityUpto.toISOString()).toBe("2026-10-01T18:29:59.999Z");
+    // Stored date + time instants are kept as-is
+    expect(w.validityFrom.toISOString()).toBe("2026-09-01T00:30:00.000Z");
+    expect(w.validityUpto.toISOString()).toBe("2026-10-01T12:30:59.999Z");
   });
 
   test("prefers the approved window over the requested one on a public request", () => {
     const w = resolveValidityWindow({
       validity_from: "2026-01-01T00:00:00Z",
       validity_upto: "2026-02-01T12:00:00Z",
-      approved_time_from: "2026-03-01T00:00:00Z",
-      approved_time_upto: "2026-04-01T12:00:00Z",
+      approved_time_from: "2026-03-01T00:30:00Z",
+      approved_time_upto: "2026-04-01T12:30:59.999Z",
     });
-    expect(w.validityFrom.toISOString()).toBe("2026-02-28T18:30:00.000Z");
-    // Date-only validation: all dates extended to end of day in IST
-    expect(w.validityUpto.toISOString()).toBe("2026-04-01T18:29:59.999Z");
+    expect(w.validityFrom.toISOString()).toBe("2026-03-01T00:30:00.000Z");
+    expect(w.validityUpto.toISOString()).toBe("2026-04-01T12:30:59.999Z");
   });
 
   test("returns nulls for a record with no window", () => {
@@ -52,27 +53,44 @@ describe("resolveValidityWindow", () => {
 });
 
 describe("normalizeValidityUpto", () => {
-  test("always extends dates to end of day (date-only validation)", () => {
-    // Date-only: all dates are extended to 23:59:59.999 regardless of input time
-    const midnight = new Date(2026, 8, 30, 0, 0, 0, 0);
-    const end = normalizeValidityUpto(midnight);
-    expect(end.getHours()).toBe(23);
-    expect(end.getMinutes()).toBe(59);
-    expect(end.getDate()).toBe(30);
+  test("a bare date closes at the default 18:00 IST", () => {
+    expect(normalizeValidityUpto("2026-09-30").toISOString()).toBe("2026-09-30T12:30:59.999Z");
   });
 
-  test("extends dates with explicit times to end of day (date-only)", () => {
-    // Even dates with explicit times are extended to end of day
-    const at = new Date(2026, 8, 30, 14, 30, 0, 0);
-    const end = normalizeValidityUpto(at);
-    expect(end.getHours()).toBe(23);
-    expect(end.getMinutes()).toBe(59);
-    expect(end.getDate()).toBe(30);
+  test("a legacy midnight (IST or UTC) runs to the end of that IST day", () => {
+    expect(normalizeValidityUpto("2026-09-29T18:30:00.000Z").toISOString()).toBe("2026-09-30T18:29:59.999Z");
+    expect(normalizeValidityUpto("2026-09-30T00:00:00.000Z").toISOString()).toBe("2026-09-30T18:29:59.999Z");
+  });
+
+  test("an explicit date + time is kept", () => {
+    expect(normalizeValidityUpto("2026-09-30T09:00:59.999Z").toISOString()).toBe("2026-09-30T09:00:59.999Z");
   });
 
   test("returns null for unusable input", () => {
     expect(normalizeValidityUpto(null)).toBeNull();
     expect(normalizeValidityUpto("not a date")).toBeNull();
+  });
+});
+
+describe("combineValidity", () => {
+  test("a date alone gets the 06:00 / 18:00 IST default", () => {
+    expect(combineValidity("2026-10-01").toISOString()).toBe("2026-10-01T00:30:00.000Z");
+    expect(combineValidity("2026-10-02", undefined, { upto: true }).toISOString()).toBe("2026-10-02T12:30:59.999Z");
+  });
+
+  test("a chosen time is used, and an upto covers its whole minute", () => {
+    expect(combineValidity("2026-10-01", "09:15").toISOString()).toBe("2026-10-01T03:45:00.000Z");
+    expect(combineValidity("2026-10-02", "05:30", { upto: true }).toISOString()).toBe("2026-10-02T00:00:59.999Z");
+  });
+
+  test("rejects bad dates and times", () => {
+    expect(combineValidity("2026-02-31")).toBeNull();
+    expect(combineValidity("2026-10-01", "25:00")).toBeNull();
+  });
+
+  test("formats as DD/MM/YYYY HH:MM in IST", () => {
+    expect(formatValidityDateTime(combineValidity("2026-10-01"))).toBe("01/10/2026 06:00");
+    expect(formatValidityDateTime(combineValidity("2026-10-02", null, { upto: true }))).toBe("02/10/2026 18:00");
   });
 });
 
@@ -85,9 +103,7 @@ describe("getValidityState", () => {
     expect(v.state).toBe("ACTIVE");
     expect(v.canSubmit).toBe(true);
     expect(v.expiringSoon).toBe(false);
-    // Date-only validation extends to end of day, adding ~0.77 days (18.5h IST offset)
-    // So 20 days → 20.77 days → rounds up to 21 days
-    expect(v.daysRemaining).toBe(21);
+    expect(v.daysRemaining).toBe(20);
   });
 
   test("a bulk pass with no validityFrom is open from the start", () => {
@@ -179,11 +195,35 @@ describe("per-batch validity chosen by the applicant", () => {
     expect(getBatchValidityBounds({ validityFrom: "2026-09-25", validityUpto: "2026-10-10" }, NOW).min).toBe("2026-09-25");
   });
 
-  test("a window inside the pass is stored as whole IST days", () => {
+  test("a window inside the pass defaults to 06:00 – 18:00 IST", () => {
     const r = resolveBatchValidity({ validityFrom: "2026-09-22", validityUpto: "2026-09-24" }, pass, NOW);
     expect(r.ok).toBe(true);
-    expect(r.validityFrom.toISOString()).toBe("2026-09-21T18:30:00.000Z");
-    expect(r.validityUpto.toISOString()).toBe("2026-09-24T18:29:59.999Z");
+    expect(r.validityFrom.toISOString()).toBe("2026-09-22T00:30:00.000Z");
+    expect(r.validityUpto.toISOString()).toBe("2026-09-24T12:30:59.999Z");
+  });
+
+  test("the applicant may choose the times", () => {
+    const r = resolveBatchValidity(
+      { validityFrom: "2026-09-22", validityFromTime: "08:00", validityUpto: "2026-09-24", validityUptoTime: "20:30" },
+      pass,
+      NOW
+    );
+    expect(r.ok).toBe(true);
+    expect(r.validityFrom.toISOString()).toBe("2026-09-22T02:30:00.000Z");
+    expect(r.validityUpto.toISOString()).toBe("2026-09-24T15:00:59.999Z");
+  });
+
+  test("times must be valid and keep upto after from, inside the pass", () => {
+    const base = { validityFrom: "2026-09-22", validityUpto: "2026-09-22" };
+    expect(resolveBatchValidity({ ...base, validityFromTime: "7pm" }, pass, NOW)).toMatchObject({ ok: false, field: "validityFrom" });
+    expect(resolveBatchValidity({ ...base, validityFromTime: "18:00", validityUptoTime: "09:00" }, pass, NOW)).toMatchObject({ ok: false, field: "validityUpto" });
+    // pass ends 10 Oct 18:00 IST (bare date default)
+    expect(resolveBatchValidity({ validityFrom: "2026-10-10", validityUpto: "2026-10-10", validityUptoTime: "19:00" }, pass, NOW)).toMatchObject({ ok: false, field: "validityUpto" });
+  });
+
+  test("a batch ending today at a time already past is refused", () => {
+    // NOW is 15:30 IST
+    expect(resolveBatchValidity({ validityFrom: "2026-09-21", validityUpto: "2026-09-21", validityUptoTime: "12:00" }, pass, NOW)).toMatchObject({ ok: false, field: "validityUpto" });
   });
 
   test("a single-day batch is allowed, including today", () => {
@@ -208,5 +248,40 @@ describe("per-batch validity chosen by the applicant", () => {
   test("the IST day is used, whatever the server timezone", () => {
     expect(toIstDateKey("2026-09-30T18:29:59.999Z")).toBe("2026-09-30");
     expect(toIstDateKey("2026-09-30T18:30:00.000Z")).toBe("2026-10-01");
+  });
+});
+
+describe("getLinkState — the applicant link is open from creation until expiry", () => {
+  const pass = {
+    createdAt: daysFromNow(-1),
+    validityFrom: daysFromNow(5),
+    validityUpto: daysFromNow(20),
+  };
+
+  test("open before the visit window starts, flagged as visits-not-started", () => {
+    expect(getValidityState(pass, NOW).state).toBe("NOT_STARTED");
+    const link = getLinkState(pass, NOW);
+    expect(link.state).toBe("ACTIVE");
+    expect(link.canSubmit).toBe(true);
+    expect(link.visitsNotStarted).toBe(true);
+    // The pass's own visit start is still what is shown.
+    expect(link.validityFrom).toBe(getValidityState(pass, NOW).validityFrom);
+  });
+
+  test("closed once the pass expires", () => {
+    const link = getLinkState({ ...pass, validityUpto: daysFromNow(-1) }, NOW);
+    expect(link.state).toBe("EXPIRED");
+    expect(link.canSubmit).toBe(false);
+  });
+
+  test("a public request opens at approval", () => {
+    const link = getLinkState({
+      created_at: daysFromNow(-10),
+      approved_at: daysFromNow(-2),
+      approved_time_from: daysFromNow(3),
+      approved_time_upto: daysFromNow(9),
+    }, NOW);
+    expect(link.canSubmit).toBe(true);
+    expect(link.linkOpensAt).toBe(new Date(daysFromNow(-2)).toISOString());
   });
 });

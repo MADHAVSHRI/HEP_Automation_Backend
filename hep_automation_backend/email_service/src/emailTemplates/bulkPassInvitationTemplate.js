@@ -14,10 +14,10 @@ const bulkPassInvitationTemplate = ({
   perBatchMaxPersons = 30,
   perBatchMaxVehicles = 30,
 }) => {
-  const { formatValidityDate } = require("../utils/formatDate");
-  const validFrom = formatValidityDate(validityFrom);
-  const validUpto = formatValidityDate(validityUpto);
-  const validUptoOrExpiry = formatValidityDate(validityUpto, "the pass expiry date");
+  const { formatValidityDateTime } = require("../utils/formatDate");
+  const validFrom = formatValidityDateTime(validityFrom);
+  const validUpto = formatValidityDateTime(validityUpto, { upto: true });
+  const validUptoOrExpiry = formatValidityDateTime(validityUpto, { upto: true, fallback: "the pass expiry date" });
   // A reusable Bulk Pass link stays open for the whole validity window, so the
   // invitation must not tell the applicant it is single-use.
   const isReusable = multipleSubmissionsEnabled === true || multipleSubmissionsEnabled === "true";

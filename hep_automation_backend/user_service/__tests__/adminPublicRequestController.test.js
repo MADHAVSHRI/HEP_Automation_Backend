@@ -766,8 +766,8 @@ describe("Admin Public Request Controller", () => {
       expect(BulkPassParentRequest.update).toHaveBeenCalledWith(123, expect.objectContaining({
         status: "ACTIVE",
         token_active: true,
-        approved_time_from: "2026-01-01",
-        approved_time_upto: "2026-12-31",
+        approved_time_from: "2026-01-01T00:30:00.000Z",
+        approved_time_upto: "2026-12-31T12:30:59.999Z",
         approved_by_user_id: 1,
         shared_token: "mock_jwt_token",
         remarks: "Approved for testing"
@@ -783,8 +783,8 @@ describe("Admin Public Request Controller", () => {
           companyName: "Test Company",
           trackingNumber: "TEMP-1234567890-ABC123",
           uploadLink: "http://localhost:3000/bulk_pass/mock_encrypted_token",
-          validityFrom: "2026-01-01",
-          validityUpto: "2026-12-31",
+          validityFrom: "2026-01-01T00:30:00.000Z",
+          validityUpto: "2026-12-31T12:30:59.999Z",
           remarks: "Approved for testing"
         }),
         expect.objectContaining({

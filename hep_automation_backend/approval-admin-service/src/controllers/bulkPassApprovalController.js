@@ -433,16 +433,18 @@ exports.finalizeBatch = async (req, res) => {
 exports.returnBatch = async (req, res) => {
   try {
     const { id } = req.params;
-    const { returnReason } = req.body;
+    const { returnReason, flagged } = req.body;
+    const marked = Array.isArray(flagged) ? flagged : [];
 
-    if (!returnReason || !String(returnReason).trim()) {
+    // A note is optional when specific persons / vehicles are marked.
+    if ((!returnReason || !String(returnReason).trim()) && marked.length === 0) {
       return res.status(400).json({ success: false, message: "returnReason is required" });
     }
 
     const result = await callUserService(
       "post",
       `/api/bulk-pass/${id}/return`,
-      { returnReason: String(returnReason).trim() },
+      { returnReason: String(returnReason || "").trim(), flagged: marked },
       req
     );
 

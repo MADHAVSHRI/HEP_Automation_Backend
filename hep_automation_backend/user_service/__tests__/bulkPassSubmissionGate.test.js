@@ -81,25 +81,43 @@ describe("reusable bulk pass — validity governs submissions", () => {
     expect(BulkPassSchema.insertPersons).not.toHaveBeenCalled();
   });
 
-  test("refuses a new batch before the window opens", async () => {
-    BulkPassSchema.getByToken.mockResolvedValue({
-      id: 42,
-      tokenActive: true,
-      tokenActiveRaw: true,
-      multipleSubmissionsEnabled: true,
-      status: "DRAFT",
-      validityFrom: FUTURE,
-      validityUpto: new Date(Date.now() + 60 * 86400000).toISOString(),
-      noOfPersons: 30,
-      noOfVehicles: 30,
-    });
+  // The link is open from creation until expiry; only the visit dates are
+  // held to the pass window.
+  const notYetStartedPass = () => ({
+    id: 42,
+    tokenActive: true,
+    tokenActiveRaw: true,
+    multipleSubmissionsEnabled: true,
+    status: "DRAFT",
+    createdAt: new Date(Date.now() - 86400000).toISOString(),
+    validityFrom: FUTURE,
+    validityUpto: new Date(Date.now() + 60 * 86400000).toISOString(),
+    noOfPersons: 30,
+    noOfVehicles: 30,
+  });
+
+  test("accepts a batch before the visit window opens — the link is open from creation", async () => {
+    BulkPassSchema.getByToken.mockResolvedValue(notYetStartedPass());
+    const visitDay = new Date(new Date(FUTURE).getTime() + 2 * 86400000 + 5.5 * 3600000).toISOString().slice(0, 10);
+
+    const res = await request(app)
+      .post("/api/bulk-pass/public/parent-token/submit-rows")
+      .send({ validityFrom: visitDay, validityUpto: visitDay, rows: [validRow()] });
+
+    expect(res.body.data?.blockReason).not.toBe("NOT_STARTED");
+    expect(res.body.data?.blockReason).not.toBe("INVALID_BATCH_VALIDITY");
+  });
+
+  test("but its visit dates must still sit inside the pass window", async () => {
+    BulkPassSchema.getByToken.mockResolvedValue(notYetStartedPass());
 
     const res = await request(app)
       .post("/api/bulk-pass/public/parent-token/submit-rows")
       .send({ ...BATCH_DATES, rows: [validRow()] });
 
-    expect(res.status).toBe(403);
-    expect(res.body.data.blockReason).toBe("NOT_STARTED");
+    expect(res.status).toBe(400);
+    expect(res.body.data.blockReason).toBe("INVALID_BATCH_VALIDITY");
+    expect(res.body.data.field).toBe("validityFrom");
     expect(BulkPassSchema.createBatch).not.toHaveBeenCalled();
   });
 

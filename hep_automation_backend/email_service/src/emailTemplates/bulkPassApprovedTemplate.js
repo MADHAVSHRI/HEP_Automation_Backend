@@ -1,4 +1,4 @@
-const { formatValidityDate } = require("../utils/formatDate");
+const { formatValidityDateTime } = require("../utils/formatDate");
 
 const bulkPassApprovedTemplate = ({
   companyName,
@@ -8,8 +8,8 @@ const bulkPassApprovedTemplate = ({
   departmentName,
   qrLink,
 }) => {
-  const validFrom = formatValidityDate(validityFrom);
-  const validUpto = formatValidityDate(validityUpto);
+  const validFrom = formatValidityDateTime(validityFrom);
+  const validUpto = formatValidityDateTime(validityUpto, { upto: true });
   return `
   <div style="font-family: Arial, sans-serif; color:#1f2937; max-width:600px; margin:0 auto;">
     <div style="background: linear-gradient(90deg,#16a34a,#22c55e); color:#fff; padding:20px 24px; border-radius:8px 8px 0 0;">

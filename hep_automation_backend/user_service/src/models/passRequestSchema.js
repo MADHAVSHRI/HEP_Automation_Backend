@@ -8273,11 +8273,14 @@ const getAgentPassRequestsDetails = {
       ],
     };
 
-    if (!isVendorOnly) {
-      normalCountRes = await pool.query(normalCountSQL, normalCountParams);
-    }
-
-    const vendorCountRes = includeVendor ? await vendorCountPromise : null;
+    // Await both counts together. Awaiting them one after the other left the
+    // vendor query un-awaited when the normal one threw, and its rejection then
+    // went unhandled and crashed the whole service.
+    const [normalRes, vendorCountRes] = await Promise.all([
+      isVendorOnly ? null : pool.query(normalCountSQL, normalCountParams),
+      includeVendor ? vendorCountPromise : null,
+    ]);
+    if (normalRes) normalCountRes = normalRes;
 
     const nc = normalCountRes.rows[0];
 

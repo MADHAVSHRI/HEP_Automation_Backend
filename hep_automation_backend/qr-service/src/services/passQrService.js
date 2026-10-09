@@ -1241,13 +1241,26 @@ async function generateBulkPassPDF(batch, persons) {
       .text(subtitle, TX, 50, { width: TW, align: "center" });
   };
 
-  const fmtDate = (v) => {
+  // Bulk pass validity is a date + time in IST ("DD/MM/YYYY HH:MM"); the
+  // server's own timezone must not shift it. A legacy bare-date upto (stored
+  // as midnight) means the end of that day — the same rule as user_service's
+  // normalizeValidityUpto.
+  const IST_OFFSET_MS = 330 * 60 * 1000;
+  const MS_PER_DAY = 24 * 60 * 60 * 1000;
+  const fmtDate = (v, { upto = false } = {}) => {
     if (!v) return "-";
-    const d = new Date(v);
+    let d = new Date(v);
     if (isNaN(d.getTime())) return String(v);
-    // Bulk pass validity is date-only in IST; the server's own timezone and
-    // the stored time of day must not shift or clutter the printed date.
-    return d.toLocaleDateString("en-GB", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: "Asia/Kolkata" });
+    const legacyMidnight =
+      (d.getTime() + IST_OFFSET_MS) % MS_PER_DAY === 0 || d.getTime() % MS_PER_DAY === 0;
+    if (upto && legacyMidnight) {
+      const ist = new Date(d.getTime() + IST_OFFSET_MS);
+      d = new Date(
+        Date.UTC(ist.getUTCFullYear(), ist.getUTCMonth(), ist.getUTCDate(), 23, 59, 59, 999) - IST_OFFSET_MS,
+      );
+    }
+    const iso = new Date(d.getTime() + IST_OFFSET_MS).toISOString();
+    return `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)} ${iso.slice(11, 16)}`;
   };
 
   const drawFooter = () => {
@@ -1315,12 +1328,25 @@ async function generateBulkPassPDF(batch, persons) {
   };
 
   row("Reference No.:", batch.refNo);
+  // Valid From / Upto below are this batch's own visit dates, which sit inside
+  // (and are usually shorter than) the bulk pass validity.
+  if (batch.submission_number) row("Batch No.:", `#${batch.submission_number}`);
   row("Department:", batch.departmentName);
+  if (batch.createdByName) row("Issued by:", batch.createdByName);
+  // The PDF is rendered while the batch is being finalised, before the
+  // COMPLETED log entry exists — fall back to the officer who approved people.
+  const approver = batch.approvedByName || batch.reviewedByName;
+  if (approver) row("Approved by:", approver);
   row("Visitor Type:", batch.visitorType);
   row("No. of Persons (Approved):", approvedPersonsOnly.length);
   row("No. of Vehicles:", vehicles.length);
   row("Valid From:", fmtDate(batch.validityFrom));
-  row("Valid Upto:", fmtDate(batch.validityUpto));
+  row("Valid Upto:", fmtDate(batch.validityUpto, { upto: true }));
+  // Student groups name 1–2 in-charge (teacher / escort) — the gate's contact.
+  const inCharge = approvedPersonsOnly.filter((p) => p.inCharge === true);
+  if (inCharge.length) {
+    row("In-charge:", inCharge.map((p) => `${p.name || "-"}${p.mobile ? ` (${p.mobile})` : ""}`).join(", "));
+  }
   row("Purpose:", batch.purpose);
 
   const QR_W = 120;
@@ -1378,7 +1404,7 @@ async function generateBulkPassPDF(batch, persons) {
     vrow("Contact No.:", v.mobile);
     vrow("Company:", batch.companyName);
     vrow("Valid From:", fmtDate(batch.validityFrom));
-    vrow("Valid Upto:", fmtDate(batch.validityUpto));
+    vrow("Valid Upto:", fmtDate(batch.validityUpto, { upto: true }));
 
     const VQR_Y = HEADER_H + 18;
     doc.image(vQr, QR_X, VQR_Y, { fit: [QR_W, QR_W] });
