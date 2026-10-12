@@ -45,6 +45,7 @@ async function initOverstayTable() {
       CREATE INDEX IF NOT EXISTS idx_overstay_status     ON overstay_charges (status);
       CREATE INDEX IF NOT EXISTS idx_overstay_entity     ON overstay_charges (entity_type, identifier);
       CREATE INDEX IF NOT EXISTS idx_overstay_entity_lookup ON overstay_charges (entity_type, entity_id, pass_request_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_overstay_created_at ON overstay_charges (created_at DESC);
       CREATE INDEX IF NOT EXISTS idx_pass_persons_dateto_status ON pass_persons ("dateTo", status);
       CREATE INDEX IF NOT EXISTS idx_pass_vehicles_dateto_status ON pass_vehicles ("dateTo", status);
     `);
@@ -657,13 +658,12 @@ const Overstay = {
       params.push(parseInt(limit, 10), parseInt(offset || "0", 10));
     }
 
-    const res = await pool.query(
-      `SELECT oc.*, ${COALESCE_PASS_TYPE}, ${LIVE_AMOUNT_SELECT},
+    const selectList = `
+      oc.*, ${COALESCE_PASS_TYPE}, ${LIVE_AMOUNT_SELECT},
               COALESCE(oc.agent_id, pr."agentId", a_pp.agent_id, a_pv.agent_id) AS agent_id,
               COALESCE(a."entityName", a_pr."entityName", a_pp.company_name, a_pv.company_name) AS company_name,
-              COALESCE(a."loginId", a_pr."loginId", a_pp.login_id, a_pv.login_id) AS login_id,
-              COUNT(*) OVER() AS full_count
-      FROM overstay_charges oc
+              COALESCE(a."loginId", a_pr."loginId", a_pp.login_id, a_pv.login_id) AS login_id`;
+    const joins = `
       LEFT JOIN "Agents" a ON a.id = oc.agent_id
       LEFT JOIN pass_requests pr ON pr.id = oc.pass_request_id
       LEFT JOIN "Agents" a_pr ON a_pr.id = pr."agentId"
@@ -685,11 +685,38 @@ const Overstay = {
         ORDER BY (pv.id = oc.entity_id) DESC, pv."createdAt" DESC
         LIMIT 1
       ) a_pv ON true
+    `;
+
+    // Fast path: when every WHERE condition and the sort key live on
+    // overstay_charges itself, page the base table first and run the per-row
+    // agent lookups only for the returned page. Same rows, same order, same
+    // columns — just not evaluated for the whole table. `oc.id` is appended as
+    // a tiebreaker so rows with equal sort keys page deterministically.
+    const whereNeedsJoins =
+      Boolean(agent_id) || Boolean(search && search.trim());
+    const canPageFirst =
+      pagination !== "" && !whereNeedsJoins && sort_by !== "company_name";
+
+    const sql = canPageFirst
+      ? `SELECT ${selectList}
+      FROM (
+        SELECT oc.*, COUNT(*) OVER() AS full_count
+        FROM overstay_charges oc
+        ${where}
+        ORDER BY ${sortCol} ${sortOrder}, oc.id ${sortOrder}
+        ${pagination}
+      ) oc
+      ${joins}
+      ORDER BY ${sortCol} ${sortOrder}, oc.id ${sortOrder}`
+      : `SELECT ${selectList},
+              COUNT(*) OVER() AS full_count
+      FROM overstay_charges oc
+      ${joins}
       ${where}
-      ORDER BY ${sortCol} ${sortOrder}
-      ${pagination}`,
-      params
-    );
+      ORDER BY ${sortCol} ${sortOrder}, oc.id ${sortOrder}
+      ${pagination}`;
+
+    const res = await pool.query(sql, params);
 
     const totalCount = res.rows.length > 0 ? parseInt(res.rows[0].full_count || "0", 10) : 0;
     const rows = res.rows.map((row) => {

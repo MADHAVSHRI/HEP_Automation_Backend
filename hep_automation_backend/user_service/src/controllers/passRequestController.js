@@ -575,7 +575,13 @@ const getAgentPassRequests = async (req, res) => {
     } = require("../utils/pagination");
     const pag = getPagination(req.query);
 
-    const result = await getPassRequest.getAgentPassRequests(agentId, pag);
+    // ?view=summary → lightweight rows (statuses/dates/ids only); default unchanged
+    const view = req.query.view === "summary" ? "summary" : "";
+
+    const result = await getPassRequest.getAgentPassRequests(agentId, {
+      ...pag,
+      view,
+    });
 
     // Compute the correct total records for the active tab (reverted vs view/all)
     let totalRecordsForTab = result.counts.total;
@@ -594,6 +600,50 @@ const getAgentPassRequests = async (req, res) => {
     );
   } catch (error) {
     console.error("Fetch pass requests error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+};
+
+/**
+ * GET /api/pass-request/my-pass-requests/:id
+ *
+ * Full-detail hydration of a single pass request owned by the logged-in
+ * agent. Used by the applicant dashboard, which loads the list in
+ * `view=summary` mode and fetches the full record on demand for the modal.
+ */
+const getMyPassRequestById = async (req, res) => {
+  try {
+    const agentId = req.user.userId;
+    const passId = parseInt(req.params.id, 10);
+    if (!Number.isInteger(passId) || passId <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid pass request id",
+      });
+    }
+
+    const result = await getPassRequest.getAgentPassRequests(agentId, {
+      page: 1,
+      limit: 1,
+      offset: 0,
+      passId,
+    });
+
+    const row = result.data && result.data[0];
+    if (!row) {
+      return res.status(404).json({
+        success: false,
+        message: "Pass request not found",
+      });
+    }
+
+    return res.json({ success: true, data: row });
+  } catch (error) {
+    console.error("Fetch pass request by id error:", error);
 
     return res.status(500).json({
       success: false,
@@ -760,6 +810,11 @@ const getAgentPassRequestsToApproverAdmin = async (req, res) => {
             req.query.processedByMe === true,
           vendorOnly:
             req.query.vendorOnly === "true" || req.query.vendorOnly === true,
+          // "true" → counts only; "processed" → processed count only
+          countsOnly:
+            req.query.countsOnly === "processed"
+              ? "processed"
+              : req.query.countsOnly === "true" || req.query.countsOnly === true,
           userId,
           roleId,
         },
@@ -771,6 +826,9 @@ const getAgentPassRequestsToApproverAdmin = async (req, res) => {
       totalRecordsForTab = result.counts.pending;
     } else if (pag.status === "processed") {
       totalRecordsForTab = result.counts.processed;
+    }
+    if (totalRecordsForTab === null || totalRecordsForTab === undefined) {
+      totalRecordsForTab = result.counts.processed || 0; // countsOnly=processed
     }
 
     return res.json(
@@ -3466,6 +3524,7 @@ module.exports = {
   getStates,
   getCities,
   getAgentPassRequests,
+  getMyPassRequestById,
   getMasterDirectory,
   getAgentPassRequestsToApproverAdmin,
   getDashboardStats,

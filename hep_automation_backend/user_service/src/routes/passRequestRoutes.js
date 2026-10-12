@@ -30,6 +30,11 @@ router.get(
   passRequestController.getAgentPassRequests,
 ); //coming from database
 router.get(
+  "/my-pass-requests/:id",
+  verifyToken,
+  passRequestController.getMyPassRequestById,
+); // single request, full detail (dashboard modal)
+router.get(
   "/my-master-records",
   verifyToken,
   passRequestController.getMasterDirectory,

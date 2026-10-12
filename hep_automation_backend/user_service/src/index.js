@@ -1,5 +1,6 @@
 const express = require("express");
 const cors = require("cors");
+const compression = require("compression");
 const path = require("path");
 require("dotenv").config();
 const loggerMiddleware = require("./middlewares/loggerMiddleware");
@@ -25,6 +26,8 @@ const { startLicenseExpiryNotifierCron } = require("./utils/licenseExpiryNotifie
 
 initUploadDirs();
 
+// gzip/deflate every JSON response — dashboard payloads shrink ~80%
+app.use(compression());
 app.use(express.json());
 app.use(loggerMiddleware);
 connectDB();

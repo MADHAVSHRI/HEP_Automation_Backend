@@ -4628,6 +4628,8 @@ const getPassRequest = {
       search = "",
       status = "",
       sortOrder = "DESC",
+      view = "",        // "summary" → lightweight hydration (dashboard)
+      passId = null,    // restrict to a single request owned by this agent
     } = pagination;
 
     // ─── Search filter SQL builder ───
@@ -4711,6 +4713,14 @@ const getPassRequest = {
       reverted: parseInt(cnt.reverted || 0),
     };
 
+    // ─── Single-record filter (GET /my-pass-requests/:id) ───
+    let passIdFilter = "";
+    if (passId !== null && passId !== undefined && passId !== "") {
+      params.push(Number(passId));
+      passIdFilter = `AND pr.id = $${paramIdx}`;
+      paramIdx++;
+    }
+
     /* =============================================
        QUERY 2 — Paginated IDs
        We pass limit and offset as parameters to prevent SQL injection.
@@ -4743,6 +4753,7 @@ const getPassRequest = {
         )
         ${searchFilter}
         ${statusFilter}
+        ${passIdFilter}
       ORDER BY pr."createdAt" ${sortOrder}
       LIMIT $${limitIdx} OFFSET $${offsetIdx}
     `;
@@ -4754,10 +4765,89 @@ const getPassRequest = {
       return { data: [], counts };
     }
 
+    const placeholders = passIds.map((_, i) => `$${i + 1}`).join(",");
+
+    /* =============================================
+       QUERY 3 (summary view) — Lightweight hydration
+       Used by the applicant dashboard, which only needs statuses, dates,
+       HEP type and identifiers. Skips documents, designation, conversion
+       and master joins and restricts the aggregation to the page's IDs.
+    ============================================= */
+    if (view === "summary") {
+      const summaryQuery = `
+        SELECT
+          pr.id,
+          pr."referenceNo",
+          pr.status,
+          COALESCE(
+            (
+              SELECT true
+              FROM essential_pass_conversions epc
+              WHERE epc."passRequestId" = pr.id AND epc.status = 'REVERTED'
+              LIMIT 1
+            ),
+            pr."hasRevertedEntities",
+            false
+          ) AS "hasRevertedEntities",
+          pr."submittedAt",
+          pr."paymentMode",
+          pr."grossTotal",
+          pr."gstAmount",
+          pr."netAmount",
+          COALESCE(p.persons, '[]'::json) AS persons,
+          COALESCE(v.vehicles, '[]'::json) AS vehicles
+        FROM pass_requests pr
+        LEFT JOIN (
+          SELECT
+            pp."passRequestId",
+            json_agg(
+              jsonb_build_object(
+                'id',           pp.id,
+                'name',         COALESCE(pp.name, mp.name),
+                'hepTypeId',    pp."hepTypeId",
+                'passType',     pp."passType",
+                'dateFrom',     pp."dateFrom",
+                'dateTo',       pp."dateTo",
+                'status',       pp.status,
+                'passStatus',   pp."passStatus",
+                'personPassNo', pp."personPassNo"
+              ) ORDER BY pp.id ASC
+            ) AS persons
+          FROM pass_persons pp
+          LEFT JOIN master_persons mp ON mp.id = pp."masterPersonId"
+          WHERE pp."passRequestId" IN (${placeholders})
+          GROUP BY pp."passRequestId"
+        ) p ON p."passRequestId" = pr.id
+        LEFT JOIN (
+          SELECT
+            pv."passRequestId",
+            json_agg(
+              jsonb_build_object(
+                'id',             pv.id,
+                'registrationNo', COALESCE(pv."registrationNo", mv."registrationNo"),
+                'passType',       pv."passType",
+                'dateFrom',       pv."dateFrom",
+                'dateTo',         pv."dateTo",
+                'status',         pv.status,
+                'passStatus',     pv."passStatus",
+                'vehiclePassNo',  pv."vehiclePassNo"
+              ) ORDER BY pv.id ASC
+            ) AS vehicles
+          FROM pass_vehicles pv
+          LEFT JOIN master_vehicles mv ON mv.id = pv."masterVehicleId"
+          WHERE pv."passRequestId" IN (${placeholders})
+          GROUP BY pv."passRequestId"
+        ) v ON v."passRequestId" = pr.id
+        WHERE pr.id IN (${placeholders})
+        ORDER BY pr."createdAt" ${sortOrder}
+      `;
+      const summaryRes = await pool.query(summaryQuery, passIds);
+      return { data: summaryRes.rows, counts };
+    }
+
     /* =============================================
        QUERY 3 — Full Detail Hydration
     ============================================= */
-    const placeholders = passIds.map((_, i) => `$${i + 1}`).join(",");
     const detailQuery = `
       SELECT
         pr.id,
@@ -6960,6 +7050,7 @@ const getAgentPassRequestsDetails = {
       vendorOnly = false,
       userId = null,
       roleId = null,
+      countsOnly = false, // dashboards: skip ID + hydration queries
     } = pagination;
     const isVendorOnly = vendorOnly === true || vendorOnly === "true";
 
@@ -8233,71 +8324,72 @@ const getAgentPassRequestsDetails = {
 
     /* =============================================
        QUERY 1 — Global Counts (lightweight)
+       Each count puts its condition in WHERE instead of inside
+       COUNT(CASE WHEN …) so Postgres can evaluate cheap predicates first and
+       use idx_pass_requests_approved_by for "processed by me". The counts run
+       in parallel; `total` is derived as pending + processed (the old SQL
+       `total` column was never read).
     ============================================= */
-    let normalCountParams = [];
-    let normalCountSQL = `
-      SELECT
-        COUNT(*) AS total,
-        COUNT(CASE WHEN ${normalPendingCond} THEN 1 END) AS pending,
-        COUNT(CASE WHEN ${normalProcessedCond} ${processedByMe && approvedByUserName ? `AND pr."approvedBy" = $1` : ""} THEN 1 END) AS processed
+    const byMe = Boolean(processedByMe && approvedByUserName);
+    const byMeParams = byMe ? [approvedByUserName] : [];
+    // countsOnly === "processed": the caller (dashboard "My Processed" card)
+    // does not need the pending count — skip those table scans entirely.
+    const wantPending = countsOnly !== "processed";
+
+    const normalPendingSQL = `
+      SELECT COUNT(*) AS n
       FROM pass_requests pr
       WHERE pr."isActive" = true ${deptFilter}
+        AND (${normalPendingCond})
     `;
-    if (processedByMe && approvedByUserName) {
-      normalCountParams.push(approvedByUserName);
-    }
+    const normalProcessedSQL = `
+      SELECT COUNT(*) AS n
+      FROM pass_requests pr
+      WHERE pr."isActive" = true ${deptFilter}
+        ${byMe ? 'AND pr."approvedBy" = $1' : ""}
+        AND (${normalProcessedCond})
+    `;
+    const vendorPendingSQL = `
+      SELECT COUNT(*) AS n
+      FROM vendor_pass_requests v
+      WHERE (${vendorPendingCond})
+    `;
+    const vendorProcessedSQL = `
+      SELECT COUNT(*) AS n
+      FROM vendor_pass_requests v
+      WHERE ${byMe ? 'v."approvedBy" = $1 AND' : ""} (${vendorProcessedCond})
+    `;
 
-    let vendorCountPromise = null;
-    if (includeVendor) {
-      let vendorCountParams = [];
-      let vendorCountSQL = `
-        SELECT
-          COUNT(*) AS total,
-          COUNT(CASE WHEN ${vendorPendingCond} THEN 1 END) AS pending,
-          COUNT(CASE WHEN ${vendorProcessedCond} ${processedByMe && approvedByUserName ? `AND v."approvedBy" = $1` : ""} THEN 1 END) AS processed
-        FROM vendor_pass_requests v
-        WHERE 1 = 1
-      `;
-      if (processedByMe && approvedByUserName) {
-        vendorCountParams.push(approvedByUserName);
-      }
-      vendorCountPromise = pool.query(vendorCountSQL, vendorCountParams);
-    }
-    let normalCountRes = {
-      rows: [
-        {
-          total: "0",
-          pending: "0",
-          processed: "0",
-        },
-      ],
-    };
+    const countRows = (sql, params) =>
+      pool
+        .query(sql, params)
+        .then((r) => parseInt((r.rows[0] && r.rows[0].n) || "0", 10) || 0);
 
-    // Await both counts together. Awaiting them one after the other left the
-    // vendor query un-awaited when the normal one threw, and its rejection then
-    // went unhandled and crashed the whole service.
-    const [normalRes, vendorCountRes] = await Promise.all([
-      isVendorOnly ? null : pool.query(normalCountSQL, normalCountParams),
-      includeVendor ? vendorCountPromise : null,
-    ]);
-    if (normalRes) normalCountRes = normalRes;
-
-    const nc = normalCountRes.rows[0];
-
-    const vc = vendorCountRes
-      ? vendorCountRes.rows[0]
-      : {
-        total: "0",
-        pending: "0",
-        processed: "0",
-      };
+    // Await every count inside one Promise.all — an un-awaited rejected
+    // promise here crashed the whole service in the past.
+    const [normalPending, normalProcessed, vendorPending, vendorProcessed] =
+      await Promise.all([
+        !isVendorOnly && wantPending ? countRows(normalPendingSQL, []) : 0,
+        !isVendorOnly ? countRows(normalProcessedSQL, byMeParams) : 0,
+        includeVendor && wantPending ? countRows(vendorPendingSQL, []) : 0,
+        includeVendor ? countRows(vendorProcessedSQL, byMeParams) : 0,
+      ]);
 
     const counts = {
-      pending: parseInt(nc.pending, 10) + parseInt(vc.pending, 10),
-      processed: parseInt(nc.processed, 10) + parseInt(vc.processed, 10),
+      pending: wantPending ? normalPending + vendorPending : null,
+      processed: normalProcessed + vendorProcessed,
     };
+    counts.total = wantPending ? counts.pending + counts.processed : null;
 
-    counts.total = counts.pending + counts.processed;
+    // Dashboards only need the counts — return before the paginated ID
+    // lookup and the (expensive) full-detail hydration.
+    if (
+      countsOnly === true ||
+      countsOnly === "true" ||
+      countsOnly === "processed"
+    ) {
+      return { data: [], counts };
+    }
 
     // const [normalCountRes, vendorCountRes] = await Promise.all([
     //   pool.query(normalCountSQL, normalCountParams),

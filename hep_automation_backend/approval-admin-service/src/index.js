@@ -1,5 +1,6 @@
 const express = require("express");
 const cors = require("cors");
+const compression = require("compression");
 const path = require("path");
 const cron = require("node-cron");
 require("dotenv").config();
@@ -19,6 +20,8 @@ app.use(cors());
 
 // Disable Express fingerprinting — removes "X-Powered-By: Express" header
 app.disable("x-powered-by");
+// gzip/deflate every JSON response — dashboard payloads shrink ~80%
+app.use(compression());
 app.use(express.json());
 app.use(loggerMiddleware);
 connectDB();
