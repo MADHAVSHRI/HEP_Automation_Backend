@@ -19,6 +19,12 @@ const connectDB = async () => {
   try {
     await pool.query("SELECT NOW()");
     console.log("PostgreSQL Connected Successfully");
+
+    // Ensure approvalEmailSent column exists on pass_persons and pass_vehicles
+    await pool.query(`
+      ALTER TABLE pass_persons ADD COLUMN IF NOT EXISTS "approvalEmailSent" BOOLEAN DEFAULT false;
+      ALTER TABLE pass_vehicles ADD COLUMN IF NOT EXISTS "approvalEmailSent" BOOLEAN DEFAULT false;
+    `);
   } catch (error) {
     console.error("PostgreSQL Connection Failed:", error.message);
     process.exit(1);

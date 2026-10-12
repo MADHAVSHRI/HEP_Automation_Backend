@@ -1268,7 +1268,7 @@ exports.sharePenaltyLink = async (req, res) => {
       console.error("Failed to lookup email for share-penalty-link:", dbErr);
     }
 
-    const paymentLink = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/dashboard/blacklist_penalties`;
+    const paymentLink = `${process.env.FRONTEND_BASE_URL || process.env.FRONTEND_URL || 'http://localhost:3000'}/dashboard/blacklist_penalties`;
 
     console.log(`\n==================================================`);
     console.log(`[SHARE PENALTY LINK] To: ${targetEmail || 'NOT FOUND'} | Name: ${targetName}`);

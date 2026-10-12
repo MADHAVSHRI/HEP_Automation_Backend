@@ -38,6 +38,13 @@ const publicRequestApprovedTemplate = require("../emailTemplates/publicRequestAp
 const publicRequestRejectedTemplate = require("../emailTemplates/publicRequestRejectedTemplate");
 const childBatchConfirmationTemplate = require("../emailTemplates/childBatchConfirmationTemplate");
 const vendorMaterialLinkTemplate = require("../emailTemplates/vendorMaterialLinkTemplate");
+const essentialConversionSubmittedTemplate = require("../emailTemplates/essentialConversionSubmittedTemplate");
+const essentialPassApprovedTemplate = require("../emailTemplates/essentialPassApprovedTemplate");
+const essentialPassExpiredTemplate = require("../emailTemplates/essentialPassExpiredTemplate");
+const essentialPassRevertedTemplate = require("../emailTemplates/essentialPassRevertedTemplate");
+const passSubmittedTemplate = require("../emailTemplates/passSubmittedTemplate");
+const passApprovedTemplate = require("../emailTemplates/passApprovedTemplate");
+const passRejectedTemplate = require("../emailTemplates/passRejectedTemplate");
 
 const sendOverstayReminderEmail = async (data) => {
   const html = overstayReminderTemplate(data);
@@ -751,6 +758,113 @@ const sendVendorMaterialLinkEmail = async ({
   return result;
 };
 
+// ── Essential Pass Conversion Email Functions ────────────────────────────────
+const sendEssentialConversionSubmittedEmail = async (data) => {
+  const html = essentialConversionSubmittedTemplate(data);
+  const mailOptions = {
+    from: process.env.EMAIL_USER,
+    to: data.email,
+    subject: `Chennai Port — Essential Pass Conversion Request Submitted [Ref: ${data.referenceNo || "N/A"}]`,
+    html,
+  };
+  console.log(`[EMAIL-SVC] Sending essential conversion submitted email to ${data.email} [Ref: ${data.referenceNo}]`);
+  const result = await transporter.sendMail(mailOptions);
+  console.log(`[EMAIL-SVC] Essential conversion submitted email sent: ${result.messageId}`);
+  return result;
+};
+
+const sendEssentialPassApprovedEmail = async (data) => {
+  const html = essentialPassApprovedTemplate(data);
+  const passIdentifier = data.passNo || data.referenceNo || "N/A";
+  const mailOptions = {
+    from: process.env.EMAIL_USER,
+    to: data.email,
+    subject: `Chennai Port — Essential Pass Approved [Pass: ${passIdentifier}]`,
+    html,
+  };
+  console.log(`[EMAIL-SVC] Sending essential pass approved email to ${data.email} [Pass: ${passIdentifier}]`);
+  const result = await transporter.sendMail(mailOptions);
+  console.log(`[EMAIL-SVC] Essential pass approved email sent: ${result.messageId}`);
+  return result;
+};
+
+const sendEssentialPassExpiredEmail = async (data) => {
+  const html = essentialPassExpiredTemplate(data);
+  const passIdentifier = data.passNo || data.referenceNo || "N/A";
+  const mailOptions = {
+    from: process.env.EMAIL_USER,
+    to: data.email,
+    subject: `Notice: Essential Pass Expired — Reverted to Ordinary Status [Pass: ${passIdentifier}]`,
+    html,
+  };
+  console.log(`[EMAIL-SVC] Sending essential pass expired email to ${data.email} [Pass: ${passIdentifier}]`);
+  const result = await transporter.sendMail(mailOptions);
+  console.log(`[EMAIL-SVC] Essential pass expired email sent: ${result.messageId}`);
+  return result;
+};
+
+const sendEssentialPassRevertedEmail = async (data) => {
+  const html = essentialPassRevertedTemplate(data);
+  const passIdentifier = data.passNo || data.referenceNo || "N/A";
+  const mailOptions = {
+    from: process.env.EMAIL_USER,
+    to: data.email,
+    subject: `Chennai Port — Essential Pass Conversion Reverted [Pass: ${passIdentifier}]`,
+    html,
+  };
+  console.log(`[EMAIL-SVC] Sending essential pass reverted email to ${data.email} [Pass: ${passIdentifier}]`);
+  const result = await transporter.sendMail(mailOptions);
+  console.log(`[EMAIL-SVC] Essential pass reverted email sent: ${result.messageId}`);
+  return result;
+};
+
+const sendPassSubmittedEmail = async (payload) => {
+  const html = passSubmittedTemplate(payload);
+  const mailOptions = {
+    from: process.env.EMAIL_USER,
+    to: payload.email,
+    subject: `✅ Application Received — Chennai Port Pass (${payload.referenceNo})`,
+    html,
+  };
+  console.log(`[EMAIL-SVC] Sending pass submission acknowledgement to ${payload.email}`);
+  const result = await transporter.sendMail(mailOptions);
+  console.log(`[EMAIL-SVC] Pass submission acknowledgement email sent: ${result.messageId}`);
+  return result;
+};
+
+const sendPassApprovedEmail = async (payload) => {
+  const html = passApprovedTemplate(payload);
+  const mailOptions = {
+    from: process.env.EMAIL_USER,
+    to: payload.email,
+    subject: `✅ Pass Approved — Chennai Port Authority (${payload.referenceNo})`,
+    html,
+  };
+  console.log(`[EMAIL-SVC] Sending pass approved email to ${payload.email}`);
+  const result = await transporter.sendMail(mailOptions);
+  console.log(`[EMAIL-SVC] Pass approved email sent: ${result.messageId}`);
+  return result;
+};
+
+const sendPassRejectedEmail = async (email, name, referenceNumber, rejectedEntities, rejectedCount, portalLink = null) => {
+  console.log(`[EMAIL-SVC] Preparing to send reject email to ${email}`);
+  console.log(`[EMAIL-SVC] Rejected count: ${rejectedCount || rejectedEntities?.length || 0}`);
+  
+  const html = passRejectedTemplate(name, referenceNumber, rejectedEntities, rejectedCount, portalLink);
+
+  const mailOptions = {
+    from: process.env.EMAIL_USER,
+    to: email,
+    subject: `❌ Chennai Port Pass Application Entry Rejected (${referenceNumber})`,
+    html
+  };
+
+  console.log(`[EMAIL-SVC] Sending reject email via transporter to ${email}`);
+  const result = await transporter.sendMail(mailOptions);
+  console.log(`[EMAIL-SVC] Reject email sent successfully:`, result.messageId);
+  return result;
+};
+
 module.exports = {
   sendReferenceEmail, sendApprovalEmail, 
   sendRejectionEmail, sendDeptUserCreationEmail, sendDeptUserActivatedEmail, 
@@ -768,6 +882,15 @@ module.exports = {
   sendLicenseExpiryWarningEmail,
   sendPhotoCaptureLink,
   sendVendorMaterialLinkEmail,
+  // Normal Pass Functions
+  sendPassSubmittedEmail,
+  sendPassApprovedEmail,
+  sendPassRejectedEmail,
+  // Essential Pass Conversion Functions
+  sendEssentialConversionSubmittedEmail,
+  sendEssentialPassApprovedEmail,
+  sendEssentialPassExpiredEmail,
+  sendEssentialPassRevertedEmail,
   // Multiple Pass Submissions Functions
   sendOTPEmail,
   sendPublicRequestAcknowledgment,
@@ -775,4 +898,4 @@ module.exports = {
   sendApprovalNotification,
   sendRejectionNotification,
   sendChildBatchConfirmation
-};
+};

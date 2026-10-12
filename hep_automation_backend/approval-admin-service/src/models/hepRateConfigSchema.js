@@ -3,7 +3,7 @@ const { pool } = require("../dbconfig/db");
 /**
  * HEP RATE CONFIG MODEL
  * ─────────────────────────────────────────────
- * Holds the Harbour Entry Permit (HEP) charge rates that the ATM Pass
+ * Holds the Automated Port Access Control System (APACS) charge rates that the ATM Pass
  * Section revises every year. Rates are stored per category
  * (INDIVIDUAL / VEHICLE / CARGO) with a daily, monthly and yearly amount.
  *

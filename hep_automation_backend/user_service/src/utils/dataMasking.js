@@ -29,12 +29,16 @@
 //    context on your business process, so nothing is force-masked
 //    for Aadhar/GSTIN/PAN below unless you add roles here.
 // ─────────────────────────────────────────────
-const FULL_PII_ROLES = new Set([ "Admin"
-  // Add roles here that legitimately need unmasked email/mobile.
-  // e.g. "Super Admin", "System Admin"
+const FULL_PII_ROLES = new Set([
+  "Admin",
+  "Super Admin",
+  "System Admin",
+  "INTERNAL_SERVICE",
+  "APPROVAL-ADMIN-SERVICE",
 ]);
 
 function canSeeFullPII(role) {
+  if (!role) return false;
   return FULL_PII_ROLES.has(role);
 }
 

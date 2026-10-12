@@ -21,7 +21,7 @@ const vendorPassSubmittedTemplate = ({
 
     <div style="background: linear-gradient(90deg, #0a1e4d, #1e3a8a); color: white; padding: 24px; text-align: center; border-radius: 8px 8px 0 0;">
       <h2 style="margin:0; font-size:20px;">✅ Application Received</h2>
-      <p style="margin:6px 0 0; font-size:13px; opacity:0.9;">Chennai Port Authority — HEP Automation System</p>
+      <p style="margin:6px 0 0; font-size:13px; opacity:0.9;">Chennai Port Authority — Automated Port Access Control System (APACS)</p>
     </div>
 
     <div style="background: #f9fafb; padding: 28px; border: 1px solid #e5e7eb; border-top: none;">
@@ -65,7 +65,7 @@ const vendorPassSubmittedTemplate = ({
     </div>
 
     <div style="background: #1e3a8a; color: white; padding: 16px; text-align: center; font-size: 12px; border-radius: 0 0 8px 8px;">
-      <p style="margin:0;"><strong>Chennai Port Authority</strong><br/>HEP Automation System</p>
+      <p style="margin:0;"><strong>Chennai Port Authority</strong><br/>Automated Port Access Control System (APACS)</p>
       <p style="margin-top:8px; font-size:11px; opacity:0.8;">This is an automated message. Please do not reply to this email.</p>
     </div>
 

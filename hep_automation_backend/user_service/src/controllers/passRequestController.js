@@ -30,6 +30,10 @@ const {
 } = require("../models/passRequestSchema");
 const { pool } = require("../dbconfig/db");
 const { sendEmailEvent } = require("../utils/kafka/producer");
+const {
+  notifyPassSubmitted,
+  notifyNewlyApprovedPasses,
+} = require("../utils/passEmailService");
 const { get } = require("http");
 
 const isOilDockArea = (val) => {
@@ -541,6 +545,11 @@ const createPassRequest = async (req, res) => {
     const passRequestId = await PassRequest.createPassRequest(
       payload,
       req.files,
+    );
+
+    // Asynchronously dispatch pass submission acknowledgement email
+    notifyPassSubmitted(passRequestId).catch((err) =>
+      console.error("[PassEmail] Submission email dispatch error:", err.message),
     );
 
     let successMessage = "Pass request submitted successfully";
@@ -1698,6 +1707,12 @@ const completeReview = async (req, res) => {
       permitShare = await sharePassPermitWithIportman(passRequestId);
     }
 
+    // Check and notify agent/company of any newly approved passes (ordinary and/or completed)
+    // without waiting for pending essential passes
+    notifyNewlyApprovedPasses(passRequestId).catch((err) =>
+      console.error("[PassEmail] Approval email dispatch error:", err.message),
+    );
+
     return res.json({
       success: true,
       data: result,
@@ -1836,9 +1851,21 @@ const getPassDetails = async (req, res) => {
       await PassRequest.syncPassRequestCompletion(passRequestId);
     }
 
+    const serviceHeader = (req.headers["x-service-name"] || "").toUpperCase();
+    const isServiceCall = Boolean(
+      serviceHeader === "APPROVAL-ADMIN-SERVICE" ||
+      serviceHeader === "INTERNAL_SERVICE" ||
+      serviceHeader === "USER-SERVICE" ||
+      serviceHeader ||
+      req.user?.role === "Admin" ||
+      req.user?.role === "Super Admin" ||
+      req.user?.role === "System Admin"
+    );
+    const requesterRole = isServiceCall ? "INTERNAL_SERVICE" : req.user?.role;
+
     const passData = await getAgentPassRequestsDetails.getPassById(
       passRequestId,
-      req.user.role,
+      requesterRole,
     );
 
     if (!passData) {

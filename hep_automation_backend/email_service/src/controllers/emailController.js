@@ -38,8 +38,15 @@ const {
   sendRejectionNotification,
   sendChildBatchConfirmation,
   sendBulkPassExpiringEmail,
-  sendVendorMaterialLinkEmail
- } = require("../services/emailService");
+  sendVendorMaterialLinkEmail,
+  sendEssentialConversionSubmittedEmail,
+  sendEssentialPassApprovedEmail,
+  sendEssentialPassExpiredEmail,
+  sendEssentialPassRevertedEmail,
+  sendPassSubmittedEmail,
+  sendPassApprovedEmail,
+  sendPassRejectedEmail
+} = require("../services/emailService");
 
 exports.sendOverstayReminder = async (req, res) => {
   try {
@@ -331,6 +338,14 @@ exports.sendPassReverted = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: "email, referenceNumber and revertedEntities are required"
+      });
+    }
+
+    if (typeof email === "string" && email.includes("***")) {
+      console.error(`[EMAIL-CTRL] Cannot send pass reverted email to masked address: ${email}`);
+      return res.status(400).json({
+        success: false,
+        message: "Recipient email is masked and cannot be sent"
       });
     }
 
@@ -945,3 +960,195 @@ exports.sendVendorMaterialLink = async (
     });
   }
 };
+
+// ── Essential Pass Conversion Controllers ────────────────────────────────────
+
+exports.sendEssentialConversionSubmitted = async (req, res) => {
+  try {
+    const { email, referenceNo } = req.body;
+    if (!email || !referenceNo) {
+      return res.status(400).json({
+        success: false,
+        message: "email and referenceNo are required",
+      });
+    }
+
+    await sendEssentialConversionSubmittedEmail(req.body);
+    return res.json({
+      success: true,
+      message: "Essential conversion submitted notification email sent successfully",
+    });
+  } catch (error) {
+    console.error("[EMAIL-CTRL] sendEssentialConversionSubmitted error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Email sending failed",
+    });
+  }
+};
+
+exports.sendEssentialPassApproved = async (req, res) => {
+  try {
+    const { email, referenceNo, passNo } = req.body;
+    if (!email || (!referenceNo && !passNo)) {
+      return res.status(400).json({
+        success: false,
+        message: "email and referenceNo (or passNo) are required",
+      });
+    }
+
+    await sendEssentialPassApprovedEmail(req.body);
+    return res.json({
+      success: true,
+      message: "Essential pass approved notification email sent successfully",
+    });
+  } catch (error) {
+    console.error("[EMAIL-CTRL] sendEssentialPassApproved error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Email sending failed",
+    });
+  }
+};
+
+exports.sendEssentialPassExpired = async (req, res) => {
+  try {
+    const { email, referenceNo, passNo } = req.body;
+    if (!email || (!referenceNo && !passNo)) {
+      return res.status(400).json({
+        success: false,
+        message: "email and referenceNo (or passNo) are required",
+      });
+    }
+
+    await sendEssentialPassExpiredEmail(req.body);
+    return res.json({
+      success: true,
+      message: "Essential pass expired notification email sent successfully",
+    });
+  } catch (error) {
+    console.error("[EMAIL-CTRL] sendEssentialPassExpired error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Email sending failed",
+    });
+  }
+};
+
+exports.sendEssentialPassReverted = async (req, res) => {
+  try {
+    const { email, referenceNo, passNo } = req.body;
+    if (!email || (!referenceNo && !passNo)) {
+      return res.status(400).json({
+        success: false,
+        message: "email and referenceNo (or passNo) are required",
+      });
+    }
+
+    await sendEssentialPassRevertedEmail(req.body);
+    return res.json({
+      success: true,
+      message: "Essential pass reverted notification email sent successfully",
+    });
+  } catch (error) {
+    console.error("[EMAIL-CTRL] sendEssentialPassReverted error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Email sending failed",
+    });
+  }
+};
+
+exports.sendPassSubmitted = async (req, res) => {
+  try {
+    const { email, referenceNo } = req.body;
+    if (!email || !referenceNo) {
+      return res.status(400).json({
+        success: false,
+        message: "email and referenceNo are required",
+      });
+    }
+
+    await sendPassSubmittedEmail(req.body);
+    return res.json({
+      success: true,
+      message: "Pass submitted notification email sent successfully",
+    });
+  } catch (error) {
+    console.error("[EMAIL-CTRL] sendPassSubmitted error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Email sending failed",
+    });
+  }
+};
+
+exports.sendPassApproved = async (req, res) => {
+  try {
+    const { email, referenceNo } = req.body;
+    if (!email || !referenceNo) {
+      return res.status(400).json({
+        success: false,
+        message: "email and referenceNo are required",
+      });
+    }
+
+    await sendPassApprovedEmail(req.body);
+    return res.json({
+      success: true,
+      message: "Pass approved notification email sent successfully",
+    });
+  } catch (error) {
+    console.error("[EMAIL-CTRL] sendPassApproved error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Email sending failed",
+    });
+  }
+};
+
+exports.sendPassRejected = async (req, res) => {
+  try {
+    const { email, name, referenceNumber, referenceNo, rejectedEntities, rejectedCount, portalLink } = req.body;
+
+    console.log(`[EMAIL-CTRL] Received pass rejected email request for ${email}`);
+    console.log(`[EMAIL-CTRL] Payload:`, JSON.stringify(req.body, null, 2));
+
+    const ref = referenceNumber || referenceNo;
+
+    if (!email || !ref || !rejectedEntities) {
+      console.log(`[EMAIL-CTRL] Missing required fields: email=${email}, referenceNumber=${ref}, rejectedEntities=${rejectedEntities}`);
+      return res.status(400).json({
+        success: false,
+        message: "email, referenceNumber and rejectedEntities are required",
+      });
+    }
+
+    if (typeof email === "string" && email.includes("***")) {
+      console.error(`[EMAIL-CTRL] Cannot send pass rejected email to masked address: ${email}`);
+      return res.status(400).json({
+        success: false,
+        message: "Recipient email is masked and cannot be sent",
+      });
+    }
+
+    console.log(`[EMAIL-CTRL] Calling sendPassRejectedEmail for ${email}`);
+    await sendPassRejectedEmail(email, name, ref, rejectedEntities, rejectedCount, portalLink || null);
+
+    console.log(`[EMAIL-CTRL] Pass rejected email sent successfully to ${email}`);
+    return res.json({
+      success: true,
+      message: "Pass rejected email sent successfully",
+    });
+  } catch (error) {
+    console.error("[EMAIL-CTRL] sendPassRejected error:", error);
+    console.error("[EMAIL-CTRL] Error stack:", error.stack);
+    return res.status(500).json({
+      success: false,
+      message: "Email sending failed",
+    });
+  }
+};
+
+
+

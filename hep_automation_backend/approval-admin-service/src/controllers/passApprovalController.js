@@ -147,17 +147,17 @@ exports.passRequestAction = async (req, res) => {
 
     /*
     =====================================================
-    SEND EMAIL NOTIFICATION IF REVIEW HAS REVERTED ENTITIES
+    SEND EMAIL NOTIFICATION IF REVIEW HAS REVERTED OR REJECTED ENTITIES
     =====================================================
     */
 
-    if (decision === "complete-review" && response.data?.data?.reviewStatus === 'REVERTED') {
+    if (decision === "complete-review") {
       // Fire and forget - don't block the response
       Promise.resolve().then(async () => {
         try {
-          console.log(`[EMAIL] Starting revert email flow for pass ${passRequestId}`);
+          console.log(`[EMAIL] Starting post-review email flow for pass ${passRequestId}`);
           
-          // Fetch pass details to get user email and reverted entities info
+          // Fetch pass details to get user email, reverted, and rejected entities info
           const passDetails = await axios.get(
             `${userServiceUrl}/api/pass-request/getPassDetails/${passRequestId}`,
             {
@@ -170,14 +170,27 @@ exports.passRequestAction = async (req, res) => {
 
           if (passDetails.data?.success && passDetails.data?.data) {
             const passData = passDetails.data.data;
-            console.log(`[EMAIL] Got pass details, agentEmail: ${passData.agentEmail}, email: ${passData.email}`);
+            console.log(`[EMAIL] Got pass details, agentEmail: ${passData.agentEmail}, rawAgentEmail: ${passData.rawAgentEmail}, email: ${passData.email}`);
             
+            const targetEmail = passData.rawAgentEmail || passData.agentEmail || passData.email;
+            if (!targetEmail) {
+              console.error("[EMAIL] No email found for pass request", passRequestId);
+              return;
+            }
+
+            if (typeof targetEmail === "string" && targetEmail.includes("***")) {
+              console.warn(`[EMAIL] Warning: targetEmail ${targetEmail} is masked. Aborting to avoid sending to invalid address.`);
+              return;
+            }
+
+            const emailServiceUrl = process.env.EMAIL_SERVICE_URL || "http://localhost:5002";
+
             // Extract reverted entities with their names and reasons
             const revertedEntities = [];
             
             if (passData.persons) {
               passData.persons.forEach(person => {
-                if (person.status === 'reverted') {
+                if (String(person.status).toLowerCase() === 'reverted') {
                   revertedEntities.push({
                     type: 'person',
                     name: person.name || `Person ${person.id}`,
@@ -189,7 +202,7 @@ exports.passRequestAction = async (req, res) => {
             
             if (passData.vehicles) {
               passData.vehicles.forEach(vehicle => {
-                if (vehicle.status === 'reverted') {
+                if (String(vehicle.status).toLowerCase() === 'reverted') {
                   revertedEntities.push({
                     type: 'vehicle',
                     name: vehicle.registrationNo || vehicle.regNo || `Vehicle ${vehicle.id}`,
@@ -199,56 +212,101 @@ exports.passRequestAction = async (req, res) => {
               });
             }
 
-            console.log(`[EMAIL] Found ${revertedEntities.length} reverted entities`);
+            // Extract rejected entities with their names and reasons
+            const rejectedEntities = [];
 
-            const targetEmail = passData.agentEmail || passData.email;
-            if (!targetEmail) {
-              console.error("[EMAIL] No email found for pass request", passRequestId);
-              return;
+            if (passData.persons) {
+              passData.persons.forEach(person => {
+                if (String(person.status).toLowerCase() === 'rejected') {
+                  rejectedEntities.push({
+                    type: 'person',
+                    name: person.name || `Person ${person.id}`,
+                    reason: person.rejectedReason || 'Application rejected'
+                  });
+                }
+              });
             }
 
-            // Send email notification
-            const emailPayload = {
-              type: "PASS_REVERTED",
-              passRequestId: passRequestId,
-              referenceNumber: passData.referenceNo,
-              email: targetEmail,
-              name: passData.agentName || passData.firstName || "Applicant",
-              revertedEntities: revertedEntities,
-              revertedCount: revertedEntities.length
-            };
-            
-            console.log(`[EMAIL] Sending email to ${targetEmail} with payload:`, JSON.stringify(emailPayload, null, 2));
+            if (passData.vehicles) {
+              passData.vehicles.forEach(vehicle => {
+                if (String(vehicle.status).toLowerCase() === 'rejected') {
+                  rejectedEntities.push({
+                    type: 'vehicle',
+                    name: vehicle.registrationNo || vehicle.regNo || `Vehicle ${vehicle.id}`,
+                    reason: vehicle.rejectedReason || 'Application rejected'
+                  });
+                }
+              });
+            }
 
-            // Call email service directly (like vendor pass does) - bypassing Kafka
-            const emailServiceUrl = process.env.EMAIL_SERVICE_URL || "http://localhost:5002";
-            const emailResponse = await axios.post(
-              `${emailServiceUrl}/api/email/sendPassReverted`,
-              {
-                email: targetEmail,
-                name: passData.agentName || passData.firstName || "Applicant",
-                referenceNumber: passData.referenceNo,
-                revertedEntities: revertedEntities,
-                revertedCount: revertedEntities.length
-              },
-              {
-                headers: {
-                  "x-service-name": "APPROVAL-ADMIN-SERVICE"
-                },
-                timeout: 8000
+            console.log(`[EMAIL] Found ${revertedEntities.length} reverted entities, ${rejectedEntities.length} rejected entities`);
+
+            // Send reverted email if there are reverted entities
+            if (revertedEntities.length > 0) {
+              try {
+                console.log(`[EMAIL] Sending revert email to ${targetEmail} with ${revertedEntities.length} entities`);
+                const emailResponse = await axios.post(
+                  `${emailServiceUrl}/api/email/sendPassReverted`,
+                  {
+                    email: targetEmail,
+                    name: passData.agentName || passData.firstName || "Applicant",
+                    referenceNumber: passData.referenceNo,
+                    revertedEntities: revertedEntities,
+                    revertedCount: revertedEntities.length
+                  },
+                  {
+                    headers: {
+                      "x-service-name": "APPROVAL-ADMIN-SERVICE"
+                    },
+                    timeout: 8000
+                  }
+                );
+
+                if (emailResponse.data?.success) {
+                  console.log(`[EMAIL] Successfully sent revert email to ${targetEmail}`);
+                } else {
+                  console.error(`[EMAIL] Email service returned error for revert:`, emailResponse.data);
+                }
+              } catch (revertErr) {
+                console.error(`[EMAIL] Error sending revert email:`, revertErr.message);
               }
-            );
+            }
 
-            if (emailResponse.data?.success) {
-              console.log(`[EMAIL] Successfully sent revert email to ${targetEmail}`);
-            } else {
-              console.error(`[EMAIL] Email service returned error:`, emailResponse.data);
+            // Send rejected email if there are rejected entities
+            if (rejectedEntities.length > 0) {
+              try {
+                console.log(`[EMAIL] Sending rejection email to ${targetEmail} with ${rejectedEntities.length} entities`);
+                const rejectResponse = await axios.post(
+                  `${emailServiceUrl}/api/email/sendPassRejected`,
+                  {
+                    email: targetEmail,
+                    name: passData.agentName || passData.firstName || "Applicant",
+                    referenceNumber: passData.referenceNo,
+                    rejectedEntities: rejectedEntities,
+                    rejectedCount: rejectedEntities.length
+                  },
+                  {
+                    headers: {
+                      "x-service-name": "APPROVAL-ADMIN-SERVICE"
+                    },
+                    timeout: 8000
+                  }
+                );
+
+                if (rejectResponse.data?.success) {
+                  console.log(`[EMAIL] Successfully sent rejection email to ${targetEmail}`);
+                } else {
+                  console.error(`[EMAIL] Email service returned error for rejection:`, rejectResponse.data);
+                }
+              } catch (rejectErr) {
+                console.error(`[EMAIL] Error sending rejection email:`, rejectErr.message);
+              }
             }
           } else {
             console.error("[EMAIL] Failed to get pass details:", passDetails.data);
           }
         } catch (emailError) {
-          console.error("[EMAIL] Failed to send revert notification email:", emailError.message);
+          console.error("[EMAIL] Failed to execute post-review email flow:", emailError.message);
           console.error("[EMAIL] Error stack:", emailError.stack);
         }
       });

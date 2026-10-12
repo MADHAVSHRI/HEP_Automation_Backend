@@ -24,9 +24,9 @@ module.exports = (name, referenceNumber, revertedEntities, revertReasons, formLi
         👤 Person Passes Requiring Correction (${persons.length})
        </h4>
        ${buildTable(
-         persons.map((p, i) => [`${i + 1}`, p.name || '—', p.reason || 'Correction required']),
-         ['#', 'Person Name', 'Reason for Return']
-       )}`
+      persons.map((p, i) => [`${i + 1}`, p.name || '—', p.reason || 'Correction required']),
+      ['#', 'Person Name', 'Reason for Return']
+    )}`
     : '';
 
   const vehiclesSection = vehicles.length > 0
@@ -34,9 +34,9 @@ module.exports = (name, referenceNumber, revertedEntities, revertReasons, formLi
         🚗 Vehicle Passes Requiring Correction (${vehicles.length})
        </h4>
        ${buildTable(
-         vehicles.map((v, i) => [`${i + 1}`, v.name || '—', v.reason || 'Correction required']),
-         ['#', 'Registration No.', 'Reason for Return']
-       )}`
+      vehicles.map((v, i) => [`${i + 1}`, v.name || '—', v.reason || 'Correction required']),
+      ['#', 'Registration No.', 'Reason for Return']
+    )}`
     : '';
 
   const totalCount = (revertedEntities || []).length;
@@ -74,7 +74,7 @@ module.exports = (name, referenceNumber, revertedEntities, revertReasons, formLi
       </div>
       
       <p style="text-align: center;">
-        <a href="${process.env.FRONTEND_URL}/dashboard/pass_request" style="display:inline-block; background:#f59e0b; color:white; padding:12px 30px; text-decoration:none; border-radius:6px; font-weight:bold; margin:20px 0;">Go to Dashboard</a>
+        <a href="${process.env.FRONTEND_BASE_URL || process.env.FRONTEND_URL || "http://localhost:3000"}/dashboard/pass_request" style="display:inline-block; background:#f59e0b; color:white; padding:12px 30px; text-decoration:none; border-radius:6px; font-weight:bold; margin:20px 0;">Go to Dashboard</a>
       </p>
     `;
 
@@ -90,7 +90,7 @@ module.exports = (name, referenceNumber, revertedEntities, revertReasons, formLi
     
     <div style="background: #f59e0b; color: white; padding: 24px; text-align: center; border-radius: 8px 8px 0 0;">
       <h2 style="margin:0; font-size:20px;">⚠️ Pass Application Returned for Correction</h2>
-      <p style="margin:6px 0 0; font-size:13px; opacity:0.9;">Chennai Port Authority — HEP Automation System</p>
+      <p style="margin:6px 0 0; font-size:13px; opacity:0.9;">Chennai Port Authority —  Automated Port Access Control System (APACS)</p>
     </div>
     
     <div style="background: #f9fafb; padding: 28px; border: 1px solid #e5e7eb; border-top: none;">
@@ -115,7 +115,7 @@ module.exports = (name, referenceNumber, revertedEntities, revertReasons, formLi
     </div>
     
     <div style="background: #1e3a8a; color: white; padding: 16px; text-align: center; font-size: 12px; border-radius: 0 0 8px 8px;">
-      <p style="margin:0;"><strong>Chennai Port Authority</strong><br/>HEP Automation System</p>
+      <p style="margin:0;"><strong>Chennai Port Authority</strong><br/>Automated Port Access Control System (APACS)</p>
       <p style="margin-top: 8px; font-size: 11px; opacity: 0.8;">This is an automated message. Please do not reply to this email.</p>
     </div>
     

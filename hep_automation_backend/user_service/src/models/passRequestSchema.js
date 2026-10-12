@@ -30,6 +30,11 @@ async function queryHashed(sql, params, outerAliases) {
 const ReferenceNumber = require("./referenceNumberSchema");
 const crypto = require("crypto");
 const { sanitizePassRequestRow } = require("../utils/dataMasking"); // ADD THIS
+const {
+  notifyConversionSubmitted,
+  notifyConversionApproved,
+  notifyConversionReverted,
+} = require("../utils/essentialPassEmailService");
 
 const Designation = {
   async getAllDesignations() {
@@ -1298,22 +1303,20 @@ const PassRequest = {
     return result.rows[0];
   },
 
-  async revertPerson(personId, reason, userId) {
+  async revertPerson(personId, reason, userId = null) {
     const query = `
         UPDATE pass_persons
         SET
           status = 'reverted',
           "rejectedReason" = $2,
-          "marineSafetyApproved" = false,
-          "marineSafetyRemarks" = $2,
-          "marineSafetyApprovedBy" = $3,
-          "marineSafetyApprovedAt" = NOW(),
+          "isReverted" = true,
+          "lastRevertReason" = $2,
           "updatedAt" = NOW()
         WHERE id = $1
         RETURNING *;
       `;
 
-    const result = await pool.query(query, [personId, reason, userId]);
+    const result = await pool.query(query, [personId, reason]);
 
     return result.rows[0];
   },
@@ -1322,7 +1325,10 @@ const PassRequest = {
     const query = `
       UPDATE pass_vehicles
       SET status='reverted',
-          "rejectedReason"=$2
+          "rejectedReason"=$2,
+          "isReverted" = true,
+          "lastRevertReason" = $2,
+          "updatedAt" = NOW()
       WHERE id=$1
       RETURNING *
     `;
@@ -2006,7 +2012,7 @@ const PassRequest = {
 
       // Check if vehicle exists
       const checkQuery = `
-        SELECT id FROM pass_vehicles WHERE id = $1
+        SELECT id, "masterVehicleId" FROM pass_vehicles WHERE id = $1
       `;
       const checkResult = await client.query(checkQuery, [vehicleId]);
 
@@ -2134,6 +2140,22 @@ const PassRequest = {
       `;
 
       const result = await client.query(updateQuery, values);
+
+      // Keep master_vehicles in sync if vehicleTypeId changed
+      const masterVehicleId = checkResult.rows[0].masterVehicleId;
+      if (masterVehicleId && updateData.vehicleTypeId) {
+        try {
+          await client.query(
+            `UPDATE master_vehicles 
+             SET "vehicleTypeId" = $1, "updatedAt" = NOW() 
+             WHERE id = $2`,
+            [parseInt(updateData.vehicleTypeId, 10), masterVehicleId]
+          );
+        } catch (mvSyncErr) {
+          console.warn("Failed to sync master_vehicles in updateRevertedVehicle:", mvSyncErr.message);
+        }
+      }
+
       await client.query("COMMIT");
 
       return {
@@ -6864,7 +6886,7 @@ const Master = {
     ON mv.id = pv."masterVehicleId"
 
     LEFT JOIN vehicle_types vt
-    ON vt.id = mv."vehicleTypeId"
+    ON vt.id = COALESCE(pv."vehicleTypeId", mv."vehicleTypeId")
     
     
     
@@ -8917,7 +8939,7 @@ const getAgentPassRequestsDetails = {
           ON mv.id = pv."masterVehicleId"
 
           LEFT JOIN vehicle_types vt
-          ON vt.id = mv."vehicleTypeId"
+          ON vt.id = COALESCE(pv."vehicleTypeId", mv."vehicleTypeId")
 
           LEFT JOIN port_departments pd ON pd.id = pv."essentialDepartmentId"
           LEFT JOIN users safety_user ON safety_user.id = pv."marineSafetyApprovedBy"
@@ -9847,9 +9869,9 @@ const getAgentPassRequestsDetails = {
       pr."workflowState",
       pr."isOilDock",
 
-      a."entityName" AS "agentName",
-      a."email" AS "agentEmail",
-      a."mobileNo" AS "agentMobile",
+      COALESCE(a."entityName", a."firstName", u."userName", 'Applicant') AS "agentName",
+      COALESCE(a."email", u.email) AS "agentEmail",
+      COALESCE(a."mobileNo", u."phoneNumber") AS "agentMobile",
       a."firstName",
       a."lastName",
 
@@ -9862,6 +9884,9 @@ const getAgentPassRequestsDetails = {
 
     LEFT JOIN "Agents" a
       ON a.id = pr."agentId"
+
+    LEFT JOIN "users" u
+      ON u.id = pr."agentId"
 
     LEFT JOIN LATERAL (
       SELECT
@@ -9981,6 +10006,7 @@ const getAgentPassRequestsDetails = {
               jsonb_build_object(
                 'registrationNo', COALESCE(pv."registrationNo", mv."registrationNo"),
                 'vehicleTypeId', COALESCE(pv."vehicleTypeId", mv."vehicleTypeId"),
+                'vehicleTypeName', vt.name,
                 'rfidCardNumber', mv."rfidCardNumber",
 
                 'scannedCopyFilePath', COALESCE(pv."scannedCopyFilePath", mv."scannedCopyFilePath"),
@@ -10037,6 +10063,8 @@ const getAgentPassRequestsDetails = {
 
         LEFT JOIN master_vehicles mv
           ON mv.id = pv."masterVehicleId"
+        LEFT JOIN vehicle_types vt
+          ON vt.id = COALESCE(pv."vehicleTypeId", mv."vehicleTypeId")
         LEFT JOIN LATERAL (
           SELECT 
             epc.id AS "conversionId",
@@ -10061,7 +10089,12 @@ const getAgentPassRequestsDetails = {
 
     const result = await pool.query(query, [passRequestId]);
     const row = result.rows[0] || null;
-    return row ? sanitizePassRequestRow(row, requesterRole) : null;
+    if (!row) return null;
+    const sanitized = sanitizePassRequestRow(row, requesterRole);
+    if (sanitized && row.agentEmail) {
+      sanitized.rawAgentEmail = row.agentEmail;
+    }
+    return sanitized;
   },
 
   /**
@@ -10934,6 +10967,85 @@ const viewPassRequestsDocuments = {
       }
 
       await client.query("COMMIT");
+
+      // Gather notification details safely after COMMIT so DB transaction is never affected
+      let agentNotifyData = null;
+      const emailItems = [];
+      if (validatedItems.length > 0 && validatedItems[0].passRequestId) {
+        try {
+          const agentRes = await pool.query(
+            `SELECT pr."referenceNo",
+                    COALESCE(a.email, a."contactEmail") AS "agentEmail",
+                    COALESCE(a."entityName", CONCAT(a."firstName", ' ', a."lastName"), 'Applicant') AS "agentName"
+             FROM pass_requests pr
+             LEFT JOIN "Agents" a ON a.id = pr."agentId"
+             WHERE pr.id = $1`,
+            [validatedItems[0].passRequestId]
+          );
+          if (agentRes.rows.length > 0) {
+            agentNotifyData = agentRes.rows[0];
+          }
+
+          for (const vi of validatedItems) {
+            if (vi.entityType === "person") {
+              const pInfo = await pool.query(
+                `SELECT name, "personPassNo" FROM pass_persons WHERE id = $1`,
+                [vi.entityId]
+              );
+              if (pInfo.rows.length > 0) {
+                emailItems.push({
+                  entityType: "person",
+                  name: pInfo.rows[0].name,
+                  passNo: pInfo.rows[0].personPassNo,
+                });
+              }
+            } else {
+              const vInfo = await pool.query(
+                `SELECT "registrationNo", "vehiclePassNo" FROM pass_vehicles WHERE id = $1`,
+                [vi.entityId]
+              );
+              if (vInfo.rows.length > 0) {
+                emailItems.push({
+                  entityType: "vehicle",
+                  name: vInfo.rows[0].registrationNo,
+                  passNo: vInfo.rows[0].vehiclePassNo,
+                });
+              }
+            }
+          }
+        } catch (gatherErr) {
+          console.warn("[EssentialPass] Gather notification details warning:", gatherErr.message);
+        }
+      }
+
+      // Asynchronously dispatch submission email notification
+      if (agentNotifyData && agentNotifyData.agentEmail) {
+        const firstItem = items[0] || {};
+        notifyConversionSubmitted({
+          email: agentNotifyData.agentEmail,
+          agentName: agentNotifyData.agentName,
+          referenceNo: agentNotifyData.referenceNo,
+          departmentId,
+          purpose,
+          conversionStartDate:
+            firstItem.conversionStartDate ||
+            (validatedItems[0]?.convStart
+              ? validatedItems[0].convStart.toISOString()
+              : null),
+          conversionEndDate:
+            firstItem.conversionEndDate ||
+            (validatedItems[0]?.convEnd
+              ? validatedItems[0].convEnd.toISOString()
+              : null),
+          items: emailItems,
+        }).catch((eErr) =>
+          console.error(
+            "[EssentialPass] Submission email dispatch error:",
+            eErr.message
+          )
+        );
+      }
+
       return {
         success: true,
         message: "Essential pass conversion request submitted successfully.",
@@ -10971,6 +11083,9 @@ const viewPassRequestsDocuments = {
       }
       const conv = convRes.rows[0];
 
+      let nextStage = null;
+      let personApprovedNotify = null;
+      let personRevertedNotify = null;
       if (decision === "REJECTED") {
         await client.query(
           `UPDATE essential_pass_conversions
@@ -10989,7 +11104,6 @@ const viewPassRequestsDocuments = {
           [conv.id, remarks || null],
         );
       } else if (decision === "APPROVED") {
-        let nextStage;
         if (
           stage === "PENDING_CIVIL_PERSON_CONVERSION" ||
           stage === "PENDING_MECHANICAL_PERSON_CONVERSION"
@@ -11050,6 +11164,141 @@ const viewPassRequestsDocuments = {
       }
 
       await client.query("COMMIT");
+
+      // Safely gather details after COMMIT only on FINAL approval (Pass Section)
+      if (decision === "APPROVED" && nextStage === "APPROVED") {
+        try {
+          const pDetail = await pool.query(
+            `SELECT pp.name, pp."personPassNo", pp.email AS "personEmail",
+                    pr."referenceNo",
+                    COALESCE(a.email, a."contactEmail") AS "agentEmail",
+                    COALESCE(a."entityName", CONCAT(a."firstName", ' ', a."lastName"), 'Applicant') AS "agentName"
+             FROM pass_persons pp
+             JOIN pass_requests pr ON pr.id = pp."passRequestId"
+             LEFT JOIN "Agents" a ON a.id = pr."agentId"
+             WHERE pp.id = $1`,
+            [personId]
+          );
+          if (pDetail.rows.length > 0) {
+            personApprovedNotify = pDetail.rows[0];
+          }
+        } catch (pErr) {
+          console.warn("[EssentialPass] Person notify gather warning:", pErr.message);
+        }
+      }
+
+      // Safely gather details after COMMIT on REVERTED
+      if (decision === "REVERTED") {
+        try {
+          const pDetail = await pool.query(
+            `SELECT pp.name, pp."personPassNo", pp.email AS "personEmail",
+                    pr."referenceNo",
+                    COALESCE(a.email, a."contactEmail") AS "agentEmail",
+                    COALESCE(a."entityName", CONCAT(a."firstName", ' ', a."lastName"), 'Applicant') AS "agentName"
+             FROM pass_persons pp
+             JOIN pass_requests pr ON pr.id = pp."passRequestId"
+             LEFT JOIN "Agents" a ON a.id = pr."agentId"
+             WHERE pp.id = $1`,
+            [personId]
+          );
+          if (pDetail.rows.length > 0) {
+            personRevertedNotify = pDetail.rows[0];
+          }
+        } catch (pErr) {
+          console.warn("[EssentialPass] Person revert notify gather warning:", pErr.message);
+        }
+      }
+
+      // Asynchronously dispatch approval email notification
+      if (personApprovedNotify) {
+        const payload = {
+          agentName: personApprovedNotify.agentName,
+          entityName: personApprovedNotify.name,
+          entityType: "person",
+          passNo: personApprovedNotify.personPassNo,
+          referenceNo: personApprovedNotify.referenceNo,
+          departmentId: conv.departmentId,
+          validFrom: conv.conversionStartDate,
+          validUpto: conv.conversionEndDate,
+        };
+
+        if (personApprovedNotify.agentEmail) {
+          notifyConversionApproved({
+            ...payload,
+            email: personApprovedNotify.agentEmail,
+          }).catch((err) =>
+            console.error(
+              "[EssentialPass] Agent person approval email error:",
+              err.message
+            )
+          );
+        }
+
+        if (
+          personApprovedNotify.personEmail &&
+          personApprovedNotify.personEmail.toLowerCase() !==
+            (personApprovedNotify.agentEmail || "").toLowerCase()
+        ) {
+          notifyConversionApproved({
+            ...payload,
+            email: personApprovedNotify.personEmail,
+          }).catch((err) =>
+            console.error(
+              "[EssentialPass] Person approval email error:",
+              err.message
+            )
+          );
+        }
+      }
+
+      // Asynchronously dispatch revert email notification
+      if (personRevertedNotify) {
+        let revDeptName = "Reviewing Authority";
+        if (stage.includes("CIVIL")) revDeptName = "Civil Engineering Department";
+        else if (stage.includes("MECHANICAL")) revDeptName = "Mechanical Engineering Department";
+        else if (stage.includes("TRAFFIC") || stage.includes("PASS_SECTION")) revDeptName = "Pass Section (Traffic Department)";
+
+        const payload = {
+          agentName: personRevertedNotify.agentName,
+          entityName: personRevertedNotify.name,
+          entityType: "person",
+          passNo: personRevertedNotify.personPassNo,
+          referenceNo: personRevertedNotify.referenceNo,
+          departmentId: conv.departmentId,
+          revertingDepartment: revDeptName,
+          revertReason: remarks || "Please review and rectify the details as requested by the department.",
+        };
+
+        if (personRevertedNotify.agentEmail) {
+          notifyConversionReverted({
+            ...payload,
+            email: personRevertedNotify.agentEmail,
+          }).catch((err) =>
+            console.error(
+              "[EssentialPass] Agent person revert email error:",
+              err.message
+            )
+          );
+        }
+
+        if (
+          personRevertedNotify.personEmail &&
+          personRevertedNotify.personEmail.toLowerCase() !==
+            (personRevertedNotify.agentEmail || "").toLowerCase()
+        ) {
+          notifyConversionReverted({
+            ...payload,
+            email: personRevertedNotify.personEmail,
+          }).catch((err) =>
+            console.error(
+              "[EssentialPass] Person revert email error:",
+              err.message
+            )
+          );
+        }
+      }
+
+
       return {
         success: true,
         message: `Person conversion request ${decision.toLowerCase()} successfully.`,
@@ -11089,6 +11338,10 @@ const viewPassRequestsDocuments = {
       }
       const conv = convRes.rows[0];
 
+      let nextStage = null;
+      let vehicleApprovedNotify = null;
+      let vehicleRevertedNotify = null;
+
       if (decision === "REJECTED") {
         await client.query(
           `UPDATE essential_pass_conversions
@@ -11107,7 +11360,6 @@ const viewPassRequestsDocuments = {
           [conv.id, remarks || null],
         );
       } else if (decision === "APPROVED") {
-        let nextStage;
         const deptId = Number(conv.departmentId);
 
         if (stage === "PENDING_MARINE_CONVERSION") {
@@ -11175,6 +11427,105 @@ const viewPassRequestsDocuments = {
       }
 
       await client.query("COMMIT");
+
+      // Safely gather details after COMMIT only on FINAL approval (Pass Section)
+      if (decision === "APPROVED" && nextStage === "APPROVED") {
+        try {
+          const vDetail = await pool.query(
+            `SELECT pv."registrationNo", pv."vehiclePassNo",
+                    pr."referenceNo",
+                    COALESCE(a.email, a."contactEmail") AS "agentEmail",
+                    COALESCE(a."entityName", CONCAT(a."firstName", ' ', a."lastName"), 'Applicant') AS "agentName"
+             FROM pass_vehicles pv
+             JOIN pass_requests pr ON pr.id = pv."passRequestId"
+             LEFT JOIN "Agents" a ON a.id = pr."agentId"
+             WHERE pv.id = $1`,
+            [vehicleId]
+          );
+          if (vDetail.rows.length > 0) {
+            vehicleApprovedNotify = vDetail.rows[0];
+          }
+        } catch (vErr) {
+          console.warn(
+            "[EssentialPass] Vehicle notify gather warning:",
+            vErr.message
+          );
+        }
+      }
+
+      // Safely gather details after COMMIT on REVERTED
+      if (decision === "REVERTED") {
+        try {
+          const vDetail = await pool.query(
+            `SELECT pv."registrationNo", pv."vehiclePassNo",
+                    pr."referenceNo",
+                    COALESCE(a.email, a."contactEmail") AS "agentEmail",
+                    COALESCE(a."entityName", CONCAT(a."firstName", ' ', a."lastName"), 'Applicant') AS "agentName"
+             FROM pass_vehicles pv
+             JOIN pass_requests pr ON pr.id = pv."passRequestId"
+             LEFT JOIN "Agents" a ON a.id = pr."agentId"
+             WHERE pv.id = $1`,
+            [vehicleId]
+          );
+          if (vDetail.rows.length > 0) {
+            vehicleRevertedNotify = vDetail.rows[0];
+          }
+        } catch (vErr) {
+          console.warn(
+            "[EssentialPass] Vehicle revert notify gather warning:",
+            vErr.message
+          );
+        }
+      }
+
+      // Asynchronously dispatch vehicle approval email notification
+      if (vehicleApprovedNotify && vehicleApprovedNotify.agentEmail) {
+        notifyConversionApproved({
+          email: vehicleApprovedNotify.agentEmail,
+          agentName: vehicleApprovedNotify.agentName,
+          entityName: vehicleApprovedNotify.registrationNo,
+          entityType: "vehicle",
+          passNo: vehicleApprovedNotify.vehiclePassNo,
+          referenceNo: vehicleApprovedNotify.referenceNo,
+          departmentId: conv.departmentId,
+          validFrom: conv.conversionStartDate,
+          validUpto: conv.conversionEndDate,
+        }).catch((err) =>
+          console.error(
+            "[EssentialPass] Agent vehicle approval email error:",
+            err.message
+          )
+        );
+      }
+
+      // Asynchronously dispatch vehicle revert email notification
+      if (vehicleRevertedNotify && vehicleRevertedNotify.agentEmail) {
+        let revDeptName = "Reviewing Authority";
+        if (stage.includes("MARINE")) revDeptName = "Marine Department (Safety)";
+        else if (stage.includes("CIVIL")) revDeptName = "Civil Engineering Department";
+        else if (stage.includes("MECHANICAL")) revDeptName = "Mechanical Engineering Department";
+        else if (stage.includes("CISF")) revDeptName = "CISF Security";
+        else if (stage.includes("PASS_SECTION") || stage.includes("TRAFFIC")) revDeptName = "Pass Section (Traffic Department)";
+
+        notifyConversionReverted({
+          email: vehicleRevertedNotify.agentEmail,
+          agentName: vehicleRevertedNotify.agentName,
+          entityName: vehicleRevertedNotify.registrationNo,
+          entityType: "vehicle",
+          passNo: vehicleRevertedNotify.vehiclePassNo,
+          referenceNo: vehicleRevertedNotify.referenceNo,
+          departmentId: conv.departmentId,
+          revertingDepartment: revDeptName,
+          revertReason: remarks || "Please review and rectify the details as requested by the department.",
+        }).catch((err) =>
+          console.error(
+            "[EssentialPass] Agent vehicle revert email error:",
+            err.message
+          )
+        );
+      }
+
+
       return {
         success: true,
         message: `Vehicle conversion request ${decision.toLowerCase()} successfully.`,

@@ -25,7 +25,7 @@ const photoCaptureTemplate = ({ personName, agentName, link }) => {
       <p>Dear ${personName || "Applicant"},</p>
 
       <p>
-        <strong>${agentName || "An agent"}</strong> has initiated a Harbour Entry Permit (HEP)
+        <strong>${agentName || "An agent"}</strong> has initiated a Automated Port Access Control System (APACS)
         pass request on your behalf at Chennai Port. To complete your application,
         please capture your photo using the secure link below.
       </p>

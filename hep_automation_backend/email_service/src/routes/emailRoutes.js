@@ -50,8 +50,18 @@ router.post("/sendRejectionNotification", emailController.sendRejectionNotificat
 router.post("/sendChildBatchConfirmation", emailController.sendChildBatchConfirmation);
 // ── Photo Capture Link ────────────────────────────────────────────────────────
 router.post("/sendPhotoCaptureLink", emailController.sendPhotoCaptureLink);
-
 // ── Vendor Material Link Email Route ──────────────────────────────────────────────
 router.post("/sendVendorMaterialLink", emailController.sendVendorMaterialLink);
+
+// ── Essential Pass Conversion Email Routes ──────────────────────────────────
+router.post("/sendEssentialConversionSubmitted", emailController.sendEssentialConversionSubmitted);
+router.post("/sendEssentialPassApproved", emailController.sendEssentialPassApproved);
+router.post("/sendEssentialPassExpired", emailController.sendEssentialPassExpired);
+router.post("/sendEssentialPassReverted", emailController.sendEssentialPassReverted);
+
+// ── Normal Pass Email Routes ──────────────────────────────────────────────
+router.post("/sendPassSubmitted", emailController.sendPassSubmitted);
+router.post("/sendPassApproved", emailController.sendPassApproved);
+router.post("/sendPassRejected", emailController.sendPassRejected);
 
 module.exports = router;
