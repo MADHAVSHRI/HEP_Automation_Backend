@@ -8,12 +8,12 @@ const { existsToIn } = require("../utils/sqlExistsToIn");
  * raise work_mem for this statement alone (SET LOCAL is transaction-scoped;
  * memory is reserved on demand, not up front).
  */
-async function queryHashed(sql, params) {
+async function queryHashed(sql, params, outerAliases) {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
     await client.query("SET LOCAL work_mem = '256MB'");
-    const res = await client.query(existsToIn(sql), params);
+    const res = await client.query(existsToIn(sql, outerAliases), params);
     await client.query("COMMIT");
     return res;
   } catch (err) {
@@ -3383,16 +3383,27 @@ const PassRequest = {
 
       params.push(stage, vConvStage);
 
+      // Index-friendly form of
+      //   (pv."essentialWorkflowState" = $1 AND pv.status = 'pending')
+      //   OR EXISTS (… essential_pass_conversions … "entityId" = pv.id … "workflowState" = $2)
+      // An OR between a column test and a correlated sub-select forced a scan
+      // of every vehicle row. The same set written as "pv.id IN (A UNION B)"
+      // lets Postgres build the small id set first (both halves are indexed)
+      // and join to it. pv.id is the primary key, so the two forms are
+      // logically identical.
       statusCondition = `
-    AND (
-      (pv."essentialWorkflowState" = $1 AND pv.status = 'pending')
-      OR EXISTS (
-        SELECT 1 FROM essential_pass_conversions epc
-        WHERE epc."entityType" = 'vehicle'
-          AND epc."entityId" = pv.id
-          AND epc.status = 'PENDING'
-          AND epc."workflowState" = $2
-      )
+    AND pv.id IN (
+      SELECT pv_c.id
+      FROM pass_vehicles pv_c
+      WHERE pv_c."essentialWorkflowState" = $1
+        AND pv_c.status = 'pending'
+      UNION
+      SELECT epc."entityId"
+      FROM essential_pass_conversions epc
+      WHERE epc."entityType" = 'vehicle'
+        AND epc."entityId" IS NOT NULL
+        AND epc.status = 'PENDING'
+        AND epc."workflowState" = $2
     )
   `;
 
@@ -3544,7 +3555,8 @@ const PassRequest = {
       ${searchCondition}
   `;
 
-    const countResult = await queryHashed(countQuery, params);
+    // this list correlates its EXISTS clauses on pv.id as well as pr.id
+    const countResult = await queryHashed(countQuery, params, ["pr", "v", "pv"]);
 
     const totalRecords = Number(countResult.rows[0]?.count) || 0;
 
@@ -3803,7 +3815,7 @@ const PassRequest = {
   OFFSET $${offsetIndex}::INTEGER
     `;
 
-    const dataResult = await queryHashed(dataQuery, dataParams);
+    const dataResult = await queryHashed(dataQuery, dataParams, ["pr", "v", "pv"]);
 
     /*
      * ============================================================
