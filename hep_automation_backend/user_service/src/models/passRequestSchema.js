@@ -1,4 +1,32 @@
 const { pool } = require("../dbconfig/db");
+const { existsToIn } = require("../utils/sqlExistsToIn");
+
+/**
+ * Run a query whose correlated EXISTS clauses were rewritten to IN-lists by
+ * existsToIn(). The IN-list subqueries are only fast if Postgres can hash
+ * them, and it only hashes when the estimated result fits in work_mem — so
+ * raise work_mem for this statement alone (SET LOCAL is transaction-scoped;
+ * memory is reserved on demand, not up front).
+ */
+async function queryHashed(sql, params) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("SET LOCAL work_mem = '256MB'");
+    const res = await client.query(existsToIn(sql), params);
+    await client.query("COMMIT");
+    return res;
+  } catch (err) {
+    try {
+      await client.query("ROLLBACK");
+    } catch (_) {
+      /* ignore */
+    }
+    throw err;
+  } finally {
+    client.release();
+  }
+}
 const ReferenceNumber = require("./referenceNumberSchema");
 const crypto = require("crypto");
 const { sanitizePassRequestRow } = require("../utils/dataMasking"); // ADD THIS
@@ -3516,7 +3544,7 @@ const PassRequest = {
       ${searchCondition}
   `;
 
-    const countResult = await pool.query(countQuery, params);
+    const countResult = await queryHashed(countQuery, params);
 
     const totalRecords = Number(countResult.rows[0]?.count) || 0;
 
@@ -3775,7 +3803,7 @@ const PassRequest = {
   OFFSET $${offsetIndex}::INTEGER
     `;
 
-    const dataResult = await pool.query(dataQuery, dataParams);
+    const dataResult = await queryHashed(dataQuery, dataParams);
 
     /*
      * ============================================================
@@ -3943,7 +3971,7 @@ const PassRequest = {
         const personConvStage = personConvMap[stage] || stage;
         const vehicleConvStage = vehicleConvMap[vehicleStage] || vehicleStage;
 
-        const countsRes = await pool.query(
+        const countsRes = await queryHashed(
           `
           SELECT
             (
@@ -4242,8 +4270,8 @@ const PassRequest = {
 `;
 
       const [result, countResult] = await Promise.all([
-        pool.query(dataQuery, dataParams),
-        pool.query(countQuery, params),
+        queryHashed(dataQuery, dataParams),
+        queryHashed(countQuery, params),
       ]);
 
       const personCounts = await fetchPersonCounts();
@@ -4462,8 +4490,8 @@ const PassRequest = {
   `;
 
     const [result, countResult] = await Promise.all([
-      pool.query(dataQuery, dataParams),
-      pool.query(countQuery, params),
+      queryHashed(dataQuery, dataParams),
+      queryHashed(countQuery, params),
     ]);
 
     const personCounts = await fetchPersonCounts();
@@ -4985,6 +5013,7 @@ const getPassRequest = {
           LIMIT 1
         ) epc_person ON true
 
+        WHERE pp."passRequestId" IN (${placeholders})
         GROUP BY pp."passRequestId"
       ) p ON p."passRequestId" = pr.id
 
@@ -5113,6 +5142,7 @@ const getPassRequest = {
           LIMIT 1
         ) epc_vehicle ON true
 
+        WHERE pv."passRequestId" IN (${placeholders})
         GROUP BY pv."passRequestId"
       ) v ON v."passRequestId" = pr.id
 
@@ -8360,10 +8390,12 @@ const getAgentPassRequestsDetails = {
       WHERE ${byMe ? 'v."approvedBy" = $1 AND' : ""} (${vendorProcessedCond})
     `;
 
+    // Correlated EXISTS → hashed IN-lists (see sqlExistsToIn.js): same rows,
+    // evaluated once per query instead of once per table row.
     const countRows = (sql, params) =>
-      pool
-        .query(sql, params)
-        .then((r) => parseInt((r.rows[0] && r.rows[0].n) || "0", 10) || 0);
+      queryHashed(sql, params).then(
+        (r) => parseInt((r.rows[0] && r.rows[0].n) || "0", 10) || 0,
+      );
 
     // Await every count inside one Promise.all — an un-awaited rejected
     // promise here crashed the whole service in the past.
@@ -8484,7 +8516,7 @@ const getAgentPassRequestsDetails = {
       LIMIT $${limitParam} OFFSET $${offsetParam}
     `;
 
-    const idResult = await pool.query(idQuery, paginationParams);
+    const idResult = await queryHashed(idQuery, paginationParams);
     const pageIds = idResult.rows;
 
     if (pageIds.length === 0) {
@@ -8730,6 +8762,7 @@ const getAgentPassRequestsDetails = {
             LIMIT 1
           ) epc_person ON true
 
+          WHERE pp."passRequestId" IN (${placeholders})
           GROUP BY pp."passRequestId"
         ) p ON p."passRequestId" = pr.id
 
@@ -8893,6 +8926,7 @@ const getAgentPassRequestsDetails = {
             LIMIT 1
           ) epc_vehicle ON true
 
+          WHERE pv."passRequestId" IN (${placeholders})
           GROUP BY pv."passRequestId"
         ) v ON v."passRequestId" = pr.id
 
@@ -9157,6 +9191,7 @@ const getAgentPassRequestsDetails = {
           FROM vendor_pass_persons vpp
           LEFT JOIN designations d ON d.id = vpp."designationId"
           LEFT JOIN hep_types ht ON ht.id = vpp."hepTypeId"
+          WHERE vpp."vendorPassRequestId" IN (${placeholders})
           GROUP BY vpp."vendorPassRequestId"
         ) p ON p."vendorPassRequestId" = v.id
         LEFT JOIN (
@@ -9235,6 +9270,7 @@ const getAgentPassRequestsDetails = {
             ON vt.id = vpv."vehicleTypeId"
           LEFT JOIN "users" approver
             ON approver.id = vpv."approvedByUserId"
+          WHERE vpv."vendorPassRequestId" IN (${placeholders})
           GROUP BY vpv."vendorPassRequestId"
         ) veh ON veh."vendorPassRequestId" = v.id
         WHERE v.id IN (${placeholders})
@@ -9916,6 +9952,7 @@ const getAgentPassRequestsDetails = {
         ORDER BY epc.id DESC
         LIMIT 1
       ) epc_person ON true
+      WHERE pp."passRequestId" = $1
       GROUP BY pp."passRequestId"
     ) p ON p."passRequestId" = pr.id
 
@@ -10003,6 +10040,7 @@ const getAgentPassRequestsDetails = {
           ORDER BY epc.id DESC
           LIMIT 1
         ) epc_vehicle ON true
+      WHERE pv."passRequestId" = $1
       GROUP BY pv."passRequestId"
     ) v ON v."passRequestId" = pr.id
 
