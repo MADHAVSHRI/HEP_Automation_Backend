@@ -5,6 +5,7 @@ const ulipConfig = require("../config/ulipConfig");
 let cachedToken = null;
 let tokenFetchedAt = null;
 const TOKEN_TTL_MS = 25 * 60 * 1000; // refresh 5 min before the 30-min expiry
+const ULIP_TIMEOUT_MS = 8000;
 
 /**
  * Attempt to obtain a fresh token via ULIP login.
@@ -14,7 +15,13 @@ async function loginAndGetToken() {
   const response = await axios.post(
     `${ulipConfig.baseURL}/user/login`,
     { username: ulipConfig.username, password: ulipConfig.password },
-    { headers: { Accept: "application/json", "Content-Type": "application/json" } }
+    {
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      timeout: ULIP_TIMEOUT_MS,
+    },
   );
 
   // ULIP login returns the JWT in response.data.response.id
@@ -25,7 +32,8 @@ async function loginAndGetToken() {
     response.data?.accessToken ||
     response.data?.data?.token;
 
-  if (!token) throw new Error("ULIP login succeeded but no token found in response.");
+  if (!token)
+    throw new Error("ULIP login succeeded but no token found in response.");
   return token;
 }
 
@@ -54,7 +62,11 @@ async function getToken() {
       return cachedToken;
     } catch (loginErr) {
       const msg = loginErr.response?.data?.message || loginErr.message || "";
-      console.warn("[ULIP] Login failed:", msg, "— trying static token fallback.");
+      console.warn(
+        "[ULIP] Login failed:",
+        msg,
+        "— trying static token fallback.",
+      );
     }
   }
 
@@ -67,7 +79,9 @@ async function getToken() {
     return cachedToken;
   }
 
-  throw new Error("Unable to authenticate with ULIP. Login failed and no ULIP_STATIC_TOKEN set.");
+  throw new Error(
+    "Unable to authenticate with ULIP. Login failed and no ULIP_STATIC_TOKEN set.",
+  );
 }
 
 /**
@@ -91,12 +105,16 @@ async function buildHeaders() {
 async function ulipPost(endpoint, body) {
   let headers = await buildHeaders();
   try {
-    const response = await axios.post(`${ulipConfig.baseURL}${endpoint}`, body, { headers });
+    const response = await axios.post(
+      `${ulipConfig.baseURL}${endpoint}`,
+      body,
+      { headers, timeout: ULIP_TIMEOUT_MS },
+    );
     console.log("\n================ RAW ULIP RESPONSE ================\n");
 
-    console.dir(response.data,{
-        depth:null,
-        colors:true
+    console.dir(response.data, {
+      depth: null,
+      colors: true,
     });
 
     console.log("\n===================================================\n");
@@ -107,52 +125,38 @@ async function ulipPost(endpoint, body) {
       cachedToken = null;
       tokenFetchedAt = null;
       headers = await buildHeaders();
-      const retry = await axios.post(`${ulipConfig.baseURL}${endpoint}`, body, { headers });
+      const retry = await axios.post(`${ulipConfig.baseURL}${endpoint}`, body, {
+        headers,
+      });
       return retry.data;
     }
     throw error;
   }
 }
 async function ulipRequest(endpoint, body) {
+  let token = await getToken();
 
-    let token = await getToken();
+  try {
+    return await axios.post(ulipConfig.baseURL + endpoint, body, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+  } catch (err) {
+    if (err.response?.status === 401 || err.response?.status === 403) {
+      cachedToken = null;
 
-    try {
+      token = await getToken();
 
-        return await axios.post(
-            ulipConfig.baseURL + endpoint,
-            body,
-            {
-                headers:{
-                    Authorization:`Bearer ${token}`
-                }
-            }
-        );
-
-    } catch(err){
-
-        if(
-            err.response?.status===401 ||
-            err.response?.status===403
-        ){
-
-            cachedToken=null;
-
-            token=await getToken();
-
-            return axios.post(
-                ulipConfig.baseURL+endpoint,
-                body,
-                {
-                    headers:{
-                        Authorization:`Bearer ${token}`
-                    }
-                }
-            );
-        }
-
-        throw err;
+      return axios.post(ulipConfig.baseURL + endpoint, body, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
     }
+
+    throw err;
+  }
 }
 
 function evaluateVehicleStatus(result) {
@@ -160,116 +164,96 @@ function evaluateVehicleStatus(result) {
   console.log("FULL RESULT");
   console.dir(result, { depth: null });
   console.log(JSON.stringify(result, null, 2));
-  if(
-        !result.response ||
-        !result.response.length ||
-        result.response[0].responseStatus!=="SUCCESS" ||
-        !result.response[0].response
-    ){
+  if (
+    !result.response ||
+    !result.response.length ||
+    result.response[0].responseStatus !== "SUCCESS" ||
+    !result.response[0].response
+  ) {
+    return {
+      vehicleActive: false,
 
-        return{
-
-            vehicleActive:false,
-
-            validation:{
-                rcValid:false,
-                insuranceValid:false,
-                permitValid:false,
-                fitnessValid:false,
-                blacklisted:false
-            }
-
-        };
-
-    }
+      validation: {
+        rcValid: false,
+        insuranceValid: false,
+        permitValid: false,
+        fitnessValid: false,
+        blacklisted: false,
+      },
+    };
+  }
 
   const response = result.response?.[0]?.response || {};
 
   const parseDate = (dateStr) => {
-  if (!dateStr) return null;
+    if (!dateStr) return null;
 
-  const months = {
-    Jan: 0,
-    Feb: 1,
-    Mar: 2,
-    Apr: 3,
-    May: 4,
-    Jun: 5,
-    Jul: 6,
-    Aug: 7,
-    Sep: 8,
-    Oct: 9,
-    Nov: 10,
-    Dec: 11,
+    const months = {
+      Jan: 0,
+      Feb: 1,
+      Mar: 2,
+      Apr: 3,
+      May: 4,
+      Jun: 5,
+      Jul: 6,
+      Aug: 7,
+      Sep: 8,
+      Oct: 9,
+      Nov: 10,
+      Dec: 11,
+    };
+
+    const [day, month, year] = dateStr.split("-");
+
+    if (!day || !month || !year) {
+      return null;
+    }
+
+    return new Date(parseInt(year), months[month], parseInt(day), 23, 59, 59);
   };
-
-  const [day, month, year] = dateStr.split("-");
-
-  if (!day || !month || !year) {
-    return null;
-  }
-
-  return new Date(
-    parseInt(year),
-    months[month],
-    parseInt(day),
-    23,
-    59,
-    59
-  );
-};
 
   const rcDate = parseDate(response.rcRegnUpto);
   console.log("Today        :", today);
-console.log("rcRegnUpto   :", response.rcRegnUpto);
-console.log("Parsed RC    :", rcDate);
-console.log("RC Timestamp :", rcDate?.getTime());
-console.log("Today TS     :", today.getTime());
-console.log("Insurance :", response.rcInsuranceUpto);
-console.log("Parsed Insurance :", response.insuranceDate);
+  console.log("rcRegnUpto   :", response.rcRegnUpto);
+  console.log("Parsed RC    :", rcDate);
+  console.log("RC Timestamp :", rcDate?.getTime());
+  console.log("Today TS     :", today.getTime());
+  console.log("Insurance :", response.rcInsuranceUpto);
+  console.log("Parsed Insurance :", response.insuranceDate);
 
-console.log("Fitness :", response.rcFitUpto);
-console.log("Parsed Fitness :", response.fitnessDate);
+  console.log("Fitness :", response.rcFitUpto);
+  console.log("Parsed Fitness :", response.fitnessDate);
 
-  const rcValid =
-    rcDate !== null &&
-    rcDate >= today;
+  const rcValid = rcDate !== null && rcDate >= today;
 
   const insuranceDate = parseDate(response.rcInsuranceUpto);
 
-  const insuranceValid =
-    insuranceDate !== null &&
-    insuranceDate >= today;
+  const insuranceValid = insuranceDate !== null && insuranceDate >= today;
 
   const permitDate = parseDate(response.rcPermitValidUpto);
 
-const permitValid =
-  response.rcPermitValidUpto == null
-    ? true
-    : permitDate !== null && permitDate >= today;
+  const permitValid =
+    response.rcPermitValidUpto == null
+      ? true
+      : permitDate !== null && permitDate >= today;
 
-  const fitnessDate = parseDate(
-  response.rcFitValidTo || response.rcFitUpto
-);
+  const fitnessDate = parseDate(response.rcFitValidTo || response.rcFitUpto);
 
-const fitnessValid =
-  fitnessDate !== null &&
-  fitnessDate >= today;
+  const fitnessValid = fitnessDate !== null && fitnessDate >= today;
 
   const blacklisted =
-  !!response.rcBlacklistStatus &&
-  response.rcBlacklistStatus.trim() !== "";
+    !!response.rcBlacklistStatus && response.rcBlacklistStatus.trim() !== "";
 
   const vehicleActive =
-  result.code === "200" &&
-  result.error === "false" &&
-  result.response?.[0]?.responseStatus === "SUCCESS" &&
-  rcValid &&
-  insuranceValid &&
-  fitnessValid &&
-  permitValid &&
-  !blacklisted &&
-  response.rcStatus === "ACTIVE";
+    result.code === "200" &&
+    result.error === "false" &&
+    result.response?.[0]?.responseStatus === "SUCCESS" &&
+    rcValid &&
+    insuranceValid &&
+    fitnessValid &&
+    permitValid &&
+    !blacklisted &&
+    response.rcStatus === "ACTIVE";
 
   return {
     vehicleActive,
@@ -279,65 +263,110 @@ const fitnessValid =
       insuranceValid,
       permitValid,
       fitnessValid,
-      blacklisted
-    }
+      blacklisted,
+    },
   };
 }
 
+function classifyUlipFailure(error, fallbackMessage) {
+  const httpStatus = error.response?.status;
+
+  const isAuthFailure =
+    httpStatus === 401 ||
+    httpStatus === 403 ||
+    /unable to authenticate/i.test(error.message || "");
+
+  const isUnavailable =
+    !isAuthFailure &&
+    ([
+      "ECONNABORTED",
+      "ETIMEDOUT",
+      "ECONNRESET",
+      "ECONNREFUSED",
+      "ENOTFOUND",
+    ].includes(error.code) ||
+      httpStatus === 408 ||
+      httpStatus === 429 ||
+      httpStatus >= 500 ||
+      (!error.response && !httpStatus));
+
+  return {
+    status: isAuthFailure ? 502 : isUnavailable ? 503 : httpStatus || 502,
+    verificationStatus: isAuthFailure
+      ? "ACCESS_ERROR"
+      : isUnavailable
+        ? "UNAVAILABLE"
+        : "ERROR",
+    message: isAuthFailure
+      ? "ULIP authentication or API access failed."
+      : isUnavailable
+        ? "ULIP is temporarily unavailable. Retry verification."
+        : fallbackMessage,
+  };
+}
 
 // ── VAHAN/04 – vehicle number → JSON response ────────────────────────────────
 const verifyVehicle = async (vehicleNumber) => {
   try {
-      const payload = {
-        vehiclenumber: String(vehicleNumber).trim().toUpperCase()
+    const payload = {
+      vehiclenumber: String(vehicleNumber).trim().toUpperCase(),
     };
-
-    console.log("VAHAN Payload");
-    console.dir(payload,{depth:null});
 
     const result = await ulipPost("/VAHAN/04", payload);
-    if (
-        result.response &&
-        result.response[0] &&
-        result.response[0].responseStatus === "ERROR"
-    ){
-        console.error(
-            "ULIP returned ERROR:",
-            result.response[0].message
-        );
 
-        return {
-            ...result,
-            vehicleStatus:"INACTIVE",
-            validation:{
-                rcValid:false,
-                insuranceValid:false,
-                permitValid:false,
-                fitnessValid:false,
-                blacklisted:false
-            }
-        };
+    const entry = result?.response?.[0];
+
+    const rawMessage = entry?.message;
+    const apiMessage = Array.isArray(rawMessage) ? rawMessage[0] : rawMessage;
+
+    const apiCode =
+      apiMessage && typeof apiMessage === "object"
+        ? String(apiMessage.code || "")
+            .trim()
+            .toUpperCase()
+        : "";
+
+    const apiMessageText =
+      typeof apiMessage === "string"
+        ? apiMessage
+        : apiMessage?.text || result?.message || "";
+
+    const responseStatus = String(entry?.responseStatus || "")
+      .trim()
+      .toUpperCase();
+
+    // ULIP returned an HTTP response, but no usable vehicle record.
+    if (responseStatus !== "SUCCESS" || !entry?.response) {
+      return {
+        ...result,
+        verificationStatus: "BUSINESS_ERROR",
+        verificationCode: apiCode || "ULIP_ERROR",
+        verificationMessage:
+          apiMessageText || "ULIP did not return a usable vehicle record.",
+        vehicleStatus: null,
+        validation: null,
+      };
     }
 
-  const status = evaluateVehicleStatus(result);
+    // A usable record was returned. Now evaluate vehicle eligibility.
+    const status = evaluateVehicleStatus(result);
 
-  return {
-    ...result,
-
-    vehicleStatus: status.vehicleActive
-      ? "ACTIVE"
-      : "INACTIVE",
-
-    validation: status.validation
-  };
-    // return await ulipPost("/VAHAN/04", { vehiclenumber: vehicleNumber });
-  } catch (error) {
-    console.error("VAHAN/04 ERROR:", error.response?.data || error.message);
-    throw {
-      status: error.response?.status || 500,
-      message:
-        error.response?.data?.message || "Unable to verify vehicle registration number.",
+    return {
+      ...result,
+      verificationStatus: "VERIFIED",
+      vehicleStatus: status.vehicleActive ? "ACTIVE" : "INACTIVE",
+      validation: status.validation,
     };
+  } catch (error) {
+    console.error(
+      "[ULIP] VAHAN/04 request failed:",
+      error.response?.status || error.code || "UNKNOWN",
+    );
+
+    throw classifyUlipFailure(
+      error,
+      "Unable to verify vehicle registration number.",
+    );
   }
 };
 
@@ -346,11 +375,12 @@ const verifyDL = async (dlNumber) => {
   try {
     return await ulipPost("/SARATHI/02", { dlnumber: dlNumber });
   } catch (error) {
-    console.error("SARATHI/02 ERROR:", error.response?.data || error.message);
-    throw {
-      status: error.response?.status || 500,
-      message: error.response?.data?.message || "Unable to verify driving licence.",
-    };
+    console.error(
+      "[ULIP] SARATHI/02 request failed:",
+      error.response?.status || error.code || "UNKNOWN",
+    );
+
+    throw classifyUlipFailure(error, "Unable to verify driving licence.");
   }
 };
 
@@ -362,7 +392,8 @@ const verifyByChassis = async (chassisNumber) => {
     console.error("VAHAN/05 ERROR:", error.response?.data || error.message);
     throw {
       status: error.response?.status || 500,
-      message: error.response?.data?.message || "Unable to verify chassis number.",
+      message:
+        error.response?.data?.message || "Unable to verify chassis number.",
     };
   }
 };
@@ -375,7 +406,8 @@ const verifyByEngine = async (engineNumber) => {
     console.error("VAHAN/06 ERROR:", error.response?.data || error.message);
     throw {
       status: error.response?.status || 500,
-      message: error.response?.data?.message || "Unable to verify engine number.",
+      message:
+        error.response?.data?.message || "Unable to verify engine number.",
     };
   }
 };
@@ -385,5 +417,5 @@ module.exports = {
   verifyDL,
   verifyByChassis,
   verifyByEngine,
-  evaluateVehicleStatus
+  evaluateVehicleStatus,
 };

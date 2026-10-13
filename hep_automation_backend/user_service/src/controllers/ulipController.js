@@ -1,7 +1,14 @@
 const ulipService = require("../services/ulipService");
 
+// const handleError = (res, err) => {
+//   res.status(err.status || 500).json({ message: err.message || "Internal server error" });
+// };
+
 const handleError = (res, err) => {
-  res.status(err.status || 500).json({ message: err.message || "Internal server error" });
+  return res.status(err.status || 502).json({
+    verificationStatus: err.verificationStatus || "ERROR",
+    message: err.message || "Internal server error",
+  });
 };
 
 exports.verifyVehicle = async (req, res) => {
