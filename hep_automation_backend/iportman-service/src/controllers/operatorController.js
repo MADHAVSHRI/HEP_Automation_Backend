@@ -18,7 +18,19 @@ const OPTIONAL_FIELDS = [
   "address",
   "telNo",
   "faxNo",
+  "cargoType",
 ];
+
+// cargoType is optional, but when given it must be one of the allowed values.
+function invalidCargoType(value) {
+  return value !== undefined && value !== null && !WeighbridgeOperator.CARGO_TYPES.includes(value);
+}
+
+const cargoTypeError = (res) =>
+  res.status(400).json({
+    success: false,
+    message: `cargoType must be one of: ${WeighbridgeOperator.CARGO_TYPES.join(", ")}`,
+  });
 
 // Generates a unique 8-digit login id, retrying on the rare collision.
 async function generateUniqueLoginId() {
@@ -45,6 +57,8 @@ exports.createOperator = async (req, res) => {
         message: `Missing required fields: ${missing.join(", ")}`,
       });
     }
+
+    if (invalidCargoType(req.body.cargoType)) return cargoTypeError(res);
 
     const details = {};
     for (const field of OPTIONAL_FIELDS) {
@@ -135,6 +149,8 @@ exports.updateOperator = async (req, res) => {
         message: "weighBridgeName cannot be empty",
       });
     }
+
+    if (invalidCargoType(updates.cargoType)) return cargoTypeError(res);
 
     await operator.update(updates);
 

@@ -1,5 +1,8 @@
 "use strict";
 const { Model } = require("sequelize");
+
+const CARGO_TYPES = ["LiquidBulk", "DryBulk", "BlockBulk"];
+
 module.exports = (sequelize, DataTypes) => {
   class WeighbridgeOperator extends Model {
     /**
@@ -48,6 +51,11 @@ module.exports = (sequelize, DataTypes) => {
       address: DataTypes.TEXT,
       telNo: DataTypes.STRING,
       faxNo: DataTypes.STRING,
+      cargoType: {
+        type: DataTypes.STRING,
+        allowNull: true,
+        validate: { isIn: [CARGO_TYPES] },
+      },
     },
     {
       sequelize,
@@ -63,5 +71,6 @@ module.exports = (sequelize, DataTypes) => {
       },
     },
   );
+  WeighbridgeOperator.CARGO_TYPES = CARGO_TYPES;
   return WeighbridgeOperator;
 };
