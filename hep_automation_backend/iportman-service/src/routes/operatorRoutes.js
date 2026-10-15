@@ -7,6 +7,12 @@ const operatorAuth = require("../middlewares/operatorAuth");
 // Creating operator accounts is an admin action, gated by the shared API key.
 router.post("/", apiKeyAuth, operatorController.createOperator);
 
+// Listing all operator accounts is also an admin action.
+router.get("/", apiKeyAuth, operatorController.getAllOperators);
+
+// Partial update of an operator's details (admin action).
+router.patch("/:id", apiKeyAuth, operatorController.updateOperator);
+
 // Public login → returns a JWT.
 router.post("/login", operatorController.loginOperator);
 

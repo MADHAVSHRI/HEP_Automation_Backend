@@ -5,6 +5,20 @@ const { signToken } = require("../utils/jwt");
 
 const SALT_ROUNDS = 10;
 const REQUIRED_FIELDS = ["weighBridgeName", "password"];
+const OPTIONAL_FIELDS = [
+  "email1",
+  "email2",
+  "contactPerson1",
+  "contactPersonDesignation1",
+  "contactPersonPhone1",
+  "contactPerson2",
+  "contactPersonDesignation2",
+  "contactPersonPhone2",
+  "location",
+  "address",
+  "telNo",
+  "faxNo",
+];
 
 // Generates a unique 8-digit login id, retrying on the rare collision.
 async function generateUniqueLoginId() {
@@ -32,6 +46,11 @@ exports.createOperator = async (req, res) => {
       });
     }
 
+    const details = {};
+    for (const field of OPTIONAL_FIELDS) {
+      if (req.body[field] !== undefined) details[field] = req.body[field];
+    }
+
     const loginId = await generateUniqueLoginId();
     const hashedPassword = await bcrypt.hash(password, SALT_ROUNDS);
 
@@ -39,21 +58,93 @@ exports.createOperator = async (req, res) => {
       loginId,
       weighBridgeName,
       password: hashedPassword,
+      ...details,
     });
 
-    // defaultScope excludes password, so operator.toJSON() is already safe.
+    // Code is derived from the auto-increment id, so it is always unique.
+    await operator.update({
+      weighbridgeCode: `WB${String(operator.id).padStart(3, "0")}`,
+    });
+
+    const { password: _password, ...data } = operator.toJSON();
+
     return res.status(201).json({
       success: true,
       message: "Weighbridge operator created successfully",
-      data: {
-        id: operator.id,
-        loginId: operator.loginId,
-        weighBridgeName: operator.weighBridgeName,
-        isActive: operator.isActive,
-      },
+      data,
     });
   } catch (error) {
     console.error("Error creating weighbridge operator:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+};
+
+// Returns all weighbridge operators. defaultScope excludes password.
+exports.getAllOperators = async (req, res) => {
+  try {
+    const operators = await WeighbridgeOperator.findAll({
+      order: [["createdAt", "DESC"]],
+    });
+
+    return res.status(200).json({
+      success: true,
+      count: operators.length,
+      data: operators,
+    });
+  } catch (error) {
+    console.error("Error fetching weighbridge operators:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+};
+
+// Partially updates an operator: only fields present in the body change.
+// loginId, password and weighbridgeCode are not editable here.
+const EDITABLE_FIELDS = ["weighBridgeName", "isActive", ...OPTIONAL_FIELDS];
+
+exports.updateOperator = async (req, res) => {
+  try {
+    const operator = await WeighbridgeOperator.findByPk(req.params.id);
+    if (!operator) {
+      return res.status(404).json({
+        success: false,
+        message: "Weighbridge operator not found",
+      });
+    }
+
+    const updates = {};
+    for (const field of EDITABLE_FIELDS) {
+      if (req.body[field] !== undefined) updates[field] = req.body[field];
+    }
+
+    if (!Object.keys(updates).length) {
+      return res.status(400).json({
+        success: false,
+        message: `No editable fields provided. Allowed: ${EDITABLE_FIELDS.join(", ")}`,
+      });
+    }
+
+    if (updates.weighBridgeName === null || updates.weighBridgeName === "") {
+      return res.status(400).json({
+        success: false,
+        message: "weighBridgeName cannot be empty",
+      });
+    }
+
+    await operator.update(updates);
+
+    return res.status(200).json({
+      success: true,
+      message: "Weighbridge operator updated successfully",
+      data: operator,
+    });
+  } catch (error) {
+    console.error("Error updating weighbridge operator:", error);
     return res.status(500).json({
       success: false,
       message: "Internal server error",
