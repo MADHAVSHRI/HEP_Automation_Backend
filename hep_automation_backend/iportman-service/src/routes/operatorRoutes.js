@@ -13,6 +13,9 @@ router.get("/", apiKeyAuth, operatorController.getAllOperators);
 // Partial update of an operator's details (admin action).
 router.patch("/:id", apiKeyAuth, operatorController.updateOperator);
 
+// Permanently delete an operator (admin action).
+router.delete("/:id", apiKeyAuth, operatorController.deleteOperator);
+
 // Public login → returns a JWT.
 router.post("/login", operatorController.loginOperator);
 

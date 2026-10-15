@@ -1,5 +1,5 @@
 const bcrypt = require("bcrypt");
-const { WeighbridgeOperator } = require("../../models");
+const { WeighbridgeOperator, WeighbridgeRecord } = require("../../models");
 const generateLoginId = require("../utils/generateLoginId");
 const { signToken } = require("../utils/jwt");
 
@@ -145,6 +145,44 @@ exports.updateOperator = async (req, res) => {
     });
   } catch (error) {
     console.error("Error updating weighbridge operator:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+};
+
+// Permanently deletes an operator. Refused when weighbridge records reference
+// it (FK is ON DELETE RESTRICT) — deactivate with isActive=false instead.
+exports.deleteOperator = async (req, res) => {
+  try {
+    const operator = await WeighbridgeOperator.findByPk(req.params.id);
+    if (!operator) {
+      return res.status(404).json({
+        success: false,
+        message: "Weighbridge operator not found",
+      });
+    }
+
+    const recordCount = await WeighbridgeRecord.count({
+      where: { operatorId: operator.id },
+    });
+    if (recordCount) {
+      return res.status(409).json({
+        success: false,
+        message: `Operator has ${recordCount} weighbridge record(s) and cannot be deleted. Set isActive to false instead.`,
+      });
+    }
+
+    await operator.destroy();
+
+    return res.status(200).json({
+      success: true,
+      message: "Weighbridge operator deleted successfully",
+      data: { id: operator.id, loginId: operator.loginId },
+    });
+  } catch (error) {
+    console.error("Error deleting weighbridge operator:", error);
     return res.status(500).json({
       success: false,
       message: "Internal server error",
