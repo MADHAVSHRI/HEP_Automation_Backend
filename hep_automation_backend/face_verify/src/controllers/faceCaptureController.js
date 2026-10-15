@@ -271,7 +271,38 @@ const passengerEnroll = async (req, res) => {
   }
 };
 
+/**
+ * POST /api/face/hep/enroll — user_service enrolls an approved pass holder's
+ * live photo. 422 means the photo itself is unusable and retrying will not
+ * help; any other failure is worth retrying.
+ */
+const hepEnroll = async (req, res) => {
+  try {
+    const { passPersonId, masterPersonId, name, passNumber, expiryDate } = req.body || {};
+    if (!req.file?.buffer || !passPersonId || !name || !passNumber) {
+      return res.status(400).json({ code: "INVALID_REQUEST", message: "photo, passPersonId, name and passNumber are required" });
+    }
+
+    const result = await recognitionEngine.enrollIdentity(req.file.buffer, {
+      name,
+      passNumber,
+      expiryDate,
+      passPersonId,
+      masterPersonId,
+      fileExt: path.extname(req.file.originalname || "").toLowerCase() || ".jpg",
+    });
+    return res.status(result.alreadyEnrolled ? 200 : 201).json(result);
+  } catch (error) {
+    if (String(error.message).startsWith("NO_FACE_DETECTED")) {
+      return res.status(422).json({ code: "NO_FACE_DETECTED", message: error.message });
+    }
+    errorLogger.error(`[hepEnroll] Error: ${error.stack || error.message}`);
+    return res.status(500).json({ code: "ENROLLMENT_FAILED", message: error.message });
+  }
+};
+
 module.exports = {
+  hepEnroll,
   createSession,
   getSession,
   streamSession,

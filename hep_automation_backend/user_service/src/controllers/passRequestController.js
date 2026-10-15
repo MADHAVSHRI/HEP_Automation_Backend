@@ -1908,6 +1908,17 @@ const updatePassPerson = async (req, res) => {
     };
 
     attachFile(updateData, "personPhoto", "photoFilePath", "photoFileName");
+
+    // The live photo is only ever taken from an uploaded file, never from the
+    // body, and FaceVerified follows it — same rule as on creation.
+    delete updateData.LivePhotoPath;
+    delete updateData.FaceVerified;
+    const livePhotoFile = files.personLivePhoto?.[0];
+    if (livePhotoFile) {
+      updateData.LivePhotoPath = livePhotoFile.path;
+      updateData.FaceVerified = true;
+    }
+
     attachFile(
       updateData,
       "personAadhar",

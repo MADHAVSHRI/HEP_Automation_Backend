@@ -1896,6 +1896,8 @@ const PassRequest = {
         "declarationFormName",
         "entryAuthorizationFilePath",
         "entryAuthorizationFileName",
+        "LivePhotoPath",
+        "FaceVerified",
       ];
 
       const updates = [];
@@ -1933,6 +1935,7 @@ const PassRequest = {
         "declarationFormName",
         "entryAuthorizationFilePath",
         "entryAuthorizationFileName",
+        "LivePhotoPath",
       ]);
 
       for (const field of allowedFields) {

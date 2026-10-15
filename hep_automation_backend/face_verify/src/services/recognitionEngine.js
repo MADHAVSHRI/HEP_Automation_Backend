@@ -170,9 +170,13 @@ class RecognitionEngine {
 
   /**
    * Enroll a new face identity directly into the gallery index.
-   * 
+   *
+   * An HEP pass holder (meta.passPersonId set) is enrolled once per pass, and
+   * the photo is also copied into the gallery folder under the same fileName
+   * the record carries, so the folder watcher sees it as already indexed.
+   *
    * @param {Buffer} imageBuffer - Raw face image
-   * @param {object} meta - { name, passNumber, isActive, expiryDate }
+   * @param {object} meta - { name, passNumber, isActive, expiryDate, passPersonId, masterPersonId, fileExt }
    */
   async enrollIdentity(imageBuffer, meta = {}) {
     if (!this.isReady) {
@@ -182,6 +186,14 @@ class RecognitionEngine {
     const name = (meta.name || '').trim();
     if (!name) {
       throw new Error('Name is required for biometric enrollment');
+    }
+
+    const passPersonId = meta.passPersonId ? Number(meta.passPersonId) : null;
+    if (passPersonId) {
+      const existing = this.gallery.find(g => g.passPersonId === passPersonId);
+      if (existing) {
+        return { success: true, alreadyEnrolled: true, identity: { id: existing.id, name: existing.name, passNumber: existing.passNumber, fileName: existing.fileName }, totalIdentities: this.gallery.length };
+      }
     }
 
     const detections = await this.detector.detect(imageBuffer);
@@ -197,7 +209,10 @@ class RecognitionEngine {
     const passNumber = meta.passNumber || `APACS-PASS-2026-${String(id).padStart(5, '0')}`;
     const isActive = meta.isActive !== undefined ? Boolean(meta.isActive) : true;
     const expiryDate = meta.expiryDate || '2026-12-31T23:59:59Z';
-    const fileName = `${name.replace(/\s+/g, '_')}.png`;
+    const safeName = name.replace(/[^A-Za-z0-9]+/g, '_');
+    const fileName = passPersonId
+      ? `HEP_${String(passNumber).replace(/[^A-Za-z0-9-]+/g, '_')}_${safeName}${meta.fileExt || '.jpg'}`
+      : `${name.replace(/\s+/g, '_')}.png`;
 
     const record = {
       id,
@@ -208,6 +223,10 @@ class RecognitionEngine {
       fileName,
       embedding: Array.from(embedding)
     };
+    if (passPersonId) {
+      record.passPersonId = passPersonId;
+      record.masterPersonId = meta.masterPersonId ? Number(meta.masterPersonId) : null;
+    }
 
     this.gallery.push(record);
     this.rebuildMatrix();
@@ -220,6 +239,16 @@ class RecognitionEngine {
       totalRecords: this.gallery.length,
       identities: this.gallery
     }, null, 2));
+
+    // Written after the record is in the gallery, so the watcher skips it.
+    if (passPersonId) {
+      try {
+        fs.mkdirSync(DATASET_DIR, { recursive: true });
+        fs.writeFileSync(path.join(DATASET_DIR, fileName), imageBuffer);
+      } catch (err) {
+        console.error(`[RecognitionEngine] Could not copy ${fileName} to gallery folder:`, err.message);
+      }
+    }
 
     console.log(`[RecognitionEngine] Enrolled new identity "${name}" (${passNumber})! Total gallery: ${this.gallery.length}`);
 
@@ -341,6 +370,8 @@ class RecognitionEngine {
         passNumber: identity.passNumber,
         isActive: identity.isActive,
         expiryDate: identity.expiryDate,
+        passPersonId: identity.passPersonId || null,
+        masterPersonId: identity.masterPersonId || null,
         distance: Number(s.distance.toFixed(4)),
         similarityPercent: Number((s.similarity * 100).toFixed(2)),
         similarity: Number(s.similarity.toFixed(4))

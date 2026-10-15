@@ -3,6 +3,7 @@ const router = express.Router();
 
 const controller = require("../controllers/faceCaptureController");
 const verifyToken = require("../middlewares/verifyToken");
+const verifyService = require("../middlewares/verifyService");
 const { upload } = require("../middlewares/uploadMiddleware");
 const { uploadLimiter } = require("../middlewares/rateLimiter");
 
@@ -49,6 +50,9 @@ router.post("/passenger/enroll", uploadLimiter, upload.single("photo"), controll
 router.post("/passenger/sync-gallery", controller.passengerSync);
 router.get("/passenger/test-sample", controller.passengerTestSample);
 router.get("/passenger/sample-image", controller.passengerSampleImage);
+
+// --- HEP enrollment (user_service, machine auth via x-service-key) ---
+router.post("/hep/enroll", verifyService, upload.single("photo"), controller.hepEnroll);
 
 module.exports = router;
 

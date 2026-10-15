@@ -1,5 +1,16 @@
 "use strict";
 
+/**
+ * Idempotent seeder — adds roles and departments that may be missing.
+ * Safe to re-run: SELECTs first, inserts only missing rows.
+ *
+ * Roles added: SS, SM, ASM (Shipping Control blacklist creators),
+ *              Safety Officer, Gate Operator
+ * Departments added: Safety, Gate
+ *
+ * (CISF, Finance, Weigh Bridge already exist in the original seeder.)
+ */
+
 module.exports = {
   async up(queryInterface, Sequelize) {
     const now = new Date();
@@ -13,7 +24,7 @@ module.exports = {
       "Gate Operator",
     ];
 
-    const existingRoles = await queryInterface.sequelize.query(
+        const existingRoles = await queryInterface.sequelize.query(
       `
         SELECT "roleName"
         FROM "port_department_roles"
@@ -26,7 +37,7 @@ module.exports = {
     );
 
     const existingRoleNames = new Set(
-      existingRoles.map((r) => r.roleName)
+      (existingRoles || []).map((r) => r.roleName)
     );
 
     const rolesToInsert = NEW_ROLES
@@ -37,7 +48,17 @@ module.exports = {
         updatedAt: now,
       }));
 
+
     if (rolesToInsert.length > 0) {
+      await queryInterface.bulkInsert(
+        "port_department_roles",
+        rolesToInsert
+      );
+
+      console.log(
+        "[seeder] Inserted roles:",
+        rolesToInsert.map((r) => r.roleName)
+      );
       await queryInterface.bulkInsert(
         "port_department_roles",
         rolesToInsert
@@ -51,11 +72,16 @@ module.exports = {
       console.log(
         "[seeder] All target roles already exist — skipped."
       );
+      console.log(
+        "[seeder] All target roles already exist — skipped."
+      );
     }
 
+    // ── Departments ────────────────────────────────────────────────────────
     // ── Departments ───────────────────────────────────────────────────────
     const NEW_DEPTS = ["Safety", "Gate"];
 
+    
     const existingDepts = await queryInterface.sequelize.query(
       `
         SELECT "departmentName"
@@ -69,7 +95,7 @@ module.exports = {
     );
 
     const existingDeptNames = new Set(
-      existingDepts.map((d) => d.departmentName)
+      (existingDepts || []).map((d) => d.departmentName)
     );
 
     const deptsToInsert = NEW_DEPTS
@@ -79,8 +105,18 @@ module.exports = {
         createdAt: now,
         updatedAt: now,
       }));
+   
 
     if (deptsToInsert.length > 0) {
+      await queryInterface.bulkInsert(
+        "port_departments",
+        deptsToInsert
+      );
+
+      console.log(
+        "[seeder] Inserted departments:",
+        deptsToInsert.map((d) => d.departmentName)
+      );
       await queryInterface.bulkInsert(
         "port_departments",
         deptsToInsert
@@ -94,10 +130,17 @@ module.exports = {
       console.log(
         "[seeder] All target departments already exist — skipped."
       );
+      console.log(
+        "[seeder] All target departments already exist — skipped."
+      );
     }
   },
 
   async down(queryInterface, Sequelize) {
+    // Intentionally minimal — do not delete roles/depts that may be in use
+    console.log(
+      "[seeder:down] No destructive rollback implemented for safety."
+    );
     // Remove only records that this seeder was intended to add.
     // Safety Officer is intentionally preserved because it may have
     // existed before this seeder ran.

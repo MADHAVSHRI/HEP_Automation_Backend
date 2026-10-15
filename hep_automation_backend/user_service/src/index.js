@@ -23,7 +23,11 @@ app.use(
 );
 
 const { startLicenseExpiryNotifierCron } = require("./utils/licenseExpiryNotifier");
+<<<<<<< Updated upstream
 const { startEssentialPassExpiryCron } = require("./utils/essentialPassExpiryJob");
+=======
+const { startFaceEnrollmentSync } = require("./utils/faceEnrollmentSync");
+>>>>>>> Stashed changes
 
 initUploadDirs();
 
@@ -33,7 +37,11 @@ app.use(express.json());
 app.use(loggerMiddleware);
 connectDB();
 startLicenseExpiryNotifierCron();
+<<<<<<< Updated upstream
 startEssentialPassExpiryCron();
+=======
+startFaceEnrollmentSync();
+>>>>>>> Stashed changes
 
 // Serve uploaded files (bulk pass photos, vehicle docs, work orders, etc.).
 // These are loaded directly via <img>/<a> tags which can't send auth headers,

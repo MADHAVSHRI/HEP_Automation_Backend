@@ -5,6 +5,8 @@ const passRequestController = require("../controllers/passRequestController");
 const authorizeToken = require("../middlewares/authorizeToken");
 const upload = require("../middlewares/uploadMiddleware");
 const verifyToken = require("../middlewares/verifyToken");
+const multer = require("multer");
+const faceVerifyController = require("../controllers/faceVerifyController");
 
 router.post(
   "/createPassRequest",
@@ -106,6 +108,7 @@ router.put(
   verifyToken,
   upload.fields([
     { name: "personPhoto", maxCount: 1 },
+    { name: "personLivePhoto", maxCount: 1 },
     { name: "personAadhar", maxCount: 1 },
     { name: "personIdProof", maxCount: 1 },
     { name: "driverLicense", maxCount: 1 },
@@ -285,6 +288,16 @@ router.put(
   verifyToken,
   passRequestController.actionConversionVehicle
 );
+
+// --- CISF face verification ---
+// In memory: the scan is forwarded to face_verify and never stored here.
+const faceScanUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 8 * 1024 * 1024, files: 1 },
+});
+router.post("/face-verify", verifyToken, faceScanUpload.single("photo"), faceVerifyController.verifyFace);
+router.get("/face-verify/enrolled", verifyToken, faceVerifyController.getEnrolledPersons);
+router.get("/face-verify/photo/:personId", verifyToken, faceVerifyController.getPersonPhoto);
 
 module.exports = router;
 
