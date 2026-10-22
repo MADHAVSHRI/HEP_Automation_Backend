@@ -47,6 +47,8 @@ module.exports = (sequelize, DataTypes) => {
       },
       grossWeight: DataTypes.DECIMAL,
       tareWeight: DataTypes.DECIMAL,
+      tareWeighmentDate: DataTypes.DATEONLY,
+      tareWeighmentTime: DataTypes.TIME,
       netWeight: DataTypes.DECIMAL,
       weightUnit: {
         type: DataTypes.STRING,

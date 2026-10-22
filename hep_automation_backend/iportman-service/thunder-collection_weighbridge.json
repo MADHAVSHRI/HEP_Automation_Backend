@@ -29,7 +29,7 @@
       "params": [],
       "body": {
         "type": "json",
-        "raw": "{\n  \"weighBridgeName\": \"APAC Weighbridge-1\",\n  \"serialNo\": \"SN-1001\",\n  \"weighDate\": \"2026-07-09\",\n  \"weighTime\": \"10:30:00\",\n  \"vehicleNumber\": \"TN01AB1234\",\n  \"movementType\": \"export\",\n  \"cargo\": \"Iron Ore\",\n  \"clientName\": \"ABC Exports Pvt Ltd\",\n  \"grossWeight\": 32500.50,\n  \"tareWeight\": 12500.25,\n  \"netWeight\": 20000.25,\n  \"weightUnit\": \"kg\"\n}",
+        "raw": "{\n  \"weighBridgeName\": \"APAC Weighbridge-1\",\n  \"serialNo\": \"SN-1001\",\n  \"weighDate\": \"2026-07-09\",\n  \"weighTime\": \"10:30:00\",\n  \"vehicleNumber\": \"TN01AB1234\",\n  \"movementType\": \"export\",\n  \"cargo\": \"Iron Ore\",\n  \"clientName\": \"ABC Exports Pvt Ltd\",\n  \"grossWeight\": 32500.50,\n  \"tareWeight\": 12500.25,\n  \"tareWeighmentDate\": \"2026-07-09\",\n  \"tareWeighmentTime\": \"09:45:00\",\n  \"netWeight\": 20000.25,\n  \"weightUnit\": \"kg\"\n}",
         "form": []
       },
       "tests": []

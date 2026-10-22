@@ -31,6 +31,8 @@ exports.createWeighbridgeRecord = async (req, res) => {
       clientName,
       grossWeight,
       tareWeight,
+      tareWeighmentDate,
+      tareWeighmentTime,
       netWeight,
       weightUnit,
     } = req.body;
@@ -79,6 +81,8 @@ exports.createWeighbridgeRecord = async (req, res) => {
       clientName,
       grossWeight,
       tareWeight,
+      tareWeighmentDate,
+      tareWeighmentTime,
       netWeight,
       weightUnit,
       operatorId: req.operator.id,

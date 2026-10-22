@@ -138,7 +138,7 @@ Submits a single weighment record. Each record is uniquely identified by its
 
 ### Request body
 
-All fields are **required**.
+All fields are **required** except `tareWeighmentDate` and `tareWeighmentTime`, which are optional.
 
 | Field | Type | Allowed values / format | Description |
 |---|---|---|---|
@@ -152,6 +152,8 @@ All fields are **required**.
 | `clientName` | string | — | Client / party name. |
 | `grossWeight` | number | — | Gross weight. |
 | `tareWeight` | number | — | Tare weight. |
+| `tareWeighmentDate` | string | `YYYY-MM-DD` | Date of tare weighment. Optional. |
+| `tareWeighmentTime` | string | `HH:MM:SS` | Time of tare weighment. Optional. |
 | `netWeight` | number | — | Net weight. |
 | `weightUnit` | string | `kg`, `ton`, `lb`, `g` | Unit for all three weights. |
 
@@ -172,6 +174,8 @@ curl -X POST "https://<host>:<port>/api/cargo/weighbridge" \
     "clientName": "ABC Exports Pvt Ltd",
     "grossWeight": 32500.50,
     "tareWeight": 12500.25,
+    "tareWeighmentDate": "2026-07-09",
+    "tareWeighmentTime": "09:45:00",
     "netWeight": 20000.25,
     "weightUnit": "kg"
   }'
@@ -195,6 +199,8 @@ curl -X POST "https://<host>:<port>/api/cargo/weighbridge" \
     "clientName": "ABC Exports Pvt Ltd",
     "grossWeight": "32500.5",
     "tareWeight": "12500.25",
+    "tareWeighmentDate": "2026-07-09",
+    "tareWeighmentTime": "09:45:00",
     "netWeight": "20000.25",
     "weightUnit": "kg",
     "createdAt": "2026-07-09T10:31:00.000Z",
