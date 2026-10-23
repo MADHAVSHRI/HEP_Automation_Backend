@@ -224,7 +224,11 @@ function evaluateVehicleStatus(result) {
   console.log("Fitness :", response.rcFitUpto);
   console.log("Parsed Fitness :", response.fitnessDate);
 
-  const rcValid = rcDate !== null && rcDate >= today;
+  // VAHAN/04 omits rcRegnUpto for goods vehicles (their registration validity
+  // follows fitness, which is checked separately), so fall back to rcStatus.
+  const rcValid = response.rcRegnUpto
+    ? rcDate !== null && rcDate >= today
+    : response.rcStatus === "ACTIVE";
 
   const insuranceDate = parseDate(response.rcInsuranceUpto);
 
